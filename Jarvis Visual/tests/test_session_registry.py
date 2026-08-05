@@ -40,13 +40,13 @@ def ok(name, cond):
 
 # ---------------------------------------------------------------- is_claude
 
-ok("claude binary is a session", sr.is_claude("/Users/mike/.local/bin/claude"))
+ok("claude binary is a session", sr.is_claude("/Users/testuser/.local/bin/claude"))
 ok("claude with args", sr.is_claude("claude --model claude-opus-5"))
-ok("node running claude", sr.is_claude("node /Users/mike/.local/share/claude/cli.js"))
+ok("node running claude", sr.is_claude("node /Users/testuser/.local/share/claude/cli.js"))
 ok("grep for claude is NOT a session", not sr.is_claude("grep claude foo.txt"))
 ok("empty is not a session", not sr.is_claude(""))
 ok("a path merely containing the word is not a session",
-   not sr.is_claude("/usr/bin/python3 /Users/mike/claude-notes.py"))
+   not sr.is_claude("/usr/bin/python3 /Users/testuser/claude-helper.py"))
 
 # ------------------------------------------------------------ model_from_cmd
 
@@ -96,7 +96,7 @@ TABLE = {
     100: {"ppid": 1, "started": 1000.0, "cmd": "/sbin/launchd"},
     200: {"ppid": 100, "started": 2000.0, "cmd": "python3 voice-web-server.py"},
     300: {"ppid": 200, "started": 3000.0,
-          "cmd": "/Users/mike/.local/bin/claude --model claude-opus-5"},
+          "cmd": "/Users/testuser/.local/bin/claude --model claude-opus-5"},
     400: {"ppid": 300, "started": 4000.0, "cmd": "/bin/bash -c hook"},
     500: {"ppid": 400, "started": 5000.0, "cmd": "python3 session_registry.py start"},
 }

@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "voice-line"))
 import session_registry as sr           # noqa: E402  (path set above)
 
 ROOT = str(Path(__file__).resolve().parents[2])
-CLAUDE = "/Users/mike/.local/bin/claude --permission-mode auto"
+CLAUDE = "/Users/testuser/.local/bin/claude --permission-mode auto"
 BRAIN = ("/Users/mike/Documents/Jarvis/voice-line/.venv/lib/python3.12/"
          "site-packages/claude_agent_sdk/_bundled/claude --output-format x")
 SERVER = "/usr/bin/python3 /Users/mike/Documents/Jarvis/Jarvis Visual/voice-web-server.py"
@@ -135,7 +135,7 @@ class InversionTests(unittest.TestCase):
 
     def test_a_claude_outside_the_jarvis_folder_is_excluded(self):
         t = {907: proc(907, 1, CLAUDE, self.now - 10)}
-        self.cwd(907, self.now - 10, "/Users/mike/Dev/Synapse")
+        self.cwd(907, self.now - 10, "/Users/testuser/Dev/OtherProject")
         self.assertEqual(self.read(t), [])
 
     def test_an_unreadable_cwd_is_included_not_dropped(self):

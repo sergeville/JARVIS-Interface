@@ -119,7 +119,7 @@ function session(over) {
     session_id: 'abc12345-0000-0000-0000-000000000000',
     pid: 16965, channel: 'voice line', model: 'claude-opus-5',
     cwd: '/Users/mike/Documents/Jarvis',
-    transcript_path: '/Users/mike/.claude/projects/x/abc.jsonl',
+    transcript_path: '/Users/testuser/.claude/projects/x/abc.jsonl',
     started_at: now() - 600, age: 600,
     last_activity: now() - 300, unregistered: false,
   }, over || {});
