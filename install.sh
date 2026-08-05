@@ -191,6 +191,46 @@ step "Absolute paths -- point this clone at itself"
 # ---------------------------------------------------------------------------
 # This must happen BEFORE anything is verified, because the server, the hooks
 # and the test runner all read absolute paths out of these files.
+# --- rendered config -------------------------------------------------------
+# Claude Code reads .claude/settings.json from the session's own cwd, so both
+# launch points need one -- and their hook commands must be ABSOLUTE, because
+# nothing guarantees the cwd a hook runs with. That is the one thing in this
+# project that genuinely cannot locate itself, which is why it is a template
+# instead. ONE template renders to BOTH files, so they cannot drift apart.
+render_settings() {
+  local tpl="$ROOT/templates/claude-settings.json.template"
+  [[ -f "$tpl" ]] || { fail "templates/claude-settings.json.template is missing"; return; }
+  local made=0 kept=0
+  for dest in "$ROOT/.claude/settings.json" "$VISUAL/.claude/settings.json"; do
+    mkdir -p "$(dirname "$dest")"
+    if [[ -f "$dest" ]]; then
+      # Never clobber. This file carries a user's own permission grants.
+      if grep -q "{{JARVIS_ROOT}}" "$dest" 2>/dev/null; then
+        sed -i '' "s|{{JARVIS_ROOT}}|$ROOT|g" "$dest"; made=$((made+1))
+      else
+        kept=$((kept+1))
+      fi
+    else
+      sed "s|{{JARVIS_ROOT}}|$ROOT|g" "$tpl" > "$dest"; made=$((made+1))
+    fi
+  done
+  # Proof, not intent: both must exist, parse, and carry the real root.
+  python3 - "$ROOT" <<'PYCHK' || { fail "rendered settings.json did not verify"; return; }
+import json, sys, pathlib
+root = sys.argv[1]
+for d in (f"{root}/.claude/settings.json", f"{root}/Jarvis Visual/.claude/settings.json"):
+    t = pathlib.Path(d).read_text()
+    assert "{{JARVIS_ROOT}}" not in t, f"{d} still has a placeholder"
+    j = json.loads(t)
+    cmds = [h["command"] for grp in j["hooks"].values() for g in grp for h in g["hooks"]]
+    assert any("session_registry.py" in c for c in cmds), f"{d} lost the registry hook"
+    assert all(root in c or "python3" not in c for c in cmds), f"{d} has a foreign root"
+PYCHK
+  [[ $made -gt 0 ]] && did "settings.json rendered ($made)"
+  [[ $kept -gt 0 ]] && have "settings.json ($kept already configured -- left untouched)"
+  ok "both settings.json parse and carry the registry hooks"
+}
+
 path_hits() {
   grep -rl "$OLD_ROOT" "$ROOT" --exclude-dir=.git --exclude-dir=.venv \
       --exclude-dir=services --exclude-dir=node_modules --exclude="$SELF" 2>/dev/null
@@ -206,7 +246,7 @@ elif would_install "path rewrite"; then
   left=$(path_hits | wc -l | tr -d ' ')
   [[ "$left" -eq 0 ]] && did "path rewrite ($hits files)" || fail "path rewrite ($left files still reference the old root)"
 fi
-note "test fixtures under Jarvis Visual/tests/ mention the original username on purpose -- they stand in for process command lines, not paths. Leave them."
+render_settings
 
 # ---------------------------------------------------------------------------
 step "Python dependencies"

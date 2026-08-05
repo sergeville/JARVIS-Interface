@@ -58,6 +58,13 @@ __pycache__/
 
 # ---- Deliberately NOT ignored, so nobody adds them later by reflex --------
 # uv.lock                 the pinned dependency set -- the point of a lock file
-# .claude/settings.json   the hooks that make sessions register; carries
-#                         absolute paths a cloner must edit, but no secrets
 # CLAUDE.md               the boot file, shipped as a worked example
+# templates/              the source the rendered files below are made from
+
+# ---- Rendered from templates/ by install.sh, never committed --------------
+# These carry an absolute path that is correct only on the machine that made
+# them. templates/claude-settings.json.template is the single source for BOTH,
+# so the two files cannot drift apart -- the property a test used to have to
+# prove is now structural.
+.claude/settings.json
+Jarvis Visual/.claude/settings.json

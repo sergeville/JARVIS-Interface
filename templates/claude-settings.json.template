@@ -1,8 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Edit(//Users/mike/Documents/Jarvis/Jarvis-brain/**)",
-      "Write(//Users/mike/Documents/Jarvis/Jarvis-brain/**)",
+      "Edit(/{{JARVIS_ROOT}}/Jarvis-brain/**)",
+      "Write(/{{JARVIS_ROOT}}/Jarvis-brain/**)",
       "Bash(ls *)",
       "Bash(find *)",
       "Bash(grep *)",
@@ -26,17 +26,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/mike/Documents/Jarvis/voice-line/session_registry.py start",
+            "command": "python3 {{JARVIS_ROOT}}/voice-line/session_registry.py start",
             "timeout": 15
           },
           {
             "type": "command",
-            "command": "python3 /Users/mike/Documents/Jarvis/voice-line/session_mail.py opened",
+            "command": "python3 {{JARVIS_ROOT}}/voice-line/session_mail.py opened",
             "timeout": 15
           },
           {
             "type": "command",
-            "command": "python3 /Users/mike/Documents/Jarvis/vault-tools/brief-check.py",
+            "command": "python3 {{JARVIS_ROOT}}/vault-tools/brief-check.py",
             "timeout": 15
           }
         ]
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/mike/Documents/Jarvis/voice-line/session_registry.py end",
+            "command": "python3 {{JARVIS_ROOT}}/voice-line/session_registry.py end",
             "timeout": 15
           }
         ]
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/mike/Documents/Jarvis/voice-line/question_hook.py stop",
+            "command": "python3 {{JARVIS_ROOT}}/voice-line/question_hook.py stop",
             "timeout": 15
           }
         ]
@@ -69,12 +69,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/mike/Documents/Jarvis/voice-line/question_hook.py clear",
+            "command": "python3 {{JARVIS_ROOT}}/voice-line/question_hook.py clear",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "python3 /Users/mike/Documents/Jarvis/voice-line/session_mail.py deliver",
+            "command": "python3 {{JARVIS_ROOT}}/voice-line/session_mail.py deliver",
             "timeout": 10
           }
         ]
@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/mike/Documents/Jarvis/voice-line/question_hook.py notify",
+            "command": "python3 {{JARVIS_ROOT}}/voice-line/question_hook.py notify",
             "timeout": 10
           }
         ]
