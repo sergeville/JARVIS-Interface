@@ -67,8 +67,30 @@ start-jarvis.sh         open a Claude Code session at the root or in Jarvis Visu
 
 ## Install
 
-Built and run on macOS (Apple silicon). Paths in the scripts are absolute and
-assume the project lives at `/Users/mike/Documents/Jarvis`.
+Built and run on macOS (Apple silicon).
+
+**Before anything else: the paths in this project are absolute, and they are
+not yours.** Sixteen files carry the author's home directory in 52 places — the
+launcher, the server, the session hooks, the boot file. Nothing finds anything
+until they point at your clone.
+
+One line fixes all of them. Run it from inside the folder you cloned into; the
+old path appears here only as the string being searched for, and `$PWD`
+supplies yours:
+
+```sh
+grep -rl '/Users/mike/Documents/Jarvis' . --exclude-dir=.git \
+  | tr '\n' '\0' | xargs -0 sed -i '' "s|/Users/mike/Documents/Jarvis|$PWD|g"
+```
+
+Verified against a fresh clone: 52 occurrences down to 0, and every `.py`,
+`.sh`, `.js` and `.json` in the repository still parses afterwards.
+
+**Seven mentions of the original username survive that command, and should.**
+They are string literals in `tests/test_session_registry.py` and
+`tests/test_registry_inversion.py` standing in for process command lines — test
+fixtures, not paths. Nothing opens them and the suite passes as-is. Leave them
+alone.
 
 **0. Get the code — one line**
 
@@ -130,12 +152,22 @@ curl -L -o voice-line/models/ggml-small.en.bin \
 
 Also not in this repository. Install
 [kokoro-fastapi](https://github.com/remsky/Kokoro-FastAPI) into
-`voice-line/services/kokoro-fastapi/`, with its own `.venv`, so that this works:
+`voice-line/services/kokoro-fastapi/`, with its own `.venv`.
+
+`jarvis.sh start` launches it for you, and it does so with an environment that
+matters — models, voices and the Metal device are all read from it, so the bare
+uvicorn line starts a server that then cannot find its own voices:
 
 ```sh
 cd voice-line/services/kokoro-fastapi
-.venv/bin/python3 -m uvicorn api.src.main:app --host 127.0.0.1 --port 8880
+USE_GPU=true USE_ONNX=false PYTHONPATH="$PWD:$PWD/api" \
+  MODEL_DIR=src/models VOICES_DIR=src/voices/v1_0 DEVICE_TYPE=mps \
+  PYTORCH_ENABLE_MPS_FALLBACK=1 \
+  .venv/bin/python3 -m uvicorn api.src.main:app --host 127.0.0.1 --port 8880
 ```
+
+That is the exact environment `jarvis.sh` uses; run it by hand only to check
+the install. `curl -s 127.0.0.1:8880/v1/models` answering is the proof.
 
 **5. Ambient audio (optional)**
 
@@ -198,8 +230,9 @@ frontmatter — and it changes nothing, so it is safe to run at any time. It
 locates the vault **relative to itself**, so it works wherever you cloned to.
 That is the exception; see the next paragraph for the rest.
 
-**Three lines hardcode an absolute path and will not find your vault until you
-edit them:**
+**Three of those absolute paths point specifically at the vault.** The one-line
+fix-up at the top of Install already rewrites them; they are named here so that
+if the task card or the graph comes up empty, you know exactly where to look:
 
 | file | line | what it points at |
 |---|---|---|
