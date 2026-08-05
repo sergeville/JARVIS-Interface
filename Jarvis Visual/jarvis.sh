@@ -55,8 +55,14 @@
 # SDK's bundled path inside voice-line/.venv, which no terminal session shares.
 set -u
 
-VL="/Users/mike/Documents/Jarvis/voice-line"
-JV="/Users/mike/Documents/Jarvis/Jarvis Visual"
+# Located from this script's own path, so a clone needs no editing. The
+# wrappers exec us as "$(dirname "$0")/jarvis.sh", so $0 is always a real
+# path to this file however it was invoked. Note the process patterns below
+# (P_SERVER, P_KOKORO, ...) are relative fragments and deliberately do NOT
+# derive from these -- matching `ps` output must not depend on where the
+# project lives.
+JV="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VL="$(cd "$JV/.." && pwd)/voice-line"
 LOG="$JV/visual-server.log"
 LOGS="$VL/logs"
 SELF="$JV/jarvis.sh"

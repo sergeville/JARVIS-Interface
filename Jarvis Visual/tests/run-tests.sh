@@ -11,7 +11,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PY="/Users/mike/Documents/Jarvis/voice-line/.venv/bin/python3"
+PY="$(cd "$HERE/../.." && pwd)/voice-line/.venv/bin/python3"
 
 [ -x "$PY" ] || { echo "venv python not found: $PY" >&2; exit 1; }
 
