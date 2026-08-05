@@ -36,9 +36,9 @@ import session_registry as sr           # noqa: E402  (path set above)
 
 ROOT = str(Path(__file__).resolve().parents[2])
 CLAUDE = "/Users/testuser/.local/bin/claude --permission-mode auto"
-BRAIN = ("/Users/mike/Documents/Jarvis/voice-line/.venv/lib/python3.12/"
+BRAIN = (f"{ROOT}/voice-line/.venv/lib/python3.12/"
          "site-packages/claude_agent_sdk/_bundled/claude --output-format x")
-SERVER = "/usr/bin/python3 /Users/mike/Documents/Jarvis/Jarvis Visual/voice-web-server.py"
+SERVER = f"/usr/bin/python3 {ROOT}/Jarvis Visual/voice-web-server.py"
 
 
 def proc(pid, ppid, cmd, started):

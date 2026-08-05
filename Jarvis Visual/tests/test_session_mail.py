@@ -27,8 +27,11 @@ import tempfile
 import time
 from pathlib import Path
 
-SM_PATH = "/Users/mike/Documents/Jarvis/voice-line/session_mail.py"
-SR_PATH = "/Users/mike/Documents/Jarvis/voice-line/session_registry.py"
+# The project root, from this test file's own location. Tests must not carry
+# the author's home directory any more than the code they guard does.
+ROOT = str(Path(__file__).resolve().parents[2])
+SM_PATH = f"{ROOT}/voice-line/session_mail.py"
+SR_PATH = f"{ROOT}/voice-line/session_registry.py"
 
 spec = importlib.util.spec_from_file_location("session_mail", SM_PATH)
 sm = importlib.util.module_from_spec(spec)
@@ -410,8 +413,8 @@ with tempfile.TemporaryDirectory() as td:
 produced = {
     sr.classify(["/usr/bin/python3 voice-web-server.py"]),
     sr.classify(["python3 voice-line/main.py"]),
-    sr.classify([], "/Users/mike/Documents/Jarvis"),
-    sr.classify([], "/Users/mike/Documents/Jarvis/Jarvis Visual"),
+    sr.classify([], ROOT),
+    sr.classify([], ROOT + "/Jarvis Visual"),
     sr.classify([], "/tmp"),
 }
 ok("every channel the registry can produce is an accepted channel here",
@@ -447,8 +450,8 @@ ok("it imports only the standard bits it needs",
    _imports <= {"json", "os", "re", "sys", "time", "pathlib",
                 "session_registry"})
 
-for f in ("/Users/mike/Documents/Jarvis/.claude/settings.json",
-          "/Users/mike/Documents/Jarvis/Jarvis Visual/.claude/settings.json"):
+for f in (f"{ROOT}/.claude/settings.json",
+          f"{ROOT}/Jarvis Visual/.claude/settings.json"):
     data = json.loads(Path(f).read_text())
     hooks = json.dumps(data.get("hooks", {}))
     name = os.path.basename(os.path.dirname(os.path.dirname(f))) or "root"
@@ -615,8 +618,8 @@ ok("an unregistered session refuses rather than inventing an id",
 # 11. THE SERVER SIDE -- the real voice-web-server.read_mail(), imported
 # ===========================================================================
 
-VWS_PATH = "/Users/mike/Documents/Jarvis/Jarvis Visual/voice-web-server.py"
-sys.path.insert(0, "/Users/mike/Documents/Jarvis/voice-line")
+VWS_PATH = f"{ROOT}/Jarvis Visual/voice-web-server.py"
+sys.path.insert(0, f"{ROOT}/voice-line")
 spec3 = importlib.util.spec_from_file_location("voice_web_server", VWS_PATH)
 vws = importlib.util.module_from_spec(spec3)
 spec3.loader.exec_module(vws)

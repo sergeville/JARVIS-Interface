@@ -29,6 +29,8 @@ const path = require('path');
 const assert = require('assert');
 
 const HTML = path.join(__dirname, '..', 'jarvis.html');
+// project root, from this file's own location -- see the python tests
+const ROOT = path.resolve(__dirname, '..', '..');
 const src = fs.readFileSync(HTML, 'utf8');
 
 // ---- DOM stub -------------------------------------------------------------
@@ -118,7 +120,7 @@ function session(over) {
   return Object.assign({
     session_id: 'abc12345-0000-0000-0000-000000000000',
     pid: 16965, channel: 'voice line', model: 'claude-opus-5',
-    cwd: '/Users/mike/Documents/Jarvis',
+    cwd: ROOT,
     transcript_path: '/Users/testuser/.claude/projects/x/abc.jsonl',
     started_at: now() - 600, age: 600,
     last_activity: now() - 300, unregistered: false,
@@ -202,7 +204,7 @@ test('the tooltip carries the whole record', () => {
   renderSessions([session()]);
   const t = rows()[0].children.find(c => c.className === 'who').title;
   for (const bit of ['abc12345', 'voice line', 'claude-opus-5',
-                     '/Users/mike/Documents/Jarvis', 'abc.jsonl']) {
+                     ROOT, 'abc.jsonl']) {
     assert.ok(t.includes(bit), 'tooltip missing ' + bit + ': ' + t);
   }
 });

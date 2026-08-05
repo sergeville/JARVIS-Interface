@@ -17,7 +17,10 @@ import tempfile
 import time
 from pathlib import Path
 
-SR_PATH = "/Users/mike/Documents/Jarvis/voice-line/session_registry.py"
+# The project root, from this test file's own location. Tests must not carry
+# the author's home directory any more than the code they guard does.
+ROOT = str(Path(__file__).resolve().parents[2])
+SR_PATH = f"{ROOT}/voice-line/session_registry.py"
 spec = importlib.util.spec_from_file_location("session_registry", SR_PATH)
 sr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sr)
@@ -444,12 +447,12 @@ vws.session_registry.read_sessions = real_read
 # test is what stops the pair drifting apart silently again.
 
 SETTINGS = {
-    "root": "/Users/mike/Documents/Jarvis/.claude/settings.json",
-    "Jarvis Visual": "/Users/mike/Documents/Jarvis/Jarvis Visual/.claude/settings.json",
+    "root": f"{ROOT}/.claude/settings.json",
+    "Jarvis Visual": f"{ROOT}/Jarvis Visual/.claude/settings.json",
 }
 REGISTRY_CMD = {
-    "SessionStart": "python3 /Users/mike/Documents/Jarvis/voice-line/session_registry.py start",
-    "SessionEnd": "python3 /Users/mike/Documents/Jarvis/voice-line/session_registry.py end",
+    "SessionStart": f"python3 {ROOT}/voice-line/session_registry.py start",
+    "SessionEnd": f"python3 {ROOT}/voice-line/session_registry.py end",
 }
 
 
