@@ -142,19 +142,29 @@ not yours.** The server, the session hooks, the test runner and the boot file
 all carry the author's home directory, and nothing finds anything until they
 point at your clone. `./install.sh` does this for you; by hand it is one line.
 
-Count them yourself rather than trusting a number in a README — this one went
-stale three times while being written, which is why it is no longer quoted:
+**The old path is not written anywhere in this README, deliberately.** It is one
+constant inside `install.sh`, and every command below reads it from there — so
+nothing here shows you somebody else's home directory, and none of it goes
+stale if the repository ever moves:
 
 ```sh
-grep -rl '/Users/mike/Documents/Jarvis' . --exclude-dir=.git | wc -l
+OLD=$(grep '^OLD_ROOT=' install.sh | cut -d'"' -f2)
 ```
 
-And to fix them, from inside the folder you cloned into. The old path appears
-here only as the string being searched for; `$PWD` supplies yours:
+Count them yourself rather than trusting a number in a README — that number went
+stale three times while this was being written, which is why it is no longer
+quoted:
 
 ```sh
-grep -rl '/Users/mike/Documents/Jarvis' . --exclude-dir=.git --exclude=install.sh \
-  | tr '\n' '\0' | xargs -0 sed -i '' "s|/Users/mike/Documents/Jarvis|$PWD|g"
+grep -rl "$OLD" . --exclude-dir=.git | wc -l
+```
+
+And to fix them, from inside the folder you cloned into. `$OLD` is what the
+repository was authored at; `$PWD` is yours:
+
+```sh
+grep -rl "$OLD" . --exclude-dir=.git --exclude=install.sh \
+  | tr '\n' '\0' | xargs -0 sed -i '' "s|$OLD|$PWD|g"
 ```
 
 **`--exclude=install.sh` is not optional and not tidiness.** That file holds the
