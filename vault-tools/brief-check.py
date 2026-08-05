@@ -67,7 +67,18 @@ import sys
 from datetime import date
 
 # Rule 4: hardcoded. Never argv, never environ, never the hook payload.
-BRIEF_DIR = "/Users/mike/Documents/Jarvis/Jarvis-brain/06 - Email Inbox"
+#
+# It is RELATIVE, and that is the whole trick. Rule 4 is enforced by a
+# structural test asserting this is a plain string literal (ast.Constant),
+# so it cannot become a computed path -- but a literal naming one person's
+# home directory is wrong in every clone except the author's. Keeping the
+# literal and resolving it against this file's own location at the single
+# point of use satisfies both: no caller can influence it, and it is right
+# anywhere. os.path.join also leaves an ABSOLUTE override alone, which is
+# how the tests point it at a fixture.
+_ROOT = os.path.realpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+BRIEF_DIR = "Jarvis-brain/06 - Email Inbox"
 
 # Rule 1: a brief filename is exactly this shape or it does not exist.
 BRIEF_NAME = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\.md$")
@@ -134,7 +145,7 @@ def main() -> int:
     """
     try:
         today = date.today()
-        dates = brief_dates(BRIEF_DIR)
+        dates = brief_dates(os.path.join(_ROOT, BRIEF_DIR))
         if today in dates:
             return 0  # done already -- silent, free, every session after the first
         past = [d for d in dates if d < today]
