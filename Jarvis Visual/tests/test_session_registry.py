@@ -446,14 +446,27 @@ vws.session_registry.read_sessions = real_read
 # points (see How to Start Jarvis), so both must carry the hooks, and this
 # test is what stops the pair drifting apart silently again.
 
-SETTINGS = {
+# Since 2026-08-05 both files are RENDERED from one template by install.sh, so
+# they can no longer drift -- that is now structural rather than something a
+# test has to prove. What this test guards moved with it: the TEMPLATE is the
+# source of truth and is always present, while the rendered files exist only
+# after install.sh has run and are checked as well whenever they do.
+TEMPLATE = f"{ROOT}/templates/claude-settings.json.template"
+SETTINGS = {w: p for w, p in {
     "root": f"{ROOT}/.claude/settings.json",
     "Jarvis Visual": f"{ROOT}/Jarvis Visual/.claude/settings.json",
-}
-REGISTRY_CMD = {
-    "SessionStart": f"python3 {ROOT}/voice-line/session_registry.py start",
-    "SessionEnd": f"python3 {ROOT}/voice-line/session_registry.py end",
-}
+}.items() if Path(p).is_file()}
+
+
+def registry_cmd(root_token):
+    """The two hook commands, spelled against whichever root applies."""
+    return {
+        "SessionStart": f"python3 {root_token}/voice-line/session_registry.py start",
+        "SessionEnd": f"python3 {root_token}/voice-line/session_registry.py end",
+    }
+
+
+REGISTRY_CMD = registry_cmd(ROOT)
 
 
 def hook_commands(cfg, event):
@@ -462,8 +475,19 @@ def hook_commands(cfg, event):
             for h in group.get("hooks", [])]
 
 
+# The template must exist and carry the hooks -- without it install.sh cannot
+# produce a settings.json at all, and no session would ever register.
+check("the settings template exists", Path(TEMPLATE).is_file(), True)
+_tpl_text = Path(TEMPLATE).read_text()
+check("the template still has its placeholder", "{{JARVIS_ROOT}}" in _tpl_text, True)
+check("the template carries no absolute home directory", "/Users/" in _tpl_text, False)
+_tpl = json.loads(_tpl_text.replace("{{JARVIS_ROOT}}", "/x"))
+for event, cmd in registry_cmd("/x").items():
+    check(f"the template carries the {event} hook",
+          cmd in hook_commands(_tpl, event), True)
+
+# And whatever has actually been rendered on this machine must agree with it.
 for where, path in SETTINGS.items():
-    check(f"{where} settings.json exists", Path(path).is_file(), True)
     cfg = json.loads(Path(path).read_text())
     for event, cmd in REGISTRY_CMD.items():
         check(f"{where} settings.json carries the {event} hook",
@@ -471,10 +495,11 @@ for where, path in SETTINGS.items():
 
 # The hooks must invoke the SAME registry -- two copies pointing at different
 # writers would fill two different files and each would look complete alone.
-for event in REGISTRY_CMD:
-    cmds = [hook_commands(json.loads(Path(p).read_text()), event)
-            for p in SETTINGS.values()]
-    check(f"both files run the identical {event} command", cmds[0], cmds[1])
+if len(SETTINGS) == 2:
+    for event in REGISTRY_CMD:
+        cmds = [hook_commands(json.loads(Path(p).read_text()), event)
+                for p in SETTINGS.values()]
+        check(f"both files run the identical {event} command", cmds[0], cmds[1])
 
 # The registry hooks were ADDED alongside the question_hook ones, never in
 # place of them -- losing those costs the page's permission card.

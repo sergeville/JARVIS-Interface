@@ -336,6 +336,28 @@ class LiveInstallation(unittest.TestCase):
         if proc.stdout.strip():
             json.loads(proc.stdout)   # whatever it prints must be valid JSON
 
+    @staticmethod
+    def _settings_sources():
+        """The template always; the rendered files only once install.sh has run.
+
+        Since 2026-08-05 both settings.json are RENDERED from
+        templates/claude-settings.json.template and are gitignored, so a fresh
+        clone has neither. The template is what they are made from -- a hook
+        missing there is missing everywhere -- so it is the one that must
+        always be checked, and the rendered pair is checked as well whenever it
+        exists.
+        """
+        root = SCRIPT.parent.parent
+        out = []
+        tpl = root / "templates" / "claude-settings.json.template"
+        if tpl.is_file():
+            out.append((tpl, tpl.read_text().replace("{{JARVIS_ROOT}}", "/x")))
+        for path in [root / ".claude" / "settings.json",
+                     root / "Jarvis Visual" / ".claude" / "settings.json"]:
+            if path.is_file():
+                out.append((path, path.read_text()))
+        return out
+
     def test_both_settings_files_carry_the_hook(self):
         """Two copies that must agree get a guard that proves they do.
 
@@ -344,12 +366,11 @@ class LiveInstallation(unittest.TestCase):
         check wired into only one of the two silently misses a whole launch
         point.
         """
-        root = SCRIPT.parent.parent
-        for path in [root / ".claude" / "settings.json",
-                     root / "Jarvis Visual" / ".claude" / "settings.json"]:
+        sources = self._settings_sources()
+        self.assertTrue(sources, "no settings template and no rendered settings")
+        for path, text in sources:
             with self.subTest(settings=str(path)):
-                self.assertTrue(path.is_file(), f"missing: {path}")
-                cfg = json.loads(path.read_text())
+                cfg = json.loads(text)
                 cmds = [h.get("command", "")
                         for block in cfg.get("hooks", {}).get("SessionStart", [])
                         for h in block.get("hooks", [])]
@@ -359,11 +380,9 @@ class LiveInstallation(unittest.TestCase):
 
     def test_the_registry_hooks_were_not_lost_in_the_edit(self):
         """Adding a hook must not quietly drop the ones already there."""
-        root = SCRIPT.parent.parent
-        for path in [root / ".claude" / "settings.json",
-                     root / "Jarvis Visual" / ".claude" / "settings.json"]:
+        for path, text in self._settings_sources():
             with self.subTest(settings=str(path)):
-                cfg = json.loads(path.read_text())
+                cfg = json.loads(text)
                 cmds = [h.get("command", "")
                         for block in cfg.get("hooks", {}).get("SessionStart", [])
                         for h in block.get("hooks", [])]

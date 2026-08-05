@@ -450,9 +450,14 @@ ok("it imports only the standard bits it needs",
    _imports <= {"json", "os", "re", "sys", "time", "pathlib",
                 "session_registry"})
 
-for f in (f"{ROOT}/.claude/settings.json",
-          f"{ROOT}/Jarvis Visual/.claude/settings.json"):
-    data = json.loads(Path(f).read_text())
+# The template is always present; the rendered files only after install.sh has
+# run. Check whichever exist -- the template is what they are made from, so a
+# hook missing there is missing everywhere.
+_settings_sources = [f"{ROOT}/templates/claude-settings.json.template"] + [
+    q for q in (f"{ROOT}/.claude/settings.json",
+                f"{ROOT}/Jarvis Visual/.claude/settings.json") if Path(q).is_file()]
+for f in _settings_sources:
+    data = json.loads(Path(f).read_text().replace("{{JARVIS_ROOT}}", "/x"))
     hooks = json.dumps(data.get("hooks", {}))
     name = os.path.basename(os.path.dirname(os.path.dirname(f))) or "root"
     ok(f"{name}: SessionStart posts the 'opened' notice",
