@@ -112,22 +112,35 @@ during testing; the installer warns if it sees port 8880 already in use.
 ### The long way
 
 **Before anything else: the paths in this project are absolute, and they are
-not yours.** Fifteen files carry the author's home directory in 51 places — the
-server, the session hooks, the test runner, the boot file. Nothing finds
-anything until they point at your clone. `./install.sh` does this for you; by
-hand it is one line.
+not yours.** The server, the session hooks, the test runner and the boot file
+all carry the author's home directory, and nothing finds anything until they
+point at your clone. `./install.sh` does this for you; by hand it is one line.
 
-One line fixes all of them. Run it from inside the folder you cloned into; the
-old path appears here only as the string being searched for, and `$PWD`
-supplies yours:
+Count them yourself rather than trusting a number in a README — this one went
+stale three times while being written, which is why it is no longer quoted:
 
 ```sh
-grep -rl '/Users/mike/Documents/Jarvis' . --exclude-dir=.git \
+grep -rl '/Users/mike/Documents/Jarvis' . --exclude-dir=.git | wc -l
+```
+
+And to fix them, from inside the folder you cloned into. The old path appears
+here only as the string being searched for; `$PWD` supplies yours:
+
+```sh
+grep -rl '/Users/mike/Documents/Jarvis' . --exclude-dir=.git --exclude=install.sh \
   | tr '\n' '\0' | xargs -0 sed -i '' "s|/Users/mike/Documents/Jarvis|$PWD|g"
 ```
 
-Verified against a fresh clone: every occurrence down to 0, and every `.py`,
-`.sh`, `.js` and `.json` in the repository still parses afterwards.
+**`--exclude=install.sh` is not optional and not tidiness.** That file holds the
+path as a constant, so rewriting it changes its length while bash may still be
+reading it — bash reads a script lazily by byte offset, and execution then
+resumes at a shifted position. It also means a second run could never find
+anything, because the constant would already be your own path. The installer
+excludes itself for the same reason.
+
+Verified against a fresh clone: every occurrence outside `install.sh` down to 0,
+and every `.py`, `.sh`, `.js` and `.json` in the repository still parses
+afterwards.
 
 **Seven mentions of the original username survive that command, and should.**
 They are string literals in `tests/test_session_registry.py` and

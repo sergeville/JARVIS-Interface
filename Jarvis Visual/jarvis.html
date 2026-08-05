@@ -97,6 +97,114 @@
      nothing was dropped, only demoted. The toggle comes with them: the tap
      stays wherever the numbers are. */
   #topbar-right { display: flex; align-items: center; gap: 16px; }
+  /* ---- THE BOARD (Serge, 2026-08-05 ~4:10 PM) --------------------------
+     "Can it be done to have a Kanban in this desktop?" -- then his own shape
+     for it: "in the top header, in the middle... with the status, and it
+     rolls down. It rolls down only when I bring my cursor near it", and
+     "I love that with animation."
+
+     So: a collapsed summary sits in the top bar, and the board rolls down
+     OVER the stage rather than taking a column. That follows this page's own
+     rule -- state earns a panel, and this is a thing he looks at on purpose
+     and then dismisses, which earns an overlay.
+
+     READ-ONLY IN THIS PASS. He asked for drag ("I want the full logic"),
+     then parked it: "for right now, maybe remove the drag part." Dragging
+     would make this page an editor of the vault, which is a different blast
+     radius and wants its own build. The columns are ready for it. */
+  #board-strip {
+    display: flex; align-items: center; gap: 9px; cursor: default;
+    padding: 3px 9px; border-radius: 3px;
+    transition: background 220ms ease, box-shadow 220ms ease;
+  }
+  #board-strip:hover, #board.open + #board-strip,
+  body.board-open #board-strip {
+    background: rgba(var(--accent-rgb), 0.10);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.22);
+  }
+  #board-strip .bs {
+    font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase;
+    display: flex; align-items: center; gap: 5px;
+    color: rgba(var(--accent-rgb), 0.55);
+  }
+  #board-strip .bs b {
+    font-size: 11px; font-weight: 600;
+    color: rgba(var(--accent-rgb), 0.95);
+  }
+  #board-strip .bs .dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: rgba(var(--accent-rgb), 0.35);
+  }
+  #board-strip .bs.doing   .dot { background: #00ffa8; box-shadow: 0 0 5px #00ffa8; }
+  #board-strip .bs.waiting .dot { background: #ffb020; box-shadow: 0 0 5px #ffb020; }
+  #board-strip .caret {
+    font-size: 8px; color: rgba(var(--accent-rgb), 0.45);
+    transition: transform 260ms ease;
+  }
+  body.board-open #board-strip .caret { transform: rotate(180deg); }
+
+  /* The roll-down itself. Transformed and faded rather than height-animated:
+     a max-height transition on a grid of unknown height either clips or
+     eases at the wrong speed. This slides from behind the top bar. */
+  #board {
+    position: fixed; left: 50%; top: 34px; transform: translate(-50%, -12px);
+    width: min(1120px, 94vw); z-index: 60;
+    opacity: 0; pointer-events: none; visibility: hidden;
+    transition: opacity 260ms ease, transform 260ms cubic-bezier(.2,.8,.3,1),
+                visibility 0s linear 260ms;
+    background: rgba(6, 14, 22, 0.94);
+    border: 1px solid rgba(var(--accent-rgb), 0.22);
+    border-top: none; border-radius: 0 0 6px 6px;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.66);
+    backdrop-filter: blur(7px);
+    padding: 15px 15px 13px;
+  }
+  body.board-open #board {
+    opacity: 1; transform: translate(-50%, 0); pointer-events: auto;
+    visibility: visible; transition-delay: 0s;
+  }
+  #board-cols {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  }
+  .bcol-head {
+    font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: rgba(var(--accent-rgb), 0.5);
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 6px; margin-bottom: 8px;
+    border-bottom: 1px solid rgba(var(--accent-rgb), 0.16);
+  }
+  .bcol-head .n { color: rgba(var(--accent-rgb), 0.85); font-size: 10px; }
+  .bcol.doing   .bcol-head { border-bottom-color: rgba(0, 255, 168, 0.32); }
+  .bcol.waiting .bcol-head { border-bottom-color: rgba(255, 176, 32, 0.32); }
+  .bcard {
+    border: 1px solid rgba(var(--accent-rgb), 0.16); border-radius: 4px;
+    padding: 7px 8px; margin-bottom: 7px;
+    background: rgba(var(--accent-rgb), 0.045);
+    transition: background 160ms ease, border-color 160ms ease;
+  }
+  .bcard:hover { background: rgba(var(--accent-rgb), 0.09); }
+  .bcard .bt {
+    font-size: 10.5px; line-height: 1.4; color: rgba(var(--accent-rgb), 0.92);
+  }
+  .bcard .bm {
+    font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    margin-top: 5px; color: rgba(var(--accent-rgb), 0.42);
+    display: flex; gap: 7px;
+  }
+  .bcol.doing   .bcard { border-color: rgba(0, 255, 168, 0.30); }
+  .bcol.waiting .bcard { border-color: rgba(255, 176, 32, 0.30); }
+  .bcol-empty {
+    font-size: 9.5px; color: rgba(var(--accent-rgb), 0.3);
+    padding: 5px 2px; letter-spacing: 0.06em;
+  }
+  #board-foot {
+    margin-top: 11px; padding-top: 8px;
+    border-top: 1px solid rgba(var(--accent-rgb), 0.13);
+    font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: rgba(var(--accent-rgb), 0.34);
+    display: flex; justify-content: space-between;
+  }
+
   #topbar-usage { display: flex; align-items: center; gap: 13px; }
   .tu {
     display: flex; align-items: baseline; gap: 5px;
@@ -673,7 +781,20 @@
 
 <div id="topbar">
   <div>MARK III</div>
-  <div class="mid">J.A.R.V.I.S &nbsp;INTERFACE</div>
+  <div class="mid">
+    J.A.R.V.I.S &nbsp;INTERFACE
+    <!-- The board summary sits under the title, in the middle, where Serge
+         asked for it. Hidden until there is a task to count. -->
+    <div id="board-strip" style="display:none"></div>
+  </div>
+  <!-- Rolls down over the stage on approach. Read-only in this pass. -->
+  <div id="board">
+    <div id="board-cols"></div>
+    <div id="board-foot">
+      <span>read-only &middot; status is set in Active Priorities</span>
+      <span id="board-hint">esc to close</span>
+    </div>
+  </div>
   <div id="topbar-right">
     <div id="topbar-usage" title=""></div>
     <button id="usage-toggle" class="paused" title="Polling costs tokens -- each poll asks Claude Code directly">PAUSED</button>
@@ -1647,6 +1768,121 @@ function renderTasks(tasks){
   }
 }
 
+// ---- THE BOARD -------------------------------------------------------
+// Serge, 2026-08-05: a Kanban in the top header that "rolls down only when I
+// bring my cursor near it", with animation. Read-only in this pass -- he
+// parked the dragging ("for right now, maybe remove the drag part").
+//
+// The columns are the statuses Active Priorities already uses, so nothing new
+// is invented here: the data has been shaped like a board all along.
+//
+// NOTE, and it is a real limitation rather than a bug: `done` tasks are not
+// served. read_tasks() in voice-web-server.py deliberately stops at the
+// "### Completed Tasks" heading and never opens a `- [x]` line, so the DONE
+// column can only ever be empty until the server is changed. It is drawn
+// anyway, saying so plainly -- a column Serge expects and cannot find reads
+// as a broken board, while an empty one that explains itself does not.
+const BOARD_COLS = [
+  {key: 'open',             label: 'To Do',        cls: ''},
+  {key: 'active',           label: 'In Progress',  cls: 'doing'},
+  {key: 'waiting-on-serge', label: 'Waiting on You', cls: 'waiting'},
+  {key: 'done',             label: 'Done',         cls: 'done'},
+];
+let boardSig = '';
+function renderBoard(tasks){
+  const strip = document.getElementById('board-strip');
+  const cols  = document.getElementById('board-cols');
+  if (!strip || !cols) return;
+  tasks = Array.isArray(tasks) ? tasks : [];
+  const sig = JSON.stringify(tasks);
+  if (sig === boardSig) return;          // this polls at 15 Hz
+  boardSig = sig;
+
+  if (!tasks.length) {
+    strip.style.display = 'none';
+    document.body.classList.remove('board-open');
+    return;
+  }
+  strip.style.display = '';
+
+  const bucket = (k) => tasks.filter(t => (t.status || 'open') === k);
+  // Anything with an unrecognised status lands in To Do rather than vanishing:
+  // a task Serge cannot see is worse than one in the wrong column.
+  const known = new Set(BOARD_COLS.map(c => c.key));
+  const strays = tasks.filter(t => !known.has(t.status || 'open'));
+
+  const nDoing = bucket('active').length;
+  const nWait  = bucket('waiting-on-serge').length;
+  const nOpen  = bucket('open').length + strays.length;
+  strip.innerHTML =
+      '<span class="bs doing"><span class="dot"></span><b>' + nDoing + '</b> doing</span>'
+    + '<span class="bs waiting"><span class="dot"></span><b>' + nWait + '</b> you</span>'
+    + '<span class="bs"><span class="dot"></span><b>' + nOpen + '</b> open</span>'
+    + '<span class="caret">&#9660;</span>';
+
+  cols.innerHTML = BOARD_COLS.map(c => {
+    let list = bucket(c.key);
+    if (c.key === 'open') list = list.concat(strays);
+    const cards = list.map(t =>
+        '<div class="bcard"><div class="bt">' + esc(t.title || '(untitled)') + '</div>'
+      + '<div class="bm">' + (t.priority ? '<span>' + esc(t.priority) + '</span>' : '')
+      + (t.owner ? '<span>' + esc(t.owner) + '</span>' : '') + '</div></div>').join('');
+    const empty = c.key === 'done'
+      ? '<div class="bcol-empty">not served yet</div>'
+      : '<div class="bcol-empty">nothing here</div>';
+    return '<div class="bcol ' + c.cls + '">'
+         + '<div class="bcol-head"><span>' + c.label + '</span>'
+         + '<span class="n">' + list.length + '</span></div>'
+         + (cards || empty) + '</div>';
+  }).join('');
+}
+
+// The roll-down. Peek on hover, LATCH on contact.
+//
+// THIS IS THE ONE DECISION THAT MAKES IT USABLE. Hover-to-open cannot also be
+// hover-to-close once there is anything to interact with: the cursor strays a
+// few pixels, the board rolls up, and whatever you were doing is lost. So an
+// approach opens it, and touching it pins it open until you click away or
+// press Escape. It matters more once the cards are draggable, and building it
+// now means the drag pass does not have to unpick this.
+const BOARD_INTENT_MS = 250;   // deliberate approach, not a cursor passing by
+const BOARD_CLOSE_MS  = 420;   // slower to leave than to arrive
+let boardOpenT = null, boardCloseT = null, boardLatched = false;
+
+function boardOpen(on){
+  document.body.classList.toggle('board-open', on);
+  if (!on) boardLatched = false;
+}
+function boardWantOpen(){
+  clearTimeout(boardCloseT);
+  if (document.body.classList.contains('board-open')) return;
+  clearTimeout(boardOpenT);
+  boardOpenT = setTimeout(() => boardOpen(true), BOARD_INTENT_MS);
+}
+function boardWantClose(){
+  clearTimeout(boardOpenT);
+  if (boardLatched) return;              // pinned by contact
+  clearTimeout(boardCloseT);
+  boardCloseT = setTimeout(() => boardOpen(false), BOARD_CLOSE_MS);
+}
+(() => {
+  const strip = document.getElementById('board-strip');
+  const board = document.getElementById('board');
+  const mid   = strip && strip.parentElement;
+  if (!strip || !board || !mid) return;
+  // The whole title block is the approach zone -- "when I bring my cursor
+  // near it", not "when I hit a 90-pixel target".
+  mid.addEventListener('mouseenter', boardWantOpen);
+  mid.addEventListener('mouseleave', boardWantClose);
+  board.addEventListener('mouseenter', () => clearTimeout(boardCloseT));
+  board.addEventListener('mouseleave', boardWantClose);
+  board.addEventListener('mousedown', () => { boardLatched = true; });
+  addEventListener('mousedown', (e) => {
+    if (!board.contains(e.target) && !mid.contains(e.target)) boardOpen(false);
+  });
+  addEventListener('keydown', (e) => { if (e.key === 'Escape') boardOpen(false); });
+})();
+
 // ---- sessions card: every Jarvis alive right now ---------------------
 // Serge, 2026-08-05: "it would be cool if the session showed up in a card
 // under the Active tasks." The server resolves the list from the process
@@ -2117,7 +2353,20 @@ function tickUsageAge(){ tickUsageRest(); }
 
 // ---- terminal-mode fallback: follow the signal files ----------------
 async function poll(){
-  if (webActive()) return;          // browser turn owns the ring
+  // THE GUARD USED TO SIT HERE, ABOVE THE FETCH -- and that froze the whole
+  // HUD for the length of every browser turn. Serge, 2026-08-05 ~6:20 PM:
+  // "I don't see the board." He was right and the board was innocent: while
+  // he is capturing, thinking, speaking or has audio queued, poll() returned
+  // before it ever asked the server, so tasks, stack, sessions, usage, events
+  // and the new board all stopped updating. The 1-second clocks tick locally,
+  // so a frozen page still looks alive -- he caught it earlier the same day as
+  // ten task rows ninety seconds after the note served three, with SPEAKING on
+  // screen.
+  //
+  // The guard was right and its SCOPE was wrong: it exists so the websocket
+  // owns the ring state and the waveform during a browser turn, not to stop
+  // the instruments. So it now wraps only those two things, below, and the
+  // fetch plus every render runs on every tick.
   try {
     const r = await fetch('/signals', {cache: 'no-store'});
     const d = await r.json();
@@ -2143,6 +2392,7 @@ async function poll(){
     showApproval(d.approval || null);
     waitingQ = (d.question || '').trim();
     renderTasks(d.tasks || []);
+    renderBoard(d.tasks || []);
     renderSessions(d.sessions || []);
     renderStats(d.stats);
     renderStack(d.stack);
@@ -2166,12 +2416,19 @@ async function poll(){
     if (!webActive() && state !== 'warming' && state !== 'connecting') {
       state = d.state || 'idle';
     }
-    if (d.state === 'speaking' && fresh && w.samples && w.samples.length) {
-      let s = 0;
-      for (const v of w.samples) s += v;
-      sigLevel = Math.min(1, s / w.samples.length / 6000);
-    } else {
-      sigLevel = 0;
+    // sigLevel is the OTHER half the guard was protecting, and it needs its
+    // own check now that the early return is gone. This reads the terminal
+    // line's waveform; during a browser turn the websocket drives the ring,
+    // and letting this run would zero it out mid-sentence -- the visualiser
+    // would go flat while Jarvis is plainly speaking.
+    if (!webActive()) {
+      if (d.state === 'speaking' && fresh && w.samples && w.samples.length) {
+        let s = 0;
+        for (const v of w.samples) s += v;
+        sigLevel = Math.min(1, s / w.samples.length / 6000);
+      } else {
+        sigLevel = 0;
+      }
     }
   } catch(e) { if (!webActive()) { state = 'offline'; sigLevel = 0; } }
 }
