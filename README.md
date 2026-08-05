@@ -78,10 +78,10 @@ Get the code (step 0 below), then:
 ```
 
 That is the whole thing. It installs Homebrew, Claude Code, Obsidian, `uv`,
-`whisper-cpp`, the Python dependencies, the whisper model and Kokoro; rewrites
-the absolute paths onto your clone; and creates an empty vault for you. Steps
-1–6 below are what it does, written out, for when you would rather do it by
-hand or something goes wrong.
+`whisper-cpp`, the Python dependencies, the whisper model and Kokoro; renders
+`.claude/settings.json` for this machine; and creates an empty vault for you.
+Steps 1–6 below are what it does, written out, for when you would rather do it
+by hand or something goes wrong.
 
 ```sh
 ./install.sh --check    # verify only -- installs nothing, changes nothing
@@ -137,52 +137,34 @@ Code, your `PATH`, an empty `~/.claude`, and a brand-new vault.
 
 ### The long way
 
-**Before anything else: the paths in this project are absolute, and they are
-not yours.** The server, the session hooks, the test runner and the boot file
-all carry the author's home directory, and nothing finds anything until they
-point at your clone. `./install.sh` does this for you; by hand it is one line.
+**Nothing in this repository contains an absolute path**, so there is no
+find-and-replace step and nothing to edit before it runs. That is deliberate,
+and it is worth a paragraph because the alternative caused real bugs:
 
-**The old path is not written anywhere in this README, deliberately.** It is one
-constant inside `install.sh`, and every command below reads it from there — so
-nothing here shows you somebody else's home directory, and none of it goes
-stale if the repository ever moves:
+- The Python and the shell **locate themselves** from their own `__file__` /
+  `$0`. So does every test.
+- `vault-tools/brief-check.py` keeps a **relative literal**. A structural test
+  requires that constant to stay a plain string — it is a `SessionStart` hook,
+  and the guard exists so it cannot be pointed somewhere by argv or the
+  environment — so it stays a literal and is resolved against the file's own
+  location at the single point of use.
+- `.claude/settings.json` is the one thing that genuinely **cannot** locate
+  itself: Claude Code executes its hook commands and nothing guarantees the
+  working directory, so those commands must be absolute. It is therefore
+  **rendered** by `install.sh` from `templates/claude-settings.json.template`,
+  and the rendered files are gitignored. One template produces **both** files,
+  so the two cannot drift apart — a property a test used to have to prove.
 
-```sh
-OLD=$(grep '^OLD_ROOT=' install.sh | cut -d'"' -f2)
-```
+The earlier version of this section described a `sed` across the whole
+repository, and that design produced four separate defects: the installer
+rewrote its own source while bash was still reading it by byte offset (the same
+script on the same input failed once and succeeded once), and it needed a
+file-count in this README that went stale three times. Removing the absolute
+paths removed the reason any of it existed.
 
-Count them yourself rather than trusting a number in a README — that number went
-stale three times while this was being written, which is why it is no longer
-quoted:
-
-```sh
-grep -rl "$OLD" . --exclude-dir=.git | wc -l
-```
-
-And to fix them, from inside the folder you cloned into. `$OLD` is what the
-repository was authored at; `$PWD` is yours:
-
-```sh
-grep -rl "$OLD" . --exclude-dir=.git --exclude=install.sh \
-  | tr '\n' '\0' | xargs -0 sed -i '' "s|$OLD|$PWD|g"
-```
-
-**`--exclude=install.sh` is not optional and not tidiness.** That file holds the
-path as a constant, so rewriting it changes its length while bash may still be
-reading it — bash reads a script lazily by byte offset, and execution then
-resumes at a shifted position. It also means a second run could never find
-anything, because the constant would already be your own path. The installer
-excludes itself for the same reason.
-
-Verified against a fresh clone: every occurrence outside `install.sh` down to 0,
-and every `.py`, `.sh`, `.js` and `.json` in the repository still parses
-afterwards.
-
-**Seven mentions of the original username survive that command, and should.**
-They are string literals in `tests/test_session_registry.py` and
-`tests/test_registry_inversion.py` standing in for process command lines — test
-fixtures, not paths. Nothing opens them and the suite passes as-is. Leave them
-alone.
+The only mentions of a username left anywhere are seven **fictional** fixtures
+(`/Users/testuser/...`) in two test files, standing in for process command
+lines.
 
 **0. Get the code — one line**
 
@@ -190,13 +172,13 @@ With git — recommended, since you get the history and an honest error if
 anything is wrong:
 
 ```sh
-git clone https://github.com/sergeville/JARVIS-Interface.git && cd JARVIS-Interface
+git clone https://github.com/sergeville/JARVIS-Interface.git Jarvis && cd Jarvis
 ```
 
 Without git, download the archive instead:
 
 ```sh
-curl -fL https://github.com/sergeville/JARVIS-Interface/archive/refs/heads/main.zip -o jarvis.zip && unzip -q jarvis.zip && rm jarvis.zip && cd JARVIS-Interface-main
+curl -fL https://github.com/sergeville/JARVIS-Interface/archive/refs/heads/main.zip -o jarvis.zip && unzip -q jarvis.zip && rm jarvis.zip && mv JARVIS-Interface-main Jarvis && cd Jarvis
 ```
 
 Two details that are load-bearing rather than decorative. **`-f` makes curl fail
@@ -207,9 +189,12 @@ there". And **`&&` stops the chain at the first failure**, so a download that
 did not work never reaches the `rm` or the `cd`; you are left standing where you
 started with the evidence still on disk.
 
-The archive unpacks to `JARVIS-Interface-main`, named for the branch — swap
-`main` for `master` in both the URL and the `cd` if the default branch is ever
-renamed. Steps 1–5 below run from inside that folder.
+**Both land you in a folder called `Jarvis`**, not in one named after the
+GitHub project. GitHub's archive unpacks to `JARVIS-Interface-main` — named for
+the repository and the branch — so the `mv` renames it; `git clone` takes the
+destination directly. If the default branch is ever renamed, swap `main` for
+`master` in the URL and in the `mv`. Steps 1–6 below run from inside that
+folder.
 
 **1. Prerequisites**
 

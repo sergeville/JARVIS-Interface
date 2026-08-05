@@ -42,20 +42,18 @@ MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.
 KOKORO="$VL/services/kokoro-fastapi"
 KOKORO_URL="https://github.com/remsky/Kokoro-FastAPI.git"
 
-# The path baked into this repository by its author. Step 5 rewrites it to
-# wherever you actually cloned. Kept as one constant so there is exactly one
-# place to change if the upstream repo ever moves.
-OLD_ROOT="/Users/mike/Documents/Jarvis"
-
-# This file must be excluded from that rewrite, and the reason is not tidiness.
-# The rewrite runs while bash is still reading this script, and bash reads a
-# script lazily BY BYTE OFFSET -- so rewriting it in place changes its length
-# underneath the interpreter and execution resumes at a shifted position,
-# skipping or repeating lines at random. That was observed: the same script on
-# the same input failed once ("19 files still reference the old root") and
-# succeeded once. It also destroys re-runnability, because OLD_ROOT above would
-# be replaced by your path and a second run could never match anything again.
-SELF="$(basename "${BASH_SOURCE[0]}")"
+# NOTE: there is deliberately no OLD_ROOT here any more, and no path rewrite.
+# Nothing this repository ships contains an absolute path: the code and the
+# tests locate themselves from their own __file__/$0, brief-check.py keeps a
+# RELATIVE literal so its structural guard still holds, and the one thing that
+# genuinely cannot self-locate -- .claude/settings.json, whose hook commands
+# must be absolute -- is rendered from templates/ instead.
+#
+# The rewrite that used to live here was the source of four separate defects:
+# it edited this very file while bash was still reading it BY BYTE OFFSET (the
+# same input failed once and succeeded once), and it required a file/occurrence
+# count in the README that went stale three times. Removing the absolute paths
+# removed the reason it existed.
 
 CHECK_ONLY=0
 ASSUME_YES=0
@@ -187,10 +185,8 @@ for tool in uv whisper-cpp; do
 done
 
 # ---------------------------------------------------------------------------
-step "Absolute paths -- point this clone at itself"
+step "Configuration -- render settings.json for this clone"
 # ---------------------------------------------------------------------------
-# This must happen BEFORE anything is verified, because the server, the hooks
-# and the test runner all read absolute paths out of these files.
 # --- rendered config -------------------------------------------------------
 # Claude Code reads .claude/settings.json from the session's own cwd, so both
 # launch points need one -- and their hook commands must be ABSOLUTE, because
@@ -231,21 +227,6 @@ PYCHK
   ok "both settings.json parse and carry the registry hooks"
 }
 
-path_hits() {
-  grep -rl "$OLD_ROOT" "$ROOT" --exclude-dir=.git --exclude-dir=.venv \
-      --exclude-dir=services --exclude-dir=node_modules --exclude="$SELF" 2>/dev/null
-}
-hits=$(path_hits | wc -l | tr -d ' ')
-if [[ "$ROOT" == "$OLD_ROOT" ]]; then
-  have "paths (this IS the original location -- nothing to rewrite)"
-elif [[ "$hits" -eq 0 ]]; then
-  have "paths (already rewritten -- 0 files still reference the original)"
-elif would_install "path rewrite"; then
-  note "rewriting $hits files: $OLD_ROOT -> $ROOT"
-  path_hits | tr '\n' '\0' | xargs -0 sed -i '' "s|$OLD_ROOT|$ROOT|g"
-  left=$(path_hits | wc -l | tr -d ' ')
-  [[ "$left" -eq 0 ]] && did "path rewrite ($hits files)" || fail "path rewrite ($left files still reference the old root)"
-fi
 render_settings
 
 # ---------------------------------------------------------------------------
