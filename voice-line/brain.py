@@ -10,11 +10,18 @@ The first turn pays a prompt-cache toll of several seconds; main.py
 hides it behind a spoken greeting fired at startup.
 """
 
+import os
 import re
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, StreamEvent
 
-JARVIS_CWD = "/Users/mike/Documents/Jarvis"
+# The project root, derived from this file's own location rather than written
+# in. Nothing about it can be supplied by a caller -- not argv, not the
+# environment, not stdin -- so it is exactly as trustworthy as a literal was,
+# and it is correct in any clone. realpath because macOS hands back
+# symlink-resolved paths (/tmp -> /private/tmp) and these values get compared
+# against cwds that arrive already resolved.
+JARVIS_CWD = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 # The warmup turn does double duty: it hides the first-turn prompt-cache
 # toll AND boots the session's memory. It used to say "don't use tools",

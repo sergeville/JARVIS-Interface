@@ -44,7 +44,13 @@ from pathlib import Path
 
 SESSIONS_FILE = Path(__file__).resolve().parent / ".sessions.jsonl"
 
-JARVIS_ROOT = "/Users/mike/Documents/Jarvis"
+# The project root, derived from this file's own location rather than written
+# in. Nothing about it can be supplied by a caller -- not argv, not the
+# environment, not stdin -- so it is exactly as trustworthy as a literal was,
+# and it is correct in any clone. realpath because macOS hands back
+# symlink-resolved paths (/tmp -> /private/tmp) and these values get compared
+# against cwds that arrive already resolved.
+JARVIS_ROOT = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 # Keep the log bounded the same way the stack event log is: trim on write,
 # oldest first. One line per session start/end is far slower-growing than

@@ -32,7 +32,14 @@ import httpx
 import numpy as np
 from aiohttp import WSMsgType, web
 
-VOICE_LINE = "/Users/mike/Documents/Jarvis/voice-line"
+# The project root, derived from this file's own location rather than written
+# in. Nothing about it can be supplied by a caller -- not argv, not the
+# environment, not stdin -- so it is exactly as trustworthy as a literal was,
+# and it is correct in any clone. realpath because macOS hands back
+# symlink-resolved paths (/tmp -> /private/tmp) and these values get compared
+# against cwds that arrive already resolved.
+JARVIS_ROOT = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+VOICE_LINE = os.path.join(JARVIS_ROOT, "voice-line")
 sys.path.insert(0, VOICE_LINE)
 
 from claude_agent_sdk import (                  # noqa: E402
@@ -84,8 +91,7 @@ USAGE_FILE = Path(VOICE_LINE) / ".usage.json"
 EVENTS_FILE = Path(VOICE_LINE) / ".stack-events.jsonl"
 EVENTS_KEEP = 200        # lines retained after a trim
 EVENTS_TRIM_AT = 400     # trim once the file grows past this
-PRIORITIES_FILE = Path(
-    "/Users/mike/Documents/Jarvis/Jarvis-brain/Active Priorities.md")
+PRIORITIES_FILE = Path(JARVIS_ROOT) / "Jarvis-brain" / "Active Priorities.md"
 HEARTBEAT_STALE_S = 15.0
 
 UPLOADS_DIR = HERE / "uploads"      # images pasted/dropped on the page
@@ -146,7 +152,7 @@ def read_tasks() -> list[dict]:
     return tasks
 
 
-VAULT_DIR = Path("/Users/mike/Documents/Jarvis/Jarvis-brain")
+VAULT_DIR = Path(JARVIS_ROOT) / "Jarvis-brain"
 _GRAPH_CACHE: dict = {"ts": 0.0, "data": {"nodes": [], "edges": []}}
 GRAPH_RESCAN_S = 10.0
 _WIKILINK_RE = re.compile(r"\[\[([^\]\[]+)\]\]")
