@@ -1,0 +1,63 @@
+# What this repository publishes is code. Everything below is excluded on
+# purpose, and each block says why -- an exclusion nobody can explain is one
+# somebody eventually deletes.
+#
+# NOTE FOR ANYONE EDITING THIS FILE: .gitignore has NO trailing comments.
+# A '#' only starts a comment at the START of a line. Writing
+#     uploads/    # screenshots
+# makes the pattern the whole literal string, which matches nothing -- and it
+# looks completely correct while doing it. That bug was in this file's first
+# draft and it silently published 55 MB of screenshots. Keep comments on their
+# own lines.
+
+# ---- The memory. Personal, and the reason this list exists. ----------------
+# The Obsidian vault: profile, dated session logs, email briefs, task queue.
+# README step 6 tells a reader how to build their own. GitHub retains history
+# even after a delete, so this line has to be right the FIRST time.
+Jarvis-brain/
+
+# ---- Anything else that is a record of a person rather than a program ------
+# uploads/ is screenshots of my own screen (~55 MB).
+# visual-server.log carries usage percentages and fragments of conversation.
+#
+# transcripts/ is 320 KB of VERBATIM, timestamped voice conversations. It is
+# not code, and it was very nearly published: it survived the first exclusion
+# list because that list was built from an inventory that never mentioned it.
+#
+# references/ holds design references, and one of them is a screenshot of my
+# own Claude account showing plan tier and live usage percentages. Excluded
+# whole rather than file by file -- an allow-list of images is a rule somebody
+# has to re-apply every time a new one lands, and that is how this got missed.
+uploads/
+archive/
+.scratch/
+*.log
+transcripts/
+references/
+
+# ---- Live state. Written by the running stack, meaningless to a clone. -----
+# Session registry, session bus, stack event log, usage readings.
+voice-line/.sessions.jsonl
+voice-line/.session-mail.jsonl
+voice-line/.stack-events.jsonl
+voice-line/.usage.json
+voice-line/.voice_transcript
+
+# ---- Large, and reproducible from the README rather than from git ---------
+# whisper GGML weights ~465 MB (install step 3); kokoro-fastapi ~1.5 GB
+# (step 4); the uv venv (step 2); public-domain ambient tracks ~41 MB (step 5).
+voice-line/models/
+voice-line/services/
+voice-line/.venv/
+Jarvis Visual/audio/
+
+# ---- Build and OS noise ---------------------------------------------------
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# ---- Deliberately NOT ignored, so nobody adds them later by reflex --------
+# uv.lock                 the pinned dependency set -- the point of a lock file
+# .claude/settings.json   the hooks that make sessions register; carries
+#                         absolute paths a cloner must edit, but no secrets
+# CLAUDE.md               the boot file, shipped as a worked example

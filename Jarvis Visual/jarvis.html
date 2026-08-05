@@ -1,0 +1,2914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>JARVIS</title>
+<style>
+  /* ===== theme tokens (Serge, 2026-08-04) =============================
+     The HUD's chrome -- frame, panels, text, bars, buttons -- keys off
+     these and nothing else. Two reasons they exist:
+
+     1. The alert state below. Serge asked that the whole interface turn
+        amber while Jarvis is waiting on a permission answer, and go back
+        to blue the moment he clicks. With tokens that is one class on
+        <body>; without it, it was ~100 hex literals to chase.
+     2. The iPhone client will be native Swift, which cannot read CSS.
+        A named palette is the thing that can eventually be generated
+        from one shared source so both surfaces can never drift apart.
+        See [[Jarvis on iPhone]] and [[Jarvis Conventions]] in the vault.
+
+     Deliberately NOT tokenised:
+     - the avatar and synapse field (canvas, drawn in JS). It is the one
+       constant on screen -- the frame changes mood around it.
+     - green / red status and APPROVE / DENY. Those mean up/down and
+       yes/no regardless of the theme, so they stay literal on purpose.
+     Rule going forward: use a token, never a literal. */
+  :root {
+    --accent-rgb: 0, 150, 255;   /* every rgba() border and glow keys off this */
+    --bg-deep:     #050a14;
+    --bg-panel:    rgba(2, 12, 26, 0.85);
+    --bg-bar:      rgba(2, 12, 24, 0.85);
+    --bg-inset:    rgba(0, 20, 40, 0.5);
+    --bg-input:    #04101f;
+    --bg-track:    #04182e;
+    --text:        #9fd0ff;
+    --text-soft:   #7fc4ff;
+    --text-val:    #bfe6ff;
+    --text-bright: #eaf6ff;
+    --sec:         #35b6ff;
+    --stage-core:  #0a1830;
+    --fill-lo:     #0066aa;
+    --fill-hi:     #00ccff;
+  }
+  /* Alert: a permission request is pending and Jarvis is blocked on Serge.
+     Same layout, same information -- only the mood changes, so the state is
+     unmissable from across the room without anything moving. */
+  body.alert {
+    --accent-rgb: 255, 176, 60;
+    --bg-deep:     #0f0a02;
+    --bg-panel:    rgba(26, 17, 2, 0.85);
+    --bg-bar:      rgba(24, 15, 2, 0.85);
+    --bg-inset:    rgba(40, 26, 0, 0.5);
+    --bg-input:    #1f1404;
+    --bg-track:    #2e1f04;
+    --text:        #ffd9a0;
+    --text-soft:   #ffca7f;
+    --text-val:    #ffe9c4;
+    --text-bright: #fff6e6;
+    --sec:         #ffb62e;
+    --stage-core:  #2a1a04;
+    --fill-lo:     #aa6600;
+    --fill-hi:     #ffcc00;
+  }
+  /* Fade between themes rather than snapping. Scoped to the chrome by hand:
+     a blanket `* { transition }` would fight the 15 Hz redraw. */
+  #topbar, #botbar, .panel, #lines, #typed, #send, #talk, #viewbtn,
+  .bs .dot, .bar, #tasks .task, #attach, #stage {
+    transition: background-color 0.5s ease, border-color 0.5s ease,
+                color 0.5s ease, box-shadow 0.5s ease;
+  }
+
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg-deep);
+    overflow: hidden;
+    font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+    color: var(--text);
+    user-select: none;
+  }
+  body { display: flex; flex-direction: column; }
+
+  /* ===== top bar ===== */
+  #topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 20px; font-size: 12px; letter-spacing: 0.2em;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(var(--accent-rgb), 0.3);
+    background: var(--bg-bar); color: var(--text-soft);
+  }
+  #topbar .mid { opacity: 0.7; font-size: 11px; letter-spacing: 0.35em; }
+  #clock {
+    font-family: "Menlo", monospace; font-size: 11px;
+    letter-spacing: 0.1em; color: var(--text-soft);
+  }
+  /* Usage moved up here from the left panel (Serge, 2026-08-05: the page "is
+     starting to be crowded"). Three percentages are a glance, not a panel --
+     the bars and reset clocks they used to carry are on the hover title, so
+     nothing was dropped, only demoted. The toggle comes with them: the tap
+     stays wherever the numbers are. */
+  #topbar-right { display: flex; align-items: center; gap: 16px; }
+  #topbar-usage { display: flex; align-items: center; gap: 13px; }
+  .tu {
+    display: flex; align-items: baseline; gap: 5px;
+    font-size: 10px; letter-spacing: 0.1em; cursor: default;
+  }
+  .tu .k { color: rgba(var(--accent-rgb), 0.5); }
+  .tu .v { font-family: "Menlo", monospace; color: var(--text-val); }
+  .tu.warn .v { color: #ffc75a; }
+  .tu.bad  .v { color: #ff8a82; }
+  #topbar-usage.stale { opacity: 0.5; }
+
+  /* ===== main grid ===== */
+  #main {
+    flex: 1; display: grid;
+    grid-template-columns: 230px 1fr 300px;
+    min-height: 0;
+  }
+  .panel {
+    background: var(--bg-panel); padding: 16px 14px;
+    display: flex; flex-direction: column; gap: 18px; min-height: 0;
+  }
+  #left  { border-right: 1px solid rgba(var(--accent-rgb), 0.28); overflow-y: auto; }
+  #right { border-left:  1px solid rgba(var(--accent-rgb), 0.28); overflow: hidden; }
+  .panel::-webkit-scrollbar { width: 4px; }
+  .panel::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb), 0.3); }
+
+  .sec-title {
+    font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase;
+    color: var(--sec); display: flex; align-items: center; gap: 6px;
+    margin-bottom: 10px; flex-shrink: 0;
+  }
+  .sec-title::before { content: "\25CF"; font-size: 8px; }
+
+  /* left panel: monitor.
+     Serge, 2026-08-04: "the system monitor put smaller fonts... so it fits
+     tighter" -- to make room for the usage block below the stack. Type and
+     spacing come down a notch; nothing is dropped. */
+  /* Serge, 2026-08-05: "it's a bit oversized. Maybe it could be a circle...
+     no, no circle. A pie. I don't like the pie." Kept the bar -- a pie
+     compares parts of a whole, and a single live percentage is not that --
+     shrank the rows, and added the sparkline so the panel visibly MOVES. */
+  .mon { margin-bottom: 7px; }
+  .mon-label {
+    font-size: 9.5px; display: flex; justify-content: space-between;
+    margin-bottom: 2px; letter-spacing: 0.1em; color: var(--text-soft);
+  }
+  .mon-label .val { font-family: "Menlo", monospace; color: var(--text-val); }
+  /* The last minute of history, right-anchored: the newest sample is always
+     at the right edge, so a fresh page grows in rather than stretching. */
+  .spark { display: block; width: 100%; height: 14px; margin-top: 2px; }
+  .spark polyline {
+    fill: none; stroke: rgba(var(--accent-rgb), 0.55); stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .bar {
+    height: 5px; background: var(--bg-track);
+    border: 1px solid rgba(var(--accent-rgb), 0.45);
+    border-radius: 2px; overflow: hidden;
+  }
+  .bar i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--fill-lo), var(--fill-hi));
+    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.85);
+    transition: width 0.6s ease;
+  }
+  .stat-row {
+    font-size: 10.5px; display: flex; justify-content: space-between;
+    margin: 4px 0; letter-spacing: 0.08em;
+  }
+  .stat-row .k { color: rgba(var(--accent-rgb), 0.6); }
+  .stat-row .v { font-family: "Menlo", monospace; color: var(--text-val); }
+
+  /* left panel: the stack, at a glance (Serge, 2026-08-04) -- everything
+     `./jarvis.sh status` prints, without opening a terminal. */
+  .stack-sec { margin-top: 16px; }
+  .st-row {
+    font-size: 11.5px; display: flex; align-items: baseline; gap: 6px;
+    margin: 5px 0; letter-spacing: 0.06em;
+  }
+  .st-row .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    background: rgba(var(--accent-rgb), 0.35);
+  }
+  .st-row .name { color: rgba(var(--accent-rgb), 0.75); flex: 1; }
+  .st-row .pid {
+    font-family: "Menlo", monospace; font-size: 10.5px; color: var(--text-val);
+  }
+  .st-row.up .dot { background: #00ffa8; box-shadow: 0 0 7px #00ffa8; }
+  .st-row.up .pid { color: #7ff0c8; }
+  /* "off" is a choice (the terminal line), "down" is a problem. Different
+     colours on purpose -- Serge read a plain "not running" as a failure. */
+  .st-row.off .dot { background: #6b5a1f; }
+  .st-row.off .pid { color: rgba(190, 175, 110, 0.85); }
+  .st-row.down .dot { background: #ff5f57; box-shadow: 0 0 7px #ff5f57; }
+  .st-row.down .pid { color: #ffa39e; }
+  /* Serge, 2026-08-04: start time + how long it has been up, under each row.
+     Its own dim line rather than a third column -- the panel is narrow and
+     the name/PID line has to stay readable at a glance. */
+  .st-sub {
+    font-family: "Menlo", monospace; font-size: 9.5px;
+    color: rgba(var(--accent-rgb), 0.42); margin: -2px 0 6px 13px;
+    letter-spacing: 0.04em;
+  }
+  /* Serge, 2026-08-04: this block read "a bit tight" -- the three port pairs
+     and the page clock were shoulder to shoulder under the last stack row.
+     Loosened: a rule and real space above, wider gaps between the pairs, and
+     the page clock on its own line below. Same information, more air. */
+  .ports-row {
+    display: flex; flex-wrap: wrap; gap: 6px 18px;
+    margin-top: 14px; padding-top: 11px; line-height: 1.7;
+    border-top: 1px solid rgba(var(--accent-rgb), 0.16);
+    font-family: "Menlo", monospace; font-size: 10.5px;
+  }
+  #page-age { margin-top: 7px; }
+  .ports-row b { font-weight: normal; color: rgba(var(--accent-rgb), 0.5); }
+  .port.held { color: #7ff0c8; }
+  .port.free { color: rgba(190, 175, 110, 0.85); }
+
+  /* left panel: stack events (Serge, 2026-08-05) -- the stack's history, read
+     from a file that outlives the server, so a restart is visible after the
+     fact instead of only as a PID that quietly changed. Same three states as
+     the STACK rows above: green came up, amber stood down by choice, red died. */
+  .events-sec { margin-top: 16px; }
+  .ev-row {
+    font-size: 10.5px; display: flex; align-items: baseline; gap: 6px;
+    margin: 4px 0; letter-spacing: 0.04em; line-height: 1.45;
+  }
+  .ev-row .dot {
+    width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+    position: relative; top: -1px;
+    background: rgba(var(--accent-rgb), 0.35);
+  }
+  .ev-row .t {
+    font-family: "Menlo", monospace; font-size: 9.5px; flex-shrink: 0;
+    color: rgba(var(--accent-rgb), 0.42);
+  }
+  /* The text wraps rather than ellipsising: an event Serge cannot read is the
+     same as an event that was never logged. */
+  .ev-row .msg { color: rgba(var(--accent-rgb), 0.72); flex: 1; }
+  .ev-row.up .dot   { background: #00ffa8; box-shadow: 0 0 5px #00ffa8; }
+  .ev-row.off .dot  { background: #6b5a1f; }
+  .ev-row.down .dot { background: #ff5f57; box-shadow: 0 0 5px #ff5f57; }
+  .ev-row.down .msg { color: #ffa39e; }
+  /* Only the newest few stand on the panel; the rest are one hover away
+     (Serge, 2026-08-05 -- the column ran to the bottom edge). The history is
+     still all here, which is the whole point of a log that outlives the
+     server -- it is folded, not truncated. */
+  #events-more { display: none; }
+  .events-sec:hover #events-more { display: block; }
+  #events-hint {
+    font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: rgba(var(--accent-rgb), 0.38); margin-top: 4px;
+  }
+  .events-sec:hover #events-hint { display: none; }
+
+  /* MAIL -- the session bus (Serge, 2026-08-05). EVENTS is what happened to
+     the stack; this is what the other Jarvises are doing. The one thing the
+     SESSIONS card structurally cannot show is WHICH FILE somebody is holding,
+     and that is the whole reason this strip exists.
+     Same fold-never-truncate doctrine as EVENTS above -- a claim Serge cannot
+     see is a claim that was never posted. */
+  .mail-sec { margin-top: 16px; }
+  .ml-row {
+    font-size: 10.5px; display: flex; align-items: baseline; gap: 6px;
+    margin: 4px 0; letter-spacing: 0.04em; line-height: 1.45;
+  }
+  .ml-row .dot {
+    width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+    position: relative; top: -1px;
+    background: rgba(var(--accent-rgb), 0.35);
+  }
+  .ml-row .t {
+    font-family: "Menlo", monospace; font-size: 9.5px; flex-shrink: 0;
+    color: rgba(var(--accent-rgb), 0.42);
+  }
+  .ml-row .msg { color: rgba(var(--accent-rgb), 0.72); flex: 1; }
+  .ml-row .who { color: rgba(var(--accent-rgb), 0.95); }
+  /* Amber is "held" -- the same language the rest of the HUD uses for a
+     deliberate state that is waiting on somebody, not a fault. */
+  .ml-row.claimed  .dot { background: #ffb020; box-shadow: 0 0 5px #ffb020; }
+  .ml-row.released .dot { background: #00ffa8; box-shadow: 0 0 5px #00ffa8; }
+  .ml-row.opened   .dot { background: rgba(var(--accent-rgb), 0.45); }
+  #mail-more { display: none; }
+  .mail-sec:hover #mail-more { display: block; }
+  #mail-hint {
+    font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: rgba(var(--accent-rgb), 0.38); margin-top: 4px;
+  }
+  .mail-sec:hover #mail-hint { display: none; }
+
+  /* The poller's on/off switch, beside the numbers in the top bar since
+     2026-08-05. Amber PAUSED is the boot state and the resting state -- it
+     should look calm when it is not spending, and only go green while it
+     actually is. (The .usage-sec / .use-row / .use-bar / .use-reset rules that
+     used to follow were the left-panel version of this block; they went with
+     the move rather than being left to rot.) */
+  /* The ambient-music switch shares this styling deliberately: it is the same
+     kind of thing -- a tap Serge holds -- and it sits beside the poller rather
+     than down in the status bar, because the bottom bar was cleared of anything
+     that reads as pressable (2026-08-05). Controls live up here now. */
+  #usage-toggle, #music-toggle {
+    font-family: inherit; font-size: 9px; letter-spacing: 0.16em;
+    padding: 2px 7px; border-radius: 2px; cursor: pointer;
+    background: transparent; transition: opacity 0.2s ease;
+  }
+  #usage-toggle:hover, #music-toggle:hover { opacity: 0.75; }
+  #usage-toggle.paused, #music-toggle.off { color: #ffc75a; border: 1px solid rgba(255, 199, 90, 0.5); }
+  #usage-toggle.live, #music-toggle.on    { color: #7ff0c8; border: 1px solid rgba(127, 240, 200, 0.5); }
+  /* The music volume slider. Deliberately small and quiet: it is a trim, not a
+     transport control, and it sits beside the toggle it belongs to. */
+  #music-vol {
+    -webkit-appearance: none; appearance: none;
+    width: 54px; height: 3px; margin: 0 2px 0 6px; vertical-align: middle;
+    background: rgba(127, 240, 200, 0.25); border-radius: 2px;
+    cursor: pointer; outline: none;
+  }
+  #music-vol::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #7ff0c8; border: none; cursor: pointer;
+  }
+  #music-vol::-moz-range-thumb {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #7ff0c8; border: none; cursor: pointer;
+  }
+  /* Status, not controls. No border, no fill, no padding box -- the three
+     things that made the old chips read as buttons. Colour carries the state
+     in the same doctrine as everywhere else: green up, amber a choice or a
+     wait, dim nothing to say. */
+  /* Drag feedback. pointer-events must stay none, or this overlay swallows
+     the very drop it is advertising. */
+  body.dropping::after {
+    content: 'Drop an image'; position: fixed; inset: 12px; z-index: 300;
+    border: 2px dashed rgba(var(--accent-rgb), 0.85); border-radius: 6px;
+    background: rgba(var(--accent-rgb), 0.07);
+    display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 26px; pointer-events: none;
+    font-size: 12px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--text-bright);
+  }
+
+  #botstat { display: flex; align-items: center; gap: 22px; }
+  .bs { display: flex; align-items: center; gap: 7px; }
+  .bs .dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    background: rgba(var(--accent-rgb), 0.3);
+  }
+  .bs.on  .dot { background: #00ffa8; box-shadow: 0 0 6px #00ffa8; }
+  .bs.on  .t   { color: var(--text-bright); }
+  .bs.warm .dot { background: #ffb020; box-shadow: 0 0 6px #ffb020; }
+  .bs.warm .t   { color: #ffc75a; }
+  /* Off is a CHOICE, and the doctrine paints a choice amber -- the same
+     #6b5a1f the STACK and EVENTS rows use for it. Serge, 2026-08-05: "the
+     terminal line at the bottom, the light should be amber." Dimming it to a
+     grey dot said "nothing here" when the truth is "deliberately not running". */
+  .bs.off .dot { background: #6b5a1f; }
+  .bs.off .t   { color: rgba(190, 175, 110, 0.85); }
+
+  /* Jarvis needs Serge's sign-off. It used to sit above the AI CORE chip, at
+     the bottom of the left column -- the worst place on the page for the one
+     thing that is actively blocking the work. Serge, 2026-08-05: "it would be
+     nice if it was a pop-up on top of everything... in the middle somewhere so
+     I could click on it." So it is centred and fixed, above every panel, with
+     the rest of the page dimmed behind it by the outer shadow rather than by a
+     second element. The amber body theme still fires around it, unchanged. */
+  #approve-box {
+    display: none;
+    position: fixed; z-index: 200;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(520px, 72vw); padding: 18px 20px;
+    border: 1px solid rgba(255, 190, 80, 0.75); border-radius: 4px;
+    background: rgba(46, 31, 4, 0.96);
+    box-shadow: 0 0 0 100vmax rgba(4, 8, 16, 0.62),
+                0 18px 60px rgba(0, 0, 0, 0.55);
+    animation: approve-pulse 1.6s ease-in-out infinite;
+  }
+  /* The dim backdrop rides in this same shadow, so it must be repeated in
+     every keyframe -- box-shadow animates as a whole, and dropping it from one
+     stop would strobe the whole page. */
+  @keyframes approve-pulse {
+    0%, 100% { box-shadow: 0 0 0 100vmax rgba(4, 8, 16, 0.62),
+                           0 0 10px rgba(255, 180, 60, 0.3); }
+    50%      { box-shadow: 0 0 0 100vmax rgba(4, 8, 16, 0.62),
+                           0 0 30px rgba(255, 180, 60, 0.65); }
+  }
+  #approve-head {
+    font-size: 12px; letter-spacing: 0.22em; color: #ffd27a;
+    text-align: center; margin-bottom: 12px;
+  }
+  #approve-detail {
+    font-family: "Menlo", monospace; font-size: 12px; color: #ffe9c4;
+    line-height: 1.5; margin-bottom: 16px; word-break: break-word;
+    max-height: 34vh; overflow-y: auto;
+  }
+  #approve-row { display: flex; gap: 8px; }
+  #approve-row button {
+    flex: 1; padding: 11px 0; font-size: 12px; letter-spacing: 0.18em;
+    border-radius: 2px; cursor: pointer; background: transparent;
+    font-family: inherit;
+  }
+  #approve-yes {
+    border: 1px solid rgba(120, 255, 190, 0.7); color: #7dffc4;
+  }
+  #approve-yes:hover { background: rgba(0, 255, 150, 0.12); }
+  #approve-no {
+    border: 1px solid rgba(255, 120, 100, 0.6); color: #ff9c8a;
+  }
+  #approve-no:hover { background: rgba(255, 90, 60, 0.12); }
+
+  /* ===== center stage ===== */
+  #stage {
+    position: relative; min-width: 0; overflow: hidden;
+    background: radial-gradient(ellipse at center,
+                                var(--stage-core) 0%, var(--bg-deep) 72%);
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+  #status {
+    position: absolute; top: 5%; width: 100%;
+    text-align: center; font-size: 12px; letter-spacing: 0.25em;
+    opacity: 0.55; text-transform: uppercase; pointer-events: none;
+    color: var(--text-soft);
+  }
+  #waiting {
+    position: absolute; top: 13%; width: 100%;
+    text-align: center; pointer-events: none; display: none;
+  }
+  #waiting-head {
+    font-size: 24px; letter-spacing: 0.35em; text-transform: uppercase;
+    color: var(--text-soft);
+    text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.65);
+    animation: waitpulse 2.2s ease-in-out infinite;
+  }
+  #waiting-q {
+    margin: 20px auto 0; max-width: 76%;
+    font-size: 26px; font-weight: 600; line-height: 1.35;
+    color: var(--text-bright);
+  }
+  @keyframes waitpulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+  #label {
+    position: absolute; bottom: 9%; width: 100%;
+    text-align: center; letter-spacing: 0.6em;
+    font-size: 14px; opacity: 0.5; text-transform: uppercase;
+    pointer-events: none; color: var(--text);
+  }
+  #talk {
+    position: absolute; bottom: 3%; left: 50%; transform: translateX(-50%);
+    background: rgba(var(--accent-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-rgb), 0.4);
+    color: var(--text-val); padding: 13px 32px; border-radius: 26px;
+    font-size: 12px; letter-spacing: 0.2em; cursor: pointer;
+    text-transform: uppercase; font-family: inherit;
+  }
+  #talk:hover { background: rgba(var(--accent-rgb), 0.18); }
+  #talk.hot {
+    background: rgba(var(--accent-rgb), 0.3);
+    border-color: rgba(var(--accent-rgb), 0.85);
+    box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.55);
+  }
+  #talk:disabled { cursor: default; }
+  #viewbtn {
+    position: absolute; top: 3%; right: 2.5%;
+    background: rgba(var(--accent-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-rgb), 0.4);
+    color: var(--text-val); padding: 8px 16px; border-radius: 16px;
+    font-size: 10.5px; letter-spacing: 0.2em; cursor: pointer;
+    text-transform: uppercase; font-family: inherit;
+  }
+  #viewbtn:hover { background: rgba(var(--accent-rgb), 0.18); }
+  #graph-hint {
+    position: absolute; bottom: 9%; width: 100%;
+    text-align: center; font-size: 10.5px; letter-spacing: 0.2em;
+    text-transform: uppercase; color: rgba(var(--accent-rgb), 0.55);
+    pointer-events: none; display: none;
+  }
+
+  /* ===== right panel ===== */
+  /* With the log gone from this column, the task list is free to take the
+     room rather than being capped at 38% of it. */
+  #tasks { flex: 1; min-height: 0; overflow-y: auto; }
+  #tasks::-webkit-scrollbar { width: 4px; }
+  #tasks::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb), 0.3); }
+  /* One line per task, not a card. Serge, 2026-08-05: "I just need to know
+     the status of the task and the list so I could see it" -- the note body,
+     owner and timestamp were the bulk of the old card and are deliberately
+     dropped here. They still live in Active Priorities, which is the record;
+     this panel is a glance, not a report. Same three-state doctrine as the
+     STACK rows above: green = live, amber = needs Serge, dim = queued. */
+  #tasks .task {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 3px 2px; font-size: 12px; line-height: 1.35;
+    border-left: 2px solid rgba(var(--accent-rgb), 0.35); padding-left: 8px;
+    margin-bottom: 3px;
+  }
+  #tasks .task .dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    background: rgba(var(--accent-rgb), 0.45);
+  }
+  #tasks .title {
+    color: var(--text); font-weight: 500;
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #tasks .st {
+    font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: rgba(var(--accent-rgb), 0.7); flex-shrink: 0;
+  }
+  /* active -- the one Jarvis is on right now. The pulsing dot is the point:
+     Serge asked to "see a task running". */
+  #tasks .task.active { border-left-color: #00ffa8; }
+  #tasks .task.active .dot {
+    background: #00ffa8; box-shadow: 0 0 7px #00ffa8;
+    animation: taskpulse 1.6s ease-in-out infinite;
+  }
+  #tasks .task.active .title { color: var(--text-bright); font-weight: 600; }
+  #tasks .task.active .st { color: #00ffa8; }
+  /* waiting on Serge -- amber, the same "your move" colour as the alert theme */
+  #tasks .task.waiting { border-left-color: #ffb020; }
+  #tasks .task.waiting .dot { background: #ffb020; box-shadow: 0 0 6px #ffb020; }
+  #tasks .task.waiting .title { color: var(--text-bright); }
+  #tasks .task.waiting .st { color: #ffb020; }
+  @keyframes taskpulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.25; }
+  }
+  /* SESSIONS -- every Jarvis alive right now, sitting under the tasks they
+     are working on. Serge, 2026-08-05: "it would be cool if the session
+     showed up in a card under the Active tasks."
+     Same one-line doctrine as the task rows above: the face is a glance,
+     the whole record (session id, cwd, model, transcript) is in the
+     tooltip. Three states in the HUD's usual language -- green pulsing = a
+     turn in flight right now, dim = alive and idle, amber = live but
+     UNREGISTERED. Amber here means "look at this", not "broken": it is the
+     card refusing to hide a session it cannot name, which is the whole
+     reason this panel exists. */
+  #sessions .sess {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 3px 2px; font-size: 12px; line-height: 1.35;
+    border-left: 2px solid rgba(var(--accent-rgb), 0.35); padding-left: 8px;
+    margin-bottom: 3px;
+  }
+  #sessions .sess .dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    background: rgba(var(--accent-rgb), 0.45);
+  }
+  #sessions .sess .who {
+    color: var(--text); font-weight: 500;
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #sessions .sess .sess-meta {
+    font-size: 9.5px; letter-spacing: 0.06em;
+    color: rgba(var(--accent-rgb), 0.7); flex-shrink: 0;
+  }
+  #sessions .sess.busy { border-left-color: #00ffa8; }
+  #sessions .sess.busy .dot {
+    background: #00ffa8; box-shadow: 0 0 7px #00ffa8;
+    animation: taskpulse 1.6s ease-in-out infinite;
+  }
+  #sessions .sess.busy .who { color: var(--text-bright); font-weight: 600; }
+  #sessions .sess.busy .sess-meta { color: #00ffa8; }
+  #sessions .sess.unreg { border-left-color: #ffb020; }
+  #sessions .sess.unreg .dot { background: #ffb020; box-shadow: 0 0 6px #ffb020; }
+  #sessions .sess.unreg .who { color: var(--text-bright); }
+  #sessions .sess.unreg .sess-meta { color: #ffb020; }
+
+  /* ===== activity log -- a stream, not a panel =====
+     Serge, 2026-08-05: "maybe the activity log should be a text that is
+     transparent in the middle where you live there. So I just see the text
+     who go by and reclaim the activity log space."
+     He is right about the shape of the thing. Everything else on this page is
+     STATE you look up -- PIDs, ports, percentages, tasks -- and state earns a
+     panel. The log is only ever the last few seconds going past, so it earns
+     an overlay instead, and the right column gets its space back.
+     It sits low over the stage, clear of the globe's bright core, above the
+     J A R V I S label; the mask fades the older lines out at the top so the
+     stream reads as arriving rather than as a list. */
+  #log {
+    position: absolute; left: 6%; right: 6%; bottom: 15%;
+    max-height: 32%; pointer-events: none; z-index: 2;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    transition: opacity 1.4s ease;
+    /* The fade was far too deep: with only a handful of lines the mask ate
+       most of them, so a short exchange was half invisible. It now only
+       softens the very top edge. */
+    -webkit-mask-image: linear-gradient(to bottom,
+                        transparent 0%, rgba(0,0,0,0.65) 10%, #000 26%);
+            mask-image: linear-gradient(to bottom,
+                        transparent 0%, rgba(0,0,0,0.65) 10%, #000 26%);
+  }
+  /* Nothing happening: get out of the way entirely. The overlay must never
+     become permanent furniture over the avatar. */
+  #log.idle   { opacity: 0; }
+  #log.hidden { display: none; }
+  #lines {
+    overflow: hidden;
+    font-size: 11.5px; line-height: 1.5; letter-spacing: 0.01em;
+  }
+  /* Over a moving field, contrast has to come from the text itself. */
+  #lines div {
+    margin-bottom: 6px;
+    text-shadow: 0 1px 10px rgba(2, 6, 14, 0.95),
+                 0 0 22px rgba(2, 6, 14, 0.8);
+  }
+  #lines .you    { color: rgba(var(--accent-rgb), 0.92); }
+  #lines .jarvis { color: var(--text-bright); opacity: 0.88; }
+
+  #cmd-sec { flex-shrink: 0; margin-top: auto; }
+  #cmd-hint {
+    font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: rgba(var(--accent-rgb), 0.4); margin-top: 7px;
+  }
+  #cmd { display: flex; gap: 6px; }
+  #typed {
+    flex: 1; min-width: 0;
+    background: var(--bg-input);
+    border: 1px solid rgba(var(--accent-rgb), 0.4);
+    color: var(--text-bright); padding: 9px 12px; border-radius: 3px;
+    font-size: 12px; font-family: inherit; outline: none;
+  }
+  #typed::placeholder { color: rgba(var(--accent-rgb), 0.35); }
+  #send {
+    background: rgba(var(--accent-rgb), 0.28);
+    border: 1px solid rgba(var(--accent-rgb), 0.6);
+    color: var(--text-val); padding: 0 14px; cursor: pointer;
+    border-radius: 3px; font-size: 12px;
+  }
+  #send:hover { background: rgba(var(--accent-rgb), 0.42); }
+  /* The container stacks the rows; each row is what used to be the one chip. */
+  #attach { display: none; flex-direction: column; gap: 4px; margin-top: 8px; }
+  #attach .att-row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    border: 1px solid rgba(var(--accent-rgb), 0.35);
+    background: rgba(var(--accent-rgb), 0.14); border-radius: 3px;
+    font-size: 11px; color: var(--text);
+  }
+  #attach img {
+    height: 34px; max-width: 60px; border-radius: 2px;
+    border: 1px solid rgba(var(--accent-rgb), 0.3); object-fit: cover;
+  }
+  #attach .name {
+    flex: 1; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* The position in the queue, because Serge refers to "the first one". */
+  #attach .num { color: var(--text-soft); font-variant-numeric: tabular-nums; }
+  #attach button {
+    background: none; border: none; color: var(--text-soft);
+    cursor: pointer; font-size: 13px; padding: 0 2px;
+  }
+  #attach button:hover { color: var(--text-bright); }
+  #micline {
+    margin-top: 8px; font-size: 10.5px; letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  #micline.g { color: #5dffb0; }
+  #micline.b { color: #7fc4ff; }
+  #micline.dim { color: rgba(127, 196, 255, 0.45); }
+
+  /* ===== bottom bar ===== */
+  #botbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 20px; font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase;
+    border-top: 1px solid rgba(0, 120, 220, 0.3);
+    background: rgba(2, 12, 24, 0.85);
+    color: rgba(111, 194, 255, 0.7);
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div>MARK III</div>
+  <div class="mid">J.A.R.V.I.S &nbsp;INTERFACE</div>
+  <div id="topbar-right">
+    <div id="topbar-usage" title=""></div>
+    <button id="usage-toggle" class="paused" title="Polling costs tokens -- each poll asks Claude Code directly">PAUSED</button>
+    <!-- Ships OFF. Nothing on this page makes a sound Serge did not ask for. -->
+    <button id="music-toggle" class="off" title="Soft ambient bed while Jarvis is working. Silent while your mic is open.">MUSIC OFF</button>
+    <input id="music-vol" type="range" min="0" max="0.45" step="0.01" title="Music volume">
+
+    <div id="clock">--:--:--</div>
+  </div>
+</div>
+
+<div id="main">
+
+  <div id="left" class="panel">
+    <div>
+      <div class="sec-title">Sys Monitor</div>
+      <div class="mon">
+        <div class="mon-label"><span>CPU</span><span class="val" id="cpu-v">--</span></div>
+        <div class="bar"><i id="cpu-b"></i></div>
+        <svg class="spark" id="cpu-s" viewBox="0 0 100 14" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="mon">
+        <div class="mon-label"><span>MEM</span><span class="val" id="mem-v">--</span></div>
+        <div class="bar"><i id="mem-b"></i></div>
+        <svg class="spark" id="mem-s" viewBox="0 0 100 14" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="mon">
+        <div class="mon-label"><span>NET</span><span class="val" id="net-v">--</span></div>
+        <div class="bar"><i id="net-b"></i></div>
+      </div>
+      <div class="stat-row"><span class="k">UPTIME</span><span class="v" id="up-v">--</span></div>
+      <div class="stat-row"><span class="k">PROC</span><span class="v" id="proc-v">--</span></div>
+      <div class="stat-row"><span class="k">OS</span><span class="v" id="os-v">--</span></div>
+
+      <div class="stack-sec">
+        <div class="sec-title">Stack</div>
+        <div id="stack-list"></div>
+        <div class="ports-row" id="ports-row"></div>
+        <div class="st-sub" id="page-age" style="margin-left:0"></div>
+      </div>
+
+      <!-- Serge, 2026-08-05: "something visual, so we could see the server
+           going on and off and restarting". The STACK block above is the
+           present tense; this is the past. Hidden until there is history. -->
+      <!-- Newest three stand on the panel; the rest unfold on hover. -->
+      <div class="events-sec" id="events-sec" style="display:none">
+        <div class="sec-title">Events</div>
+        <div id="events-list"></div>
+        <div id="events-more"></div>
+        <div id="events-hint"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="status">CONNECTING</div>
+    <div id="waiting">
+      <div id="waiting-head">Waiting for your answer</div>
+      <div id="waiting-q"></div>
+    </div>
+    <div id="log" class="idle"><div id="lines"></div></div>
+    <div id="label">J A R V I S</div>
+    <div id="graph-hint">Drag to spin &nbsp;&middot;&nbsp; scroll to zoom</div>
+    <button id="viewbtn">Vault Graph</button>
+    <button id="talk">Hold to talk &nbsp;&middot;&nbsp; or hold Right &#8984;</button>
+  </div>
+
+  <div id="right" class="panel">
+    <div id="tasks" style="display:none">
+      <div class="sec-title">Active Tasks</div>
+      <div id="tasks-body"></div>
+    </div>
+    <!-- Every Jarvis alive right now, resolved server-side from the process
+         table (session_registry.read_sessions) -- not from anything a
+         session remembers to write about itself. -->
+    <div id="sessions" style="display:none">
+      <div class="sec-title">Sessions<span id="sessions-skew"
+           style="display:none"> &middot; partial</span></div>
+      <div id="sessions-body"></div>
+    </div>
+    <!-- The session bus. Notices are FACTS, never questions, and every word
+         drawn here is built locally from a closed vocabulary -- nothing a
+         sender wrote is rendered as language. Hidden until there is mail. -->
+    <div class="mail-sec" id="mail-sec" style="display:none">
+      <div class="sec-title">Mail</div>
+      <div id="mail-list"></div>
+      <div id="mail-more"></div>
+      <div id="mail-hint"></div>
+    </div>
+    <!-- The activity log used to live here. It is now an overlay on the
+         stage (see #log in the stylesheet) -- this column is state only. -->
+    <div id="cmd-sec">
+      <div class="sec-title">Command Input</div>
+      <div id="cmd">
+        <input id="typed" placeholder="Type a command or question..." autocomplete="off">
+        <button id="send">&#9654;</button>
+      </div>
+      <!-- One row per attached image, built by renderAttachments(). It was a
+           single fixed chip until 2026-08-05, which is why a second image
+           replaced the first instead of joining it. -->
+      <div id="attach"></div>
+      <!-- The hint sits with the thing it describes, not in the far bottom
+           corner of the page where it used to duplicate the talk button. -->
+      <div id="cmd-hint">Enter to send &nbsp;&middot;&nbsp; hold Right &#8984; to talk</div>
+      <div id="micline" class="dim">&#9679; standing by</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- The bottom bar is the status bar now (Serge, 2026-08-05). AI CORE and
+     TERMINAL LINE used to be bordered boxes at the foot of the left column:
+     "they look like a button, but it's not. These are status." A border says
+     pressable, so the border is gone and they read as dots down here, in the
+     same green / amber language as the STACK rows. The talk hint that used to
+     hold this slot was a duplicate of the talk button's own label. -->
+<div id="botbar">
+  <div id="botstat">
+    <span class="bs" id="chip-core"><i class="dot"></i><span class="t">AI CORE</span></span>
+    <span class="bs" id="chip-line"><i class="dot"></i><span class="t">TERMINAL LINE</span></span>
+  </div>
+  <div>Local core &nbsp;&middot;&nbsp; 127.0.0.1:8765</div>
+  <div>Jarvis Systems &nbsp;&middot;&nbsp; <span id="model-v">model &hellip;</span></div>
+</div>
+
+<!-- Floating permission card. Lives at body level because it is positioned
+     fixed and belongs to no panel -- see #approve-box in the stylesheet. -->
+<div id="approve-box">
+  <div id="approve-head">PERMISSION REQUEST</div>
+  <div id="approve-detail"></div>
+  <div id="approve-row">
+    <button id="approve-yes">APPROVE</button>
+    <button id="approve-no">DENY</button>
+  </div>
+</div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const stage = document.getElementById('stage');
+const statusEl = document.getElementById('status');
+const talkBtn = document.getElementById('talk');
+const typedEl = document.getElementById('typed');
+const linesEl = document.getElementById('lines');
+const micEl = document.getElementById('micline');
+// Version of this served copy, stamped in by the server; poll()
+// compares it to /signals' live value and reloads a stale tab.
+const PAGE_VERSION = "__PAGE_VERSION__";
+let W, H, cx, cy;
+function resize(){
+  W = cv.width = stage.clientWidth;
+  H = cv.height = stage.clientHeight;
+  cx = W/2; cy = H/2;
+}
+addEventListener('resize', resize); resize();
+
+// ---- top-bar clock --------------------------------------------------
+const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function tickClock(){
+  const n = new Date(), p = (x) => String(x).padStart(2, '0');
+  document.getElementById('clock').textContent =
+    `${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}` +
+    `  ·  ${DAYS[n.getDay()]} ${n.getDate()} ${MONTHS[n.getMonth()]} ${n.getFullYear()}`;
+}
+setInterval(tickClock, 1000); tickClock();
+
+// ---- state ----------------------------------------------------------
+// `state` is what the status line shows and what shapes the ring.
+// While a browser turn is active it is driven locally; otherwise it
+// follows /signals so the Terminal voice line still animates the ring.
+let state = 'connecting', sigLevel = 0, lineAlive = false;
+let waitingQ = '';   // pending question from /signals; '' = nothing pending
+let pendingReload = false;   // page edit landed; reload between turns
+let capturing = false, thinking = false, playing = false;
+let playQueue = [], turnOpen = false, pressT = 0;
+// turnOpen matters here: between the last spoken chunk and the next one
+// the brain is running tools, with nothing capturing, thinking or
+// playing. Without it a web turn stops looking active mid-work and the
+// status poller below repaints STANDING BY over live work.
+function webActive(){ return capturing || thinking || playing || playQueue.length > 0 || turnOpen; }
+
+const LABELS = {
+  connecting: 'CONNECTING', offline: 'SIGNAL OFFLINE', warming: 'WARMING UP',
+  idle: 'STANDING BY', listening: 'LISTENING', thinking: 'THINKING',
+  speaking: 'SPEAKING',
+};
+
+// Every line rendered so far, keyed who|text. The log used to start empty
+// on each refresh (per Serge, 2026-08-03); we now replay today's saved
+// transcript on load, and this set keeps the terminal-line mirror below
+// from re-drawing lines that are already on screen.
+const shownLines = new Set();
+// The log is an overlay on the stage now, so it holds a handful of lines
+// rather than a scrollback: it is the stream going past, and the full record
+// is the saved transcript on disk. LOG_KEEP is what fits over the quiet part
+// of the globe without crowding it.
+const LOG_KEEP = 8;
+let logLastAt = 0;
+function showLine(who, text){
+  shownLines.add(who + '|' + text);
+  const div = document.createElement('div');
+  div.className = who;
+  div.textContent = (who === 'you' ? 'you: ' : 'jarvis: ') + text;
+  linesEl.appendChild(div);
+  while (linesEl.children.length > LOG_KEEP)
+    linesEl.removeChild(linesEl.firstChild);
+  linesEl.scrollTop = linesEl.scrollHeight;
+  logLastAt = Date.now() / 1000;
+  const box = document.getElementById('log');
+  if (box) box.classList.remove('idle');
+}
+
+// ---- websocket voice channel ---------------------------------------
+let ws = null;
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/voice`);
+  ws.onopen = () => {
+    // A fresh socket means any turn from the old one is dead -- drop
+    // stale flags so the page can't sit in thinking/warming forever.
+    turnOpen = false; thinking = false;
+    if (!webActive()) state = 'idle';
+  };
+  ws.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === 'state') {
+      if (ev.value === 'warming') state = 'warming';
+      else if (ev.value === 'idle') {
+        // The server only declares idle when no turn is running, so a
+        // thinking flag that contradicts it is stale -- drop it.
+        thinking = false;
+        if (!webActive()) state = 'idle';
+      }
+      else if (!webActive()) state = ev.value;
+      else if (ev.value === 'thinking') { thinking = true; state = 'thinking'; }
+    } else if (ev.type === 'transcript') {
+      if (ev.text) showLine('you', ev.text);
+      else { thinking = false; state = 'idle'; }
+    } else if (ev.type === 'say') {
+      showLine('jarvis', ev.text);
+      if (ev.wav) { playQueue.push(ev.wav); pump(); }
+    } else if (ev.type === 'error') {
+      showLine('jarvis', ev.text);
+      thinking = false;
+    } else if (ev.type === 'reload') {
+      pendingReload = true;
+    } else if (ev.type === 'routed') {
+      // typed line handed to the terminal voice line -- it replies there
+    } else if (ev.type === 'approval') {
+      showApproval(ev);
+    } else if (ev.type === 'approval_done') {
+      if (approvalId === ev.id) showApproval(null);
+    } else if (ev.type === 'done') {
+      turnOpen = false; thinking = false;
+      if (!playing && playQueue.length === 0) state = 'idle';
+    }
+  };
+  ws.onclose = () => { state = 'offline'; setTimeout(connect, 2000); };
+  ws.onerror = () => { try { ws.close(); } catch(e){} };
+}
+connect();
+
+// ---- playback (Jarvis's browser mouth) ------------------------------
+let outCtx = null, analyser = null, curSource = null;
+function ensureOut(){
+  if (outCtx) return;
+  outCtx = new AudioContext();
+  analyser = outCtx.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.connect(outCtx.destination);
+}
+function b64buf(b64){
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+async function pump(){
+  if (playing) return;
+  playing = true;
+  ensureOut();
+  if (outCtx.state === 'suspended') await outCtx.resume();
+  while (playQueue.length) {
+    const b64 = playQueue.shift();
+    try {
+      const audio = await outCtx.decodeAudioData(b64buf(b64));
+      thinking = false;
+      state = 'speaking';
+      await new Promise((done) => {
+        curSource = outCtx.createBufferSource();
+        curSource.buffer = audio;
+        curSource.connect(analyser);
+        curSource.onended = done;
+        curSource.start();
+      });
+    } catch(e) { /* one bad chunk must not kill the queue */ }
+  }
+  curSource = null;
+  playing = false;
+  // Queue drained but the turn is still open: the brain is back at work
+  // (tool calls between spoken chunks), so say so instead of freezing on
+  // SPEAKING with nothing coming out of the speakers.
+  if (turnOpen) { thinking = true; state = 'thinking'; }
+  else if (!thinking) state = 'idle';
+}
+function stopPlayback(){
+  playQueue = [];
+  thinking = false; turnOpen = false;
+  if (curSource) { try { curSource.stop(); } catch(e){} }
+}
+
+// ---- ambient bed (Serge, 2026-08-05) --------------------------------
+// "can the visual, when it's thinking, there music in the back -- soft music."
+// It is synthesized here rather than played from a file: no asset, no licence,
+// no request leaving the machine, and the volume is one number we own.
+//
+// DIGITAL, on his second word: "for the music, and it be digital." The first
+// pass was three sines, which came out warm and orchestral -- the wrong machine
+// entirely. So the drone went harmonic-rich (saw + square) and a step sequencer
+// ticked short blips over it: data moving, not a tune.
+//
+// SOFT AND MELODIC, on his third (2026-08-05 ~12:41 PM): "I don't like the
+// sound. Can you have something more soft, melody." That digital pass overshot
+// in both directions at once -- saw and square through a 520 Hz lowpass read as
+// harsh, and a deliberately non-resolving eight-step pattern at 150 ms read as
+// an alarm rather than music. Both were the point at the time; both were wrong.
+// So: triangle waves instead of saw and square (harmonics, but rounded), the
+// cutoff down, and the sequencer slowed to a walking pace playing a PENTATONIC
+// line with a soft attack and a long tail. Pentatonic is the whole trick -- no
+// semitone clashes exist in the scale, so a repeating figure cannot sound wrong
+// against the drone underneath it. The pattern stays FIXED and unrandomised for
+// the original reason: a bed you can predict sinks into the background, and one
+// you cannot keeps pulling your ear back off the work.
+const AMB_VOL  = 0.30;   // DEFAULT level. A bed under the voice, not a soundtrack.
+const AMB_DUCK = 0.28;   // level held while Jarvis is actually speaking
+const AMB_UP   = 0.06;   // per 50 ms tick -- swells in under a second
+const AMB_DOWN = 0.02;   // slower out than in: a fade, not a cut
+
+// THE VOLUME CONTROL (Serge, 2026-08-05 ~1:45 PM: "I would like to have control
+// of the volume... I would like to even maybe lower it"). AMB_VOL stopped being
+// the level and became the DEFAULT; ambVol is what actually plays.
+//
+// AMB_MAX is his own call -- he asked for the cap ("I like the cap") before he
+// asked for the slider to reach it. The reason it is enforced in code rather
+// than only in the input's max attribute: an input's max is a suggestion to the
+// browser, and a stored value from an older page, a hand-edited localStorage
+// entry or a future edit to the markup would all sail past it. clampVol() is
+// the one gate, and every path -- the slider, the restore at boot, the default
+// -- goes through it. At the top of the range the music is still a bed and
+// still loses to Jarvis's voice; that is the property he asked to keep.
+const AMB_MAX  = 0.45;   // ceiling. Above this it stops being a bed.
+function clampVol(v){
+  const n = Number(v);
+  if (!isFinite(n)) return AMB_VOL;   // junk in storage must not silence the music
+  return Math.min(AMB_MAX, Math.max(0, n));
+}
+let musicOn = false, ambGain = 0, ambNodes = null, ambVol = AMB_VOL;
+
+// The whole policy, as a pure function so it can be tested without audio.
+// Two rules matter more than the rest:
+//   - The mic wins. While Serge is holding the key, the speakers go silent --
+//     otherwise the bed bleeds into what whisper transcribes of his own words.
+//   - A turn is one continuous bed. `thinking` alone flickers, because pump()
+//     flips to speaking on every chunk and back between tool calls; keying off
+//     the whole open turn and DUCKING under the voice keeps it seamless.
+function ambientTarget(s){
+  if (!s.on) return 0;
+  if (s.capturing) return 0;
+  const live = s.turnOpen || s.thinking || s.playing || s.state === 'warming';
+  if (!live) return 0;
+  return s.playing ? AMB_DUCK : 1;
+}
+function stepAmbient(cur, want){
+  if (want > cur) return Math.min(want, cur + AMB_UP);
+  return Math.max(want, cur - AMB_DOWN);
+}
+
+// ---- THE MIX (Serge, 2026-08-05 ~1:05 PM, extended ~1:35) ------------
+// "It's too repeated. I was like a Mozart back or something like that."
+// then: "What about having the four of them? And it would rotate in time, so
+// when one finishes, it jumps to the other one. It's a mix."
+//
+// Four synthesized passes died before this, and the reason is worth keeping: an
+// eight-step pattern loops every four seconds, so ANY amount of tuning --
+// waveform, tempo, scale, dropping the drone -- still produces something you
+// notice on the third repeat. Repetition was never a parameter; it was the
+// approach. Hence real recordings, and now four of them in rotation, which is
+// the same problem solved one level up: one piece on loop is the four-second
+// figure written large.
+//
+// All four are PUBLIC DOMAIN, fetched once on Serge's approval and stored under
+// the Jarvis folder. Star Wars was the ask and is firmly in copyright -- but
+// Williams built that score on Holst's Planets, so Jupiter is in here, which is
+// the nearest legal thing to what he actually wanted.
+//
+// TO REMOVE: delete this block, and see the matching removal note above the
+// AMBIENT block in voice-web-server.py. If the routes are gone the fetch simply
+// fails, the catch swallows it, and the toggle produces nothing -- no error
+// state to clean up.
+//
+// It streams through an <audio> element rather than decoding to a buffer, and
+// that is a memory decision, not a style one: four eight-minute tracks decoded
+// to float32 would be well over half a gigabyte resident. The element streams
+// and the MediaElementSource still routes it through the same graph, so the
+// duck, the mic guard and the analyser bypass all apply unchanged.
+const AMB_LIST = '/ambient-list';   // fixed. The server takes no filename at all.
+let ambLoading = false, ambOrder = [], ambAt = 0;
+// How long to wait before a failed playlist fetch may be tried again. See the
+// catch in ensureAmbient() for why this is not zero.
+const AMB_RETRY_MS = 5000;
+
+// Order is shuffled ONCE per page load, not per track: reshuffling every time
+// can deal the same piece twice in a row, which is exactly the repetition this
+// whole exercise has been about.
+function ambShuffle(list){
+  const a = list.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// THE FIRST TRACK IS NOT RANDOM (Serge, 2026-08-05 ~1:50 PM: "start the mix
+// with the calmest track... if the thing is safer"). The server hands the list
+// back ordered calmest-first, and only the TAIL is shuffled -- so switching the
+// music on can never open with Beethoven's Fifth at full tilt. The rotation is
+// still a mix; it just always begins somewhere safe.
+function ambOrderFrom(list){
+  if (!Array.isArray(list) || list.length < 2) return (list || []).slice();
+  return [list[0]].concat(ambShuffle(list.slice(1)));
+}
+
+// Advance to the next track, wrapping. Pure index arithmetic so it is testable
+// without audio: the bug this guards is a rotation that stops at the end of the
+// list and leaves the page silent for the rest of the day.
+function ambNext(at, n){
+  if (!n) return 0;
+  return (at + 1) % n;
+}
+
+function ensureAmbient(){
+  if (ambNodes) return;
+  ensureOut();
+  const ctx = outCtx;
+  const out = ctx.createGain();
+  out.gain.value = 0;
+  // A gentle lowpass so an orchestral recording sits BEHIND the work rather
+  // than in front of it -- it takes the edge off without a muffled feel.
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass'; tone.frequency.value = 3200; tone.Q.value = 0.4;
+  tone.connect(out);
+  // Straight to the destination, deliberately NOT through `analyser`: that node
+  // drives the ring and the waveform, and feeding it the music would make the
+  // visualiser dance to Mozart as though Jarvis were talking.
+  out.connect(ctx.destination);
+
+  const el = new Audio();
+  el.crossOrigin = 'anonymous';
+  el.preload = 'auto';
+  // The element plays continuously and the GAIN is what starts and stops the
+  // sound. If a turn started and stopped playback instead, every turn would
+  // begin at the same opening bar -- rebuilding the repetition problem.
+  const src = ctx.createMediaElementSource(el);
+  src.connect(tone);
+  ambNodes = {out, tone, el, src};
+
+  // A track ending is the ONLY thing that advances the mix. No timer: a timer
+  // and a track length drift apart, and the seam would land mid-phrase.
+  el.addEventListener('ended', () => {
+    ambAt = ambNext(ambAt, ambOrder.length);
+    ambPlay();
+  });
+  // A file that fails to decode must not end the mix. Skip to the next one.
+  el.addEventListener('error', () => {
+    if (!ambOrder.length) return;
+    ambAt = ambNext(ambAt, ambOrder.length);
+    ambPlay();
+  });
+
+  if (ambLoading) return;
+  ambLoading = true;
+  fetch(AMB_LIST).then(r => {
+    if (!r.ok) throw new Error('no ambient routes (' + r.status + ')');
+    return r.json();
+  }).then(list => {
+    if (!Array.isArray(list) || !list.length) throw new Error('empty playlist');
+    ambOrder = ambOrderFrom(list);
+    ambAt = 0;
+    ambPlay();
+  }).catch(e => {
+    // An old server has no ambient routes -- the expected state between this
+    // shipping to his tab and his restart, not a fault. Say it once.
+    console.log('ambient music unavailable:', e.message);
+    // THE RETRY LATCH (Serge, 2026-08-05 ~1:30 PM: MUSIC ON and he heard
+    // nothing). His tab had loaded ~40 s BEFORE his restart, so its one fetch
+    // hit a dead route -- and ambLoading stayed true forever, so that tab could
+    // never pick the music up without a manual reload. The failure is expected;
+    // never retrying is the bug. Clear the latch so the next turn tries again.
+    //
+    // The delay is load-bearing, not politeness: tickAmbient runs at 20 Hz and
+    // calls ensureAmbient on every tick, so clearing the latch immediately would
+    // fetch twenty times a second against a server that has no route. One
+    // attempt every AMB_RETRY_MS is a retry; clearing it bare is a hammer.
+    setTimeout(() => { ambLoading = false; }, AMB_RETRY_MS);
+  });
+}
+
+function ambPlay(){
+  if (!ambNodes || !ambOrder.length) return;
+  const t = ambOrder[ambAt];
+  ambNodes.el.src = t.url;
+  // play() rejects if the context was never unlocked by a click. That is not an
+  // error worth surfacing -- the next turn tries again.
+  const pr = ambNodes.el.play();
+  if (pr && pr.catch) pr.catch(() => {});
+  const b = document.getElementById('music-toggle');
+  if (b) b.title = 'Now playing: ' + t.title +
+                   '  (public domain).  Silent while your mic is open.';
+}
+
+function tickAmbient(){
+  const want = ambientTarget({on: musicOn, turnOpen, thinking,
+                              capturing, playing, state});
+  ambGain = stepAmbient(ambGain, want);
+  // Nothing built and nothing to play: stay out of the way entirely, so a page
+  // that is never switched on never creates an AudioContext at all.
+  if (!ambNodes && ambGain <= 0) return;
+  try {
+    ensureAmbient();
+    ambNodes.out.gain.value = ambVol * ambGain;
+  } catch(e) { /* audio is a nicety; it must never break the page */ }
+}
+setInterval(tickAmbient, 50);
+
+function renderMusic(on){
+  const b = document.getElementById('music-toggle');
+  if (!b) return;
+  b.className = on ? 'on' : 'off';
+  b.textContent = on ? 'MUSIC ON' : 'MUSIC OFF';
+}
+document.getElementById('music-toggle').addEventListener('click', async () => {
+  musicOn = !musicOn;
+  try { localStorage.setItem('jarvisMusic', musicOn ? '1' : '0'); } catch(e){}
+  // The click is the user gesture the browser wants before any sound; take it.
+  if (musicOn) {
+    try {
+      ensureAmbient();
+      if (outCtx.state === 'suspended') await outCtx.resume();
+    } catch(e){}
+  }
+  renderMusic(musicOn);
+});
+// His choice survives a page reload -- and the page reloads itself on every
+// edit, so without this the switch would flip itself off under him all day.
+try { musicOn = localStorage.getItem('jarvisMusic') === '1'; } catch(e){}
+renderMusic(musicOn);
+
+// ---- the volume slider ----------------------------------------------
+// Live: the gain is read on every 50 ms tick, so a drag is heard as it moves
+// rather than on release. Nothing else in the policy changes -- the mic guard,
+// the duck and the fade all multiply on top of ambVol rather than owning it,
+// which is the whole reason this is one number and not a rewrite.
+function renderVol(v){
+  const s = document.getElementById('music-vol');
+  if (!s) return;
+  s.value = String(v);
+  s.title = 'Music volume -- ' + Math.round((v / AMB_MAX) * 100) + '%. ' +
+            'Capped so the bed always loses to Jarvis’s voice.';
+}
+const volEl = document.getElementById('music-vol');
+if (volEl) {
+  volEl.max = String(AMB_MAX);   // the cap is the code's, not the markup's
+  volEl.addEventListener('input', () => {
+    ambVol = clampVol(volEl.value);
+    try { localStorage.setItem('jarvisMusicVol', String(ambVol)); } catch(e){}
+    renderVol(ambVol);
+  });
+}
+// Restored through the SAME clamp as the slider: a value stored by an older
+// page with a higher ceiling must not survive as a louder-than-cap setting.
+try {
+  const saved = localStorage.getItem('jarvisMusicVol');
+  if (saved !== null) ambVol = clampVol(saved);
+} catch(e){}
+renderVol(ambVol);
+
+// ---- capture (Serge's browser microphone) ---------------------------
+let micCtx = null, capBufs = [], micLevel = 0;
+// Shortest capture worth sending to whisper, in seconds of ACTUAL audio. Below
+// this there is nothing to transcribe and whisper answers 400. Deliberately
+// well under a spoken word so it can only ever catch true silence -- the job is
+// to stop empty posts, not to judge whether he said enough.
+const MIN_CAP_S = 0.20;
+async function pickMic(){
+  // Chrome's default mic can be pinned to a silent virtual device
+  // (Teams) or vanished earbuds -- every capture comes out empty.
+  // Pick the Mac's own microphone by name; fall back to any real one.
+  let devs = await navigator.mediaDevices.enumerateDevices();
+  if (!devs.some(d => d.kind === 'audioinput' && d.label)) {
+    // Labels hidden until a stream has been granted: grab-and-release.
+    const tmp = await navigator.mediaDevices.getUserMedia({audio: true});
+    devs = await navigator.mediaDevices.enumerateDevices();
+    tmp.getTracks().forEach(tr => tr.stop());
+  }
+  const ins = devs.filter(d => d.kind === 'audioinput');
+  const mic = ins.find(d => /macbook|built-in/i.test(d.label))
+           || ins.find(d => d.label && !/teams|virtual|aggregate|zoom/i.test(d.label));
+  return mic ? {audio: {deviceId: {exact: mic.deviceId}, channelCount: 1}}
+             : {audio: {channelCount: 1}};
+}
+async function ensureMic(){
+  if (micCtx) return;
+  const stream = await navigator.mediaDevices.getUserMedia(await pickMic());
+  micCtx = new AudioContext({sampleRate: 16000});
+  const src = micCtx.createMediaStreamSource(stream);
+  const proc = micCtx.createScriptProcessor(4096, 1, 1);
+  const mute = micCtx.createGain();
+  mute.gain.value = 0;
+  proc.onaudioprocess = (e) => {
+    if (capturing) {
+      const ch = e.inputBuffer.getChannelData(0);
+      capBufs.push(new Float32Array(ch));
+      let s = 0;
+      for (let i = 0; i < ch.length; i += 16) s += ch[i] * ch[i];
+      micLevel = Math.min(1, Math.sqrt(s / (ch.length / 16)) * 6);
+    }
+  };
+  src.connect(proc);
+  proc.connect(mute);
+  mute.connect(micCtx.destination);
+}
+function encodeWav(bufs, rate){
+  let n = 0;
+  for (const b of bufs) n += b.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const tag = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  tag(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); tag(8, 'WAVE');
+  tag(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  tag(36, 'data'); v.setUint32(40, n * 2, true);
+  let o = 44;
+  for (const b of bufs) for (let i = 0; i < b.length; i++, o += 2) {
+    const s = Math.max(-1, Math.min(1, b[i]));
+    v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return buf;
+}
+function b64enc(buf){
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 32768)
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
+  return btoa(bin);
+}
+
+async function press(){
+  if (capturing || lineAlive) return;   // terminal line owns the talk key
+  pressT = Date.now();
+  stopPlayback();
+  // Unlock audio inside a real user gesture (Chrome autoplay policy).
+  ensureOut();
+  if (outCtx.state === 'suspended') outCtx.resume();
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({type: 'interrupt'}));
+  try { await ensureMic(); } catch(e) { state = 'idle'; statusEl.textContent = 'MIC BLOCKED'; return; }
+  if (micCtx.state === 'suspended') await micCtx.resume();
+  capBufs = [];
+  capturing = true;
+  talkBtn.classList.add('hot');
+  state = 'listening';
+}
+function release(){
+  if (!capturing) return;
+  capturing = false;
+  talkBtn.classList.remove('hot');
+  if (Date.now() - pressT < 250) { state = 'idle'; return; }  // tap = interrupt only
+  // AN EMPTY CAPTURE IS NEVER SENT (Serge, 2026-08-05 ~2:05 PM: "check the log").
+  // Whisper answered 400 three times today and each one cost him a spoken turn --
+  // he talked and nothing happened at all. One of the three logged `stt 0.00s`,
+  // which is the tell: a capture carrying no audio was posted and whisper
+  // rejected it, correctly. The 250 ms guard above measures how long the KEY was
+  // held; it says nothing about whether the microphone actually delivered any
+  // frames, and it does not -- the mic can still be spinning up. So count the
+  // samples, not the milliseconds.
+  //
+  // It must SAY so rather than swallowing it. A capture that vanishes in silence
+  // is indistinguishable from Jarvis ignoring him, which is exactly how the
+  // dropped images behaved before they were fixed.
+  const capSamples = capBufs.reduce((n, b) => n + b.length, 0);
+  if (capSamples < micCtx.sampleRate * MIN_CAP_S) {
+    capBufs = [];
+    showLine('jarvis', "I didn't catch any audio there — hold the button while you speak.");
+    thinking = false; turnOpen = false; state = 'idle';
+    return;
+  }
+  const wav = encodeWav(capBufs, micCtx.sampleRate);
+  capBufs = [];
+  if (ws && ws.readyState === 1) {
+    turnOpen = true; thinking = true; state = 'thinking';
+    const msg = {type: 'audio', wav: b64enc(wav)};
+    // An image waiting in the chip rides the turn Serge actually sends.
+    // Dropping a file and then TALKING is the natural order, and until
+    // 2026-08-05 it silently orphaned the image: only a typed send shipped it.
+    //
+    // Gated on the server saying it understands this. The page reaches an open
+    // tab as soon as the file changes, but the server only changes on a
+    // restart, so a new page can be talking to an old server -- and sending
+    // into one that ignores msg.image would clear the chip and lose the file,
+    // which is the very bug this is fixing.
+    if (attached.length && serverVoiceImage) {
+      // An old server understands ONE image, so send it the first and keep
+      // the rest in the queue rather than shipping a list it would ignore.
+      const take = serverMultiImage ? attached : attached.slice(0, 1);
+      msg.images = take.map(a => ({name: a.name, mime: a.mime, data: a.b64}));
+      msg.image = msg.images[0];        // the one-image shape, for an old server
+      showLine('you', '[' + (take.length > 1 ? take.length + ' images: ' : 'image: ')
+                    + take.map(a => a.name).join(', ') + ']');
+      attached = attached.slice(take.length);
+      renderAttachments();
+      if (attached.length) {
+        showLine('jarvis', '(this server takes one image at a time — ' +
+                 attached.length + ' still attached; restart it to send them together)');
+      }
+    } else if (attached.length) {
+      showLine('jarvis', '(your image is still attached — press send to give '
+                       + 'it to me; this server needs a restart before it can '
+                       + 'take one with speech)');
+    }
+    ws.send(JSON.stringify(msg));
+  } else { state = 'offline'; }
+}
+
+talkBtn.addEventListener('mousedown', press);
+talkBtn.addEventListener('mouseup', release);
+talkBtn.addEventListener('mouseleave', () => { if (capturing) release(); });
+talkBtn.addEventListener('touchstart', (e) => { e.preventDefault(); press(); });
+talkBtn.addEventListener('touchend', (e) => { e.preventDefault(); release(); });
+// Right Command -- the same talk key as the Terminal voice line.
+addEventListener('keydown', (e) => {
+  if (lineAlive) return;                // terminal line owns Right Command
+  if (e.code === 'MetaRight' && !e.repeat && document.activeElement !== typedEl) {
+    e.preventDefault(); press();
+  }
+});
+addEventListener('keyup', (e) => {
+  if (e.code === 'MetaRight' && document.activeElement !== typedEl) {
+    e.preventDefault(); release();
+  }
+});
+// Window lost focus mid-hold (e.g. cmd-Tab): discard, don't send.
+addEventListener('blur', () => {
+  if (capturing) {
+    capturing = false;
+    capBufs = [];
+    talkBtn.classList.remove('hot');
+    state = 'idle';
+  }
+});
+function sendTyped(){
+  const text = typedEl.value.trim();
+  typedEl.value = '';
+  if ((!text && !attached.length) || !ws || ws.readyState !== 1) return;
+  // Hand focus back to the page so Right Command works again straight away
+  // (the talk-key handler ignores the key while the input holds focus).
+  typedEl.blur();
+  if (attached.length) {
+    // Image turn: ship the images over the socket; the server saves each one
+    // to uploads/ and points the brain at the files (plus this text).
+    // An old server understands one image, so it gets the first and the rest
+    // stay queued -- sending a list it would ignore is how images get lost.
+    const take = serverMultiImage ? attached : attached.slice(0, 1);
+    const msg = {type: 'image', text,
+                 images: take.map(a => ({name: a.name, mime: a.mime, data: a.b64})),
+                 // The one-image shape, kept so an old server still works.
+                 name: take[0].name, mime: take[0].mime, data: take[0].b64};
+    const rest = attached.slice(take.length);
+    attached = rest;
+    renderAttachments();
+    const label = '[' + (take.length > 1 ? take.length + ' images: ' : 'image: ')
+                + take.map(a => a.name).join(', ') + ']';
+    if (!lineAlive) {
+      stopPlayback();
+      ensureOut();
+      if (outCtx.state === 'suspended') outCtx.resume();
+      ws.send(JSON.stringify({type: 'interrupt'}));
+      showLine('you', (text ? text + ' ' : '') + label);
+      turnOpen = true; thinking = true; state = 'thinking';
+    }
+    ws.send(JSON.stringify(msg));
+    if (rest.length) {
+      showLine('jarvis', '(this server takes one image at a time — ' + rest.length
+               + ' still attached; restart it to send them together)');
+    }
+    return;
+  }
+  if (lineAlive) {
+    // Terminal line owns the conversation: server routes this to its
+    // inbox; the reply appears via the shared transcript.
+    ws.send(JSON.stringify({type: 'text', text}));
+    return;
+  }
+  stopPlayback();
+  ensureOut();
+  if (outCtx.state === 'suspended') outCtx.resume();
+  ws.send(JSON.stringify({type: 'interrupt'}));
+  showLine('you', text);
+  turnOpen = true; thinking = true; state = 'thinking';
+  ws.send(JSON.stringify({type: 'text', text}));
+}
+typedEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendTyped(); });
+document.getElementById('send').addEventListener('click', sendTyped);
+
+// ---- image attach: paste a screenshot or drop a file anywhere -------
+// The attachment waits in a chip under the command input until Serge
+// hits send; ✕ discards it. Only images are accepted.
+// A QUEUE, not a slot. Serge, 2026-08-05: "when I add two images
+// back-to-back, it only catches the last one." It held one attachment and
+// every new image overwrote it -- silently, which is the worst part: the
+// first image was gone with nothing on screen to say so.
+let attached = [];     // [{name, mime, b64, url}] in the order he added them
+const MAX_ATTACH = 6;  // the server enforces the same number independently
+// Does the SERVER we are talking to understand an image riding a spoken turn?
+// False until /signals says otherwise, so an old server is assumed, never hoped.
+let serverVoiceImage = false;
+// ...and a LIST of images? Same reason, same default.
+let serverMultiImage = false;
+const attachEl = document.getElementById('attach');
+function renderAttachments(){
+  attachEl.innerHTML = '';
+  attachEl.style.display = attached.length ? 'flex' : 'none';
+  attached.forEach((a, i) => {
+    const row = document.createElement('div');
+    row.className = 'att-row';
+    const img = document.createElement('img');
+    img.src = a.url; img.alt = '';
+    const num = document.createElement('span');
+    num.className = 'num';
+    // Only worth numbering once there is an order to refer to.
+    num.textContent = attached.length > 1 ? (i + 1) + '.' : '';
+    const nm = document.createElement('span');
+    nm.className = 'name'; nm.textContent = a.name;
+    const x = document.createElement('button');
+    x.title = 'Remove image'; x.textContent = '✕';
+    // Drop THIS one, not all of them -- a queue you can only empty wholesale
+    // is barely better than a slot.
+    x.addEventListener('click', () => { attached.splice(i, 1); renderAttachments(); });
+    row.append(img, num, nm, x);
+    attachEl.append(row);
+  });
+}
+// Returns why it did or didn't take the file, so the caller can SAY so.
+// Serge, 2026-08-05, after a dropped file vanished without a trace: this used
+// to return a bare false for anything that wasn't an image, and the drop
+// handler ignored the answer -- so a rejected file produced no chip, no
+// message, and no clue. A drop must always produce a visible result.
+//   'ok' | 'too-big' | 'not-image' | 'full'
+function setAttachment(file){
+  if (!file || !file.type || !file.type.startsWith('image/')) return 'not-image';
+  if (file.size > 32 * 1024 * 1024) {
+    showLine('jarvis', '(that image is over the 32 MB limit)');
+    return 'too-big';
+  }
+  if (attached.length >= MAX_ATTACH) {
+    showLine('jarvis', '(' + MAX_ATTACH + ' images is the limit for one turn — '
+                     + 'send these first)');
+    return 'full';
+  }
+  const rd = new FileReader();
+  rd.onload = () => {
+    const url = rd.result;
+    // Re-check on arrival: reads finish out of order, so several files can
+    // pass the check above and land after the queue has already filled.
+    if (attached.length >= MAX_ATTACH) return;
+    attached.push({
+      name: file.name || 'pasted.png',
+      mime: file.type,
+      b64: url.slice(url.indexOf(',') + 1),
+      url,
+    });
+    renderAttachments();
+    typedEl.focus();
+  };
+  rd.readAsDataURL(file);
+  return 'ok';
+}
+function clearAttachment(){
+  attached = [];
+  renderAttachments();
+}
+addEventListener('paste', (e) => {
+  // Every image on the clipboard, not just the first -- pasting two at once
+  // used to keep one.
+  let took = false;
+  for (const it of (e.clipboardData ? e.clipboardData.items : [])) {
+    if (it.kind === 'file' && setAttachment(it.getAsFile()) !== 'not-image') took = true;
+  }
+  if (took) e.preventDefault();
+});
+
+// A drop has to be visible before it lands and answered after it lands --
+// otherwise the only way to find out whether it worked is to wait and see
+// nothing happen, which is exactly how Serge lost a file this morning.
+function setDropping(on){
+  document.body.classList.toggle('dropping', on);
+}
+let dragDepth = 0;
+addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dragDepth++; setDropping(true);
+});
+addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('dragleave', (e) => {
+  // dragleave fires for every child element crossed, so count in and out
+  // rather than clearing on the first one -- otherwise the outline flickers.
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) setDropping(false);
+});
+addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0; setDropping(false);
+  const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
+  if (!files.length) {
+    // Dragging a link, or text, or an image straight off another web page:
+    // no File lands in dataTransfer at all.
+    showLine('jarvis', "(nothing came through in that drop — drag the file "
+                     + "itself from Finder, or paste the image)");
+    return;
+  }
+  // EVERY image in the drop, in the order the browser hands them over. This
+  // used to return on the first one it took, so dropping two kept one.
+  let took = 0;
+  for (const f of files) {
+    if (setAttachment(f) !== 'not-image') took++;
+  }
+  if (took) return;                     // taken, or refused out loud
+  const n = files[0] && files[0].name ? '"' + files[0].name + '"' : 'that file';
+  showLine('jarvis', '(' + n + ' is not an image — I can only take images here)');
+});
+
+// ---- task card: mirrors Active Priorities via /signals ---------------
+let lastTasksJson = '';
+function renderTasks(tasks){
+  const json = JSON.stringify(tasks);
+  if (json === lastTasksJson) return;   // rebuild DOM only on change
+  lastTasksJson = json;
+  const card = document.getElementById('tasks');
+  const body = document.getElementById('tasks-body');
+  body.innerHTML = '';
+  card.style.display = tasks.length ? 'block' : 'none';
+  for (const tk of tasks) {
+    const div = document.createElement('div');
+    const waiting = tk.status === 'waiting-on-serge';
+    const active  = tk.status === 'active';
+    div.className = 'task' + (waiting ? ' waiting' : active ? ' active' : '');
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = (tk.priority ? tk.priority + ' · ' : '') + tk.title;
+    title.title = tk.note || tk.title;   // the detail lives in the tooltip now
+    const st = document.createElement('span');
+    st.className = 'st';
+    st.textContent = waiting ? 'you' : active ? 'working' : tk.status;
+    div.appendChild(dot);
+    div.appendChild(title);
+    div.appendChild(st);
+    body.appendChild(div);
+  }
+}
+
+// ---- sessions card: every Jarvis alive right now ---------------------
+// Serge, 2026-08-05: "it would be cool if the session showed up in a card
+// under the Active tasks." The server resolves the list from the process
+// table; this only draws it.
+// BUSY_WITHIN is what turns a dot green. A session writes to its own
+// transcript on every turn, so the file's mtime answers "is this one
+// working right now" without asking the session anything -- the same
+// don't-ask-the-patient principle the stack sampler uses.
+const BUSY_WITHIN = 20;      // seconds since its last transcript write
+let lastSessSig = '';
+function sessBusy(s){
+  if (!s || !s.last_activity) return false;
+  return (Date.now() / 1000 - s.last_activity) < BUSY_WITHIN;
+}
+function sessSig(list){
+  // Deliberately NOT the whole payload. `age` and `last_activity` change on
+  // every poll and this runs at 15 Hz, so the signature carries identity
+  // plus drawn state only; the clocks are moved by tickSessions instead.
+  return list.map(s => [s.pid, s.session_id, s.channel, s.model,
+                        s.unregistered ? 1 : 0,
+                        sessBusy(s) ? 1 : 0].join(':')).join('|');
+}
+function renderSessions(list){
+  const card = document.getElementById('sessions');
+  const body = document.getElementById('sessions-body');
+  if (!card || !body) return;
+  card.style.display = list.length ? 'block' : 'none';
+  // Version skew, detected without needing the server to announce itself.
+  // The page ships to Serge's tab the moment the file changes; the server
+  // only changes on a restart. An old server still resolves sessions from
+  // the LOG, so it cannot see a session that never registered -- and it
+  // omits the `unregistered` field entirely, which is the tell. Saying
+  // "partial" is the difference between a card that is behind and a card
+  // that quietly under-reports, and under-reporting is the whole bug this
+  // panel was built to end.
+  const stale = list.some(s => s.unregistered === undefined);
+  const skew = document.getElementById('sessions-skew');
+  if (skew) {
+    skew.style.display = stale ? 'inline' : 'none';
+    skew.title = stale
+      ? 'This server predates the process-table scan, so it can only list '
+        + 'sessions that registered at boot. Restart Jarvis to see them all.'
+      : '';
+  }
+  const sig = sessSig(list);
+  if (sig === lastSessSig) return;     // rebuild DOM only on real change
+  lastSessSig = sig;
+  body.innerHTML = '';
+  for (const s of list) {
+    const div = document.createElement('div');
+    const unreg = !!s.unregistered;
+    div.className = 'sess' + (unreg ? ' unreg' : sessBusy(s) ? ' busy' : '');
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    const who = document.createElement('span');
+    who.className = 'who';
+    who.textContent = (s.channel || 'session') + (s.pid ? '  ·  ' + s.pid : '');
+    // The report lives in the tooltip; the row is a glance. Same split the
+    // task card settled on.
+    who.title = [
+      'session  ' + (s.session_id || '(unregistered — it wrote no start record)'),
+      'channel  ' + (s.channel || '?'),
+      'model    ' + (s.model || '?'),
+      'cwd      ' + (s.cwd || '?'),
+      s.transcript_path ? 'log      ' + s.transcript_path : ''
+    ].filter(Boolean).join('\n');
+    const meta = document.createElement('span');
+    meta.className = 'sess-meta';
+    if (s.started_at)    meta.setAttribute('data-since', s.started_at);
+    if (s.last_activity) meta.setAttribute('data-act', s.last_activity);
+    div.appendChild(dot); div.appendChild(who); div.appendChild(meta);
+    body.appendChild(div);
+  }
+  tickSessions();                      // draw the clocks once, now
+}
+// The up/idle clocks ride the same 1 s tick as the STACK durations, so no
+// two clocks on this page can disagree by a poll cycle.
+function tickSessions(){
+  const now = Date.now() / 1000;
+  document.querySelectorAll('#sessions-body .sess-meta').forEach(el => {
+    const since = parseFloat(el.getAttribute('data-since'));
+    const act   = parseFloat(el.getAttribute('data-act'));
+    const bits = [];
+    if (!isNaN(since)) bits.push('up ' + fmtDur(now - since));
+    if (!isNaN(act))   bits.push('idle ' + fmtDur(now - act));
+    el.textContent = bits.join('  ·  ');
+  });
+}
+
+// ---- approve button: Jarvis asks, Serge clicks ----------------------
+// Requests arrive pushed over the websocket (the turn's own tab) and
+// mirrored on /signals (every other tab); the first click anywhere wins.
+let approvalId = null;
+const approveBox = document.getElementById('approve-box');
+function showApproval(a){
+  if (!a) {
+    approvalId = null;
+    approveBox.style.display = 'none';
+    document.body.classList.remove('alert');   // back to blue
+    return;
+  }
+  if (approvalId === a.id) return;
+  approvalId = a.id;
+  document.getElementById('approve-head').textContent =
+    'PERMISSION · ' + (a.tool || 'TOOL').toUpperCase();
+  document.getElementById('approve-detail').textContent = a.detail || '';
+  approveBox.style.display = 'block';
+  document.body.classList.add('alert');        // whole HUD goes amber
+}
+function answerApproval(allow){
+  if (approvalId === null) return;
+  try {
+    ws.send(JSON.stringify(
+      {type: 'approval_reply', id: approvalId, allow: allow}));
+  } catch(e){}
+  showApproval(null);
+}
+document.getElementById('approve-yes').onclick = () => answerApproval(true);
+document.getElementById('approve-no').onclick = () => answerApproval(false);
+
+// ---- left panel: live system stats ----------------------------------
+function fmtRate(kbs){
+  if (kbs >= 1024) return (kbs / 1024).toFixed(1) + ' MB/s';
+  return Math.round(kbs) + ' KB/s';
+}
+function fmtUp(s){
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600),
+        m = Math.floor((s % 3600) / 60), p = (x) => String(x).padStart(2, '0');
+  return (d ? d + 'd ' : '') + p(h) + ':' + p(m);
+}
+// The status items in the bottom bar carry a dot element beside their label,
+// so the text goes into the .t span -- writing textContent on the wrapper
+// would delete the dot on the first update.
+function setChip(el, text, cls){
+  if (!el) return;
+  const t = el.querySelector && el.querySelector('.t');
+  if (t) { if (t.textContent !== text) t.textContent = text; }
+  else if (el.textContent !== text) el.textContent = text;
+  if (el.className !== cls) el.className = cls;
+}
+// ---- SYS MONITOR sparklines (Serge, 2026-08-05) ---------------------------
+// The last minute of CPU and MEM under each bar, so the panel visibly moves.
+// The two functions below are pure precisely so the part that goes wrong in
+// practice -- the geometry -- is testable without a browser.
+const SPARK_N = 60;          // one sample a second on the server's timer
+const SPARK_W = 100;         // viewBox units; the svg scales to the panel
+const SPARK_H = 14;
+let cpuHist = [], memHist = [], statsLastAt = 0;
+
+function pushSample(hist, v, cap){
+  hist.push(v);
+  while (hist.length > cap) hist.shift();   // oldest out; never grows forever
+  return hist;
+}
+// Right-anchored: the newest sample sits at the right edge and older ones
+// march left, so a page that has only been open ten seconds shows ten seconds
+// of history in its true place instead of stretching it across the whole box.
+function sparkPoints(hist, w, h, cap){
+  if (!hist || hist.length < 2) return '';   // one point is not a line
+  const step = w / (cap - 1);
+  return hist.map((v, i) => {
+    const x = w - (hist.length - 1 - i) * step;
+    const y = h - 1 - (Math.max(0, Math.min(100, v)) / 100) * (h - 2);
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+}
+function renderSpark(el, hist){
+  if (!el) return;
+  const pts = sparkPoints(hist, SPARK_W, SPARK_H, SPARK_N);
+  const want = pts ? '<polyline points="' + pts + '"></polyline>' : '';
+  if (el.innerHTML !== want) el.innerHTML = want;   // page polls at 15 Hz
+}
+
+function renderStats(st){
+  if (!st || st.uptime_s === undefined) return;
+  // Only a NEW server sample extends the history. /signals is polled fifteen
+  // times a second; without this the last minute would be the last four.
+  if (st.at && st.at !== statsLastAt) {
+    statsLastAt = st.at;
+    pushSample(cpuHist, st.cpu, SPARK_N);
+    pushSample(memHist, st.mem, SPARK_N);
+    renderSpark(document.getElementById('cpu-s'), cpuHist);
+    renderSpark(document.getElementById('mem-s'), memHist);
+  }
+  document.getElementById('cpu-v').textContent = st.cpu.toFixed(0) + '%';
+  document.getElementById('cpu-b').style.width = Math.min(100, st.cpu) + '%';
+  document.getElementById('mem-v').textContent = st.mem.toFixed(0) + '%';
+  document.getElementById('mem-b').style.width = Math.min(100, st.mem) + '%';
+  document.getElementById('net-v').textContent = fmtRate(st.net_kbs);
+  document.getElementById('net-b').style.width =
+    Math.min(100, st.net_kbs / 5120 * 100) + '%';
+  document.getElementById('up-v').textContent = fmtUp(st.uptime_s);
+  document.getElementById('proc-v').textContent = st.procs;
+  document.getElementById('os-v').textContent = st.os;
+  const mv = document.getElementById('model-v');
+  if (mv) mv.textContent = st.model ? st.model : 'model …';
+  setChip(document.getElementById('chip-core'),
+          st.brain === 'active' ? 'AI CORE ACTIVE' : 'AI CORE WARMING',
+          st.brain === 'active' ? 'bs on' : 'bs warm');
+}
+
+// The stack panel: same components, same process patterns and the same
+// wording as ./jarvis.sh status, so the page and the script never disagree.
+// Rebuilt only when the text actually changes -- this polls at 15 Hz.
+// Clock + duration for the stack sub-lines. Durations tick on their own 1 s
+// timer (below) rather than on the 3 s stack sample, so they read as live.
+function fmtClock(epochSec){
+  const d = new Date(epochSec * 1000);
+  return String(d.getHours()).padStart(2, '0') + ':'
+       + String(d.getMinutes()).padStart(2, '0') + ':'
+       + String(d.getSeconds()).padStart(2, '0');
+}
+function fmtDur(sec){
+  sec = Math.max(0, Math.floor(sec));
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600);
+  const m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  if (d) return d + 'd ' + h + 'h';
+  if (h) return h + 'h ' + String(m).padStart(2, '0') + 'm';
+  if (m) return m + 'm ' + String(s).padStart(2, '0') + 's';
+  return s + 's';
+}
+// The page is not a process, so it gets its own clock: how long THIS tab has
+// been live. It resets on every reload -- including the self-heal reload --
+// which is the useful part: a tab that quietly restarted says so here.
+const PAGE_LOADED = Date.now() / 1000;
+
+function tickAges(){
+  document.querySelectorAll('#stack-list .st-sub[data-since]').forEach(el => {
+    const since = parseFloat(el.getAttribute('data-since'));
+    el.textContent = fmtClock(since) + '  ·  up ' + fmtDur(Date.now() / 1000 - since);
+  });
+  const pg = document.getElementById('page-age');
+  if (pg) pg.textContent = 'page  ' + fmtClock(PAGE_LOADED)
+                         + '  ·  ' + fmtDur(Date.now() / 1000 - PAGE_LOADED);
+  // Usage reset countdowns ride the same second, so the panel never shows
+  // two clocks disagreeing by a poll cycle. (Hoisted -- defined below.)
+  tickUsageAge();
+  tickLogIdle();
+  tickSessions();     // session up/idle clocks, same second (hoisted)
+}
+
+// The overlay fades out when the conversation goes quiet. Without this it
+// becomes permanent furniture over the avatar, which is the thing the move
+// off the right column was meant to avoid.
+// 25 s until 2026-08-05, and it was wrong: the clock started when a line was
+// ADDED, but a spoken reply plays for longer than that, so the transcript
+// disappeared while Jarvis was still talking. Serge: "we're talking all this
+// and never saw anything written on the screen anymore." Two rules now --
+// never fade during a turn or while audio is still playing, and give real
+// silence a minute and a half before clearing the stage.
+const LOG_IDLE_AFTER = 90;   // seconds of true silence before it fades
+function tickLogIdle(){
+  const box = document.getElementById('log');
+  if (!box) return;
+  const busy = turnOpen || thinking
+            || (typeof playQueue !== 'undefined' && playQueue.length > 0);
+  if (busy) { logLastAt = Date.now() / 1000; box.classList.remove('idle'); return; }
+  const quiet = !logLastAt || (Date.now() / 1000 - logLastAt) > LOG_IDLE_AFTER;
+  box.classList.toggle('idle', quiet);
+}
+setInterval(tickAges, 1000);
+
+let stackSig = '';
+function renderStack(sk){
+  if (!sk || !sk.components) return;
+  const sig = JSON.stringify(sk);
+  if (sig === stackSig) return;
+  stackSig = sig;
+  document.getElementById('stack-list').innerHTML =
+    sk.components.map(c => {
+      const pid = c.state === 'up' ? c.pids.slice(0, 2).join(' ')
+                : c.state === 'off' ? 'off'
+                : 'down';
+      const sub = (c.state === 'up' && c.since)
+        ? '<div class="st-sub" data-since="' + c.since + '"></div>' : '';
+      return '<div class="st-row ' + c.state + '">'
+           + '<span class="dot"></span>'
+           + '<span class="name">' + c.label + '</span>'
+           + '<span class="pid">' + pid + '</span></div>' + sub;
+    }).join('');
+  tickAges();
+  document.getElementById('ports-row').innerHTML =
+    Object.keys(sk.ports || {}).map(p =>
+      '<span><b>' + p + '</b> <span class="port ' + sk.ports[p] + '">'
+      + sk.ports[p] + '</span></span>').join('');
+}
+
+// The events strip (Serge, 2026-08-05): the stack's recent history, newest
+// first. Same rebuild-on-change guard as the stack -- this rides the 15 Hz
+// poll and the list is usually identical between frames.
+//
+// Labels and details come off disk, and bash writes some of them, so they are
+// escaped rather than trusted: this is the one place on the page where text
+// from a file becomes markup.
+let eventsSig = '';
+const EV_SHOWN = 3;          // rows on the panel; the rest are one hover away
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+function renderEvents(evs){
+  const sec = document.getElementById('events-sec');
+  if (!sec) return;
+  if (!evs || !evs.length){ sec.style.display = 'none'; return; }
+  const sig = JSON.stringify(evs);
+  if (sig === eventsSig) return;
+  eventsSig = sig;
+  sec.style.display = '';
+  const row = (e) => {
+    const kind = (e.kind === 'up' || e.kind === 'off' || e.kind === 'down')
+      ? e.kind : 'off';
+    return '<div class="ev-row ' + kind + '">'
+         + '<span class="dot"></span>'
+         + '<span class="t">' + esc(fmtClock(e.ts)) + '</span>'
+         + '<span class="msg">' + esc(e.label) + ' — ' + esc(e.detail)
+         + '</span></div>';
+  };
+  // Fold, don't truncate: the newest EV_SHOWN stand on the panel and the
+  // remainder unfold on hover. A restart Serge cannot see is the same as one
+  // that was never logged, so nothing is thrown away here -- only stacked.
+  const head = evs.slice(0, EV_SHOWN), rest = evs.slice(EV_SHOWN);
+  document.getElementById('events-list').innerHTML = head.map(row).join('');
+  const more = document.getElementById('events-more');
+  const hint = document.getElementById('events-hint');
+  if (more) more.innerHTML = rest.map(row).join('');
+  if (hint) hint.textContent = rest.length ? '+' + rest.length + ' more' : '';
+}
+
+// MAIL -- the session bus strip (Serge, 2026-08-05). EVENTS above is the
+// stack's past; this is the other Jarvises' present. The SESSIONS card can say
+// who is alive but structurally cannot say WHO IS HOLDING WHICH FILE, which is
+// the one thing that stops two sessions colliding -- so that is what this draws.
+//
+// THE SECURITY SHAPE IS THE SAME ONE THE BUS ITSELF HAS, AND IT MUST STAY:
+// the vocabulary is closed, and every word of English here is built LOCALLY
+// from that vocabulary. Nothing a sender wrote is ever rendered as language --
+// an unknown kind draws no sentence at all rather than being echoed. There is
+// no free-text field in the payload to render, and this function must never
+// become the place one gets invented.
+const MAIL_SHOWN = 3;
+const MAIL_VERBS = {claimed: 'claimed', released: 'released', opened: 'opened a session'};
+let mailSig = '';
+function renderMail(ms){
+  const sec = document.getElementById('mail-sec');
+  if (!sec) return;
+  // An old server has no mail key at all -- draw nothing rather than an
+  // empty panel, exactly as EVENTS does between shipping and a restart.
+  if (!ms || !ms.length){ sec.style.display = 'none'; mailSig = ''; return; }
+  const sig = JSON.stringify(ms);
+  if (sig === mailSig) return;          // this polls at 15 Hz
+  mailSig = sig;
+  sec.style.display = '';
+  const row = (m) => {
+    const kind = Object.prototype.hasOwnProperty.call(MAIL_VERBS, m.kind)
+      ? m.kind : null;
+    // Unknown kind: show that something happened, name nothing. A future
+    // verb must be added here deliberately, not inherited from the wire.
+    const verb = kind ? MAIL_VERBS[kind] : 'posted a notice';
+    const who = (m.from_channel || 'a session')
+              + (m.from_pid ? ' · ' + m.from_pid : '');
+    // The path is shown by its last two segments -- the full path is one
+    // hover away. A truncated path that cannot be recovered is how you get
+    // two sessions arguing about which settings.json somebody meant.
+    const p = typeof m.path === 'string' ? m.path : '';
+    const shortP = p ? p.split('/').slice(-2).join('/') : '';
+    return '<div class="ml-row ' + (kind || 'opened') + '"'
+         + (p ? ' title="' + esc(p) + '"' : '')
+         + '><span class="dot"></span>'
+         + '<span class="t">' + esc(fmtClock(m.ts)) + '</span>'
+         + '<span class="msg"><span class="who">' + esc(who) + '</span> '
+         + esc(verb) + (shortP ? ' ' + esc(shortP) : '')
+         + '</span></div>';
+  };
+  const head = ms.slice(0, MAIL_SHOWN), rest = ms.slice(MAIL_SHOWN);
+  document.getElementById('mail-list').innerHTML = head.map(row).join('');
+  const more = document.getElementById('mail-more');
+  const hint = document.getElementById('mail-hint');
+  if (more) more.innerHTML = rest.map(row).join('');
+  if (hint) hint.textContent = rest.length ? '+' + rest.length + ' more' : '';
+}
+
+// The usage panel (Serge, 2026-08-04): context, 5-hour and weekly plan
+// pressure, each with its reset clock. Data comes from the status line via
+// voice-line/.usage.json -- the only place on disk carrying the plan
+// percentages. Same rebuild-on-change guard as the stack: this polls at 15 Hz.
+//
+// Thresholds match the HUD's three states everywhere else: calm under 70,
+// warn to 90, spent above it.
+function useClass(pct){ return pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : ''; }
+
+// The poller switch (Serge, 2026-08-05): each poll spends real tokens against
+// his own limits, so he holds the tap. The server boots paused; the page only
+// reflects and flips that state, it never assumes it.
+function renderUsagePoll(on){
+  const b = document.getElementById('usage-toggle');
+  if (!b) return;
+  b.className = on ? 'live' : 'paused';
+  b.textContent = on ? 'LIVE' : 'PAUSED';
+}
+document.getElementById('usage-toggle').addEventListener('click', async () => {
+  const on = document.getElementById('usage-toggle').className === 'live';
+  try {
+    const r = await fetch('/usage-poll', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({on: !on})});
+    renderUsagePoll((await r.json()).on);   // trust the server, not the click
+  } catch (e) {}
+});
+
+// Now drawn in the top bar rather than the left column (Serge, 2026-08-05 --
+// the page was crowded and three percentages are a glance, not a panel). The
+// bars are gone; the reset clocks and the reading's age move to the hover
+// title, which tickUsageRest keeps live. Nothing was dropped, only demoted.
+let usageSig = '', usageWrittenAt = null, usageResets = [];
+function renderUsage(u){
+  // Only the numbers go when there is nothing to draw -- the toggle beside
+  // them stays, because it is the only control that can go get a reading.
+  const strip = document.getElementById('topbar-usage');
+  if (!strip) return;
+  if (!u) {
+    strip.innerHTML = ''; strip.title = '';
+    usageSig = ''; usageWrittenAt = null; usageResets = []; return;
+  }
+  const rows = [
+    ['CTX',  u.ctx_pct,              null],
+    ['5H',   (u.five_hour || {}).pct, (u.five_hour || {}).resets_at],
+    ['WK',   (u.seven_day || {}).pct, (u.seven_day || {}).resets_at],
+  ].filter(r => typeof r[1] === 'number');
+
+  const sig = JSON.stringify(rows);
+  usageWrittenAt = u.written_at;
+  if (sig === usageSig) { tickUsageRest(); return; }
+  usageSig = sig;
+  usageResets = rows.filter(r => typeof r[2] === 'number' && r[2] > 0)
+                    .map(([k, , reset]) => [k, reset]);
+
+  strip.innerHTML = rows.map(([k, pct]) =>
+    '<span class="tu ' + useClass(pct) + '">'
+    + '<span class="k">' + k + '</span>'
+    + '<span class="v">' + Math.round(pct) + '%</span></span>').join('');
+  tickUsageRest();
+}
+
+// The reset clocks and the freshness line, ticked on the same 1 s timer as the
+// stack durations so two clocks can never disagree by a poll cycle. They live
+// on the strip's tooltip now: a reset countdown is what turns a percentage
+// into a decision, but it is not something Serge needs on screen at all times.
+function tickUsageRest(){
+  const strip = document.getElementById('topbar-usage');
+  if (!strip) return;
+  const now = Date.now() / 1000;
+  const parts = usageResets.map(([k, at]) =>
+    k + ' ' + (at > now ? 'resets in ' + fmtDur(at - now) : 'reset due'));
+  // Nothing refreshes the source while Serge is only talking to the browser
+  // Jarvis, so an old reading is normal, not a fault -- it just must not
+  // pretend to be live. Past ten minutes the whole strip dims.
+  let stale = false;
+  if (typeof usageWrittenAt === 'number') {
+    const secs = now - usageWrittenAt;
+    stale = secs > 600;
+    parts.push('read ' + fmtDur(secs) + ' ago');
+  }
+  strip.title = parts.join('  ·  ');
+  strip.className = stale ? 'stale' : '';
+}
+// Kept under the old name for the 1 s tick, which calls it by that name.
+function tickUsageAge(){ tickUsageRest(); }
+
+// ---- terminal-mode fallback: follow the signal files ----------------
+async function poll(){
+  if (webActive()) return;          // browser turn owns the ring
+  try {
+    const r = await fetch('/signals', {cache: 'no-store'});
+    const d = await r.json();
+    // Heartbeat: chip when the terminal line is down; when it's alive,
+    // the page stands down its own talk controls so one Right Command
+    // press can't trigger both channels. Typing stays available.
+    lineAlive = !!d.line_alive;
+    setChip(document.getElementById('chip-line'),
+            lineAlive ? 'TERMINAL LINE ACTIVE' : 'TERMINAL LINE OFF',
+            lineAlive ? 'bs on' : 'bs off');
+    talkBtn.disabled = lineAlive;
+    talkBtn.style.opacity = lineAlive ? 0.35 : 1;
+    talkBtn.innerHTML = lineAlive
+      ? 'Terminal line active &nbsp;&middot;&nbsp; speak there or type here'
+      : 'Hold to talk &nbsp;&middot;&nbsp; or hold Right &#8984;';
+    // One conversation: while the terminal line is up, mirror its
+    // transcript into the activity log -- appending only what isn't
+    // already on screen, so replayed history survives.
+    if (lineAlive && Array.isArray(d.transcript)) {
+      for (const e of d.transcript)
+        if (!shownLines.has(e.who + '|' + e.text)) showLine(e.who, e.text);
+    }
+    showApproval(d.approval || null);
+    waitingQ = (d.question || '').trim();
+    renderTasks(d.tasks || []);
+    renderSessions(d.sessions || []);
+    renderStats(d.stats);
+    renderStack(d.stack);
+    renderEvents(d.events);
+    renderMail(d.mail);
+    renderUsage(d.usage || null);
+    renderUsagePoll(!!d.usage_poll);
+    // Absent on an old server, which is exactly what it is there to detect.
+    serverVoiceImage = !!d.voice_image;
+    serverMultiImage = !!d.multi_image;
+    // Stale-tab self-heal: the server stamps each served copy with its
+    // file version and reports the live one here; a mismatch means this
+    // tab missed a reload push -- reload between turns like any push.
+    if (d.page_version && PAGE_VERSION !== '__PAGE_VERSION__'
+        && d.page_version !== PAGE_VERSION) pendingReload = true;
+    const w = d.waveform || {};
+    const fresh = w.ts && (d.now - w.ts) < 0.4;
+    // The poller reports the terminal line's state file, which knows
+    // nothing about a browser turn. While one is open the websocket owns
+    // the state -- otherwise every tick overwrote it with idle.
+    if (!webActive() && state !== 'warming' && state !== 'connecting') {
+      state = d.state || 'idle';
+    }
+    if (d.state === 'speaking' && fresh && w.samples && w.samples.length) {
+      let s = 0;
+      for (const v of w.samples) s += v;
+      sigLevel = Math.min(1, s / w.samples.length / 6000);
+    } else {
+      sigLevel = 0;
+    }
+  } catch(e) { if (!webActive()) { state = 'offline'; sigLevel = 0; } }
+}
+// Replay today's saved conversation into the log on load, so a refresh
+// picks up where we left off instead of a blank panel.
+(async () => {
+  try {
+    const r = await fetch('/history', {cache: 'no-store'});
+    const d = await r.json();
+    for (const e of (d.lines || [])) showLine(e.who, e.text);
+  } catch(e) {}
+})();
+setInterval(poll, 66);
+// Apply a pending page-edit reload only while nothing is in flight.
+setInterval(() => {
+  if (pendingReload && !webActive()) location.reload();
+}, 500);
+
+// ---- synapse field (background thinking animation) ------------------
+// Organic neurons per Serge's reference: a glowing soma with branching
+// dendrites, linked by curved axons, over a faint nebula wash and a
+// scatter of twinkling specks. Blue-dominant with warm accents. While
+// Jarvis thinks or works the whole field wakes: glow ramps high and
+// pulses fire down the axons, flaring the soma they arrive at.
+let cells = [], axons = [], firings = [], specks = [];
+function dendritePath(){
+  // One neuron's branches, drawn relative to its soma at (0,0).
+  const path = new Path2D();
+  const branches = 4 + (Math.random() * 3 | 0);
+  for (let b = 0; b < branches; b++) {
+    let a = (b / branches) * Math.PI * 2 + Math.random() * 0.9;
+    let x = 0, y = 0;
+    path.moveTo(0, 0);
+    const segs = 4 + (Math.random() * 3 | 0);
+    const step = 9 + Math.random() * 13;
+    for (let s = 0; s < segs; s++) {
+      a += (Math.random() - 0.5) * 0.9;
+      x += Math.cos(a) * step;
+      y += Math.sin(a) * step;
+      path.lineTo(x, y);
+      // occasional sub-branch off the middle of a dendrite
+      if (s === 2 && Math.random() < 0.45) {
+        const sx = x, sy = y;
+        let sa = a + (Math.random() < 0.5 ? 1 : -1) * (0.7 + Math.random() * 0.6);
+        let bx = sx, by = sy;
+        for (let k = 0; k < 3; k++) {
+          sa += (Math.random() - 0.5) * 0.7;
+          bx += Math.cos(sa) * step * 0.7;
+          by += Math.sin(sa) * step * 0.7;
+          path.lineTo(bx, by);
+        }
+        path.moveTo(sx, sy);
+      }
+    }
+  }
+  return path;
+}
+const SPECK_COLORS = ['rgba(120,220,255,', 'rgba(120,255,180,',
+                      'rgba(255,140,220,', 'rgba(255,190,110,',
+                      'rgba(200,230,255,'];
+function buildSynapses(){
+  cells = []; axons = []; firings = []; specks = [];
+  const count = Math.max(10, Math.min(26, Math.round((W * H) / 42000)));
+  for (let i = 0; i < count; i++) {
+    // warm accent cells like the reference: mostly blue, a few orange/pink
+    const roll = Math.random();
+    const kind = roll < 0.78 ? 'blue' : (roll < 0.90 ? 'warm' : 'pink');
+    cells.push({
+      x: 30 + Math.random() * (W - 60), y: 30 + Math.random() * (H - 60),
+      dx: (Math.random() - 0.5) * 0.12, dy: (Math.random() - 0.5) * 0.12,
+      ph: Math.random() * Math.PI * 2,
+      sz: 4 + Math.random() * 5,
+      flare: 0, kind,
+      path: dendritePath(),
+    });
+  }
+  const maxD = Math.min(W, H) * 0.38;
+  for (let i = 0; i < cells.length; i++)
+    for (let j = i + 1; j < cells.length; j++) {
+      const a = cells[i], b = cells[j];
+      if (Math.hypot(a.x - b.x, a.y - b.y) < maxD)
+        axons.push({i, j,
+          // fixed perpendicular bow so the axon curves organically
+          bow: (Math.random() < 0.5 ? -1 : 1) * (14 + Math.random() * 30)});
+    }
+  const nSpecks = Math.round((W * H) / 9000);
+  for (let i = 0; i < nSpecks; i++)
+    specks.push({
+      x: Math.random() * W, y: Math.random() * H,
+      c: SPECK_COLORS[(Math.random() * SPECK_COLORS.length) | 0],
+      ph: Math.random() * Math.PI * 2, sp: 0.6 + Math.random() * 1.8,
+      sz: 0.7 + Math.random() * 1.3,
+    });
+}
+buildSynapses();
+addEventListener('resize', buildSynapses);
+
+function axonPoints(ax){
+  const a = cells[ax.i], b = cells[ax.j];
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  const d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return {a, b,
+    cpx: mx + (-(b.y - a.y) / d) * ax.bow,
+    cpy: my + ((b.x - a.x) / d) * ax.bow};
+}
+const CELL_STROKE = {
+  blue: 'rgba(90,170,255,',
+  warm: 'rgba(255,150,70,',
+  pink: 'rgba(255,120,200,',
+};
+let neuralGlow = 0;   // eases toward target; ramps up over a thinking spell
+function drawSynapses(){
+  // The field IS the status light (per Serge, 2026-08-03): dark and still
+  // when idle, waking visibly the moment there's work -- readable from
+  // across the room without reading a word.
+  const target = (state === 'thinking' || state === 'warming') ? 0.85
+               : state === 'speaking' ? 0.45
+               : state === 'listening' ? 0.18 : 0.0;
+  neuralGlow += (target - neuralGlow) * (target > neuralGlow ? 0.04 : 0.02);
+  const g = neuralGlow;
+  if (g < 0.02) return;
+
+  // nebula wash: two huge soft blobs drifting behind everything
+  const nb = Math.min(W, H);
+  ctx.globalAlpha = 0.06 + g * 0.10;
+  ctx.drawImage(NEBULA, cx - nb * 0.75 + Math.sin(t * 0.05) * 40,
+                cy - nb * 0.75 + Math.cos(t * 0.04) * 30, nb * 1.5, nb * 1.5);
+  ctx.globalAlpha = 0.04 + g * 0.07;
+  ctx.drawImage(NEBULA, W * 0.1 + Math.cos(t * 0.03) * 50, -nb * 0.2,
+                nb * 1.1, nb * 1.1);
+  ctx.globalAlpha = 1;
+
+  // twinkling specks
+  for (const s of specks) {
+    const tw = 0.5 + 0.5 * Math.sin(t * s.sp + s.ph);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.sz, 0, Math.PI * 2);
+    ctx.fillStyle = s.c + (0.05 + (0.10 + g * 0.5) * tw) + ')';
+    ctx.fill();
+  }
+
+  for (const n of cells) {
+    n.x += n.dx; n.y += n.dy;
+    if (n.x < 20 || n.x > W - 20) n.dx *= -1;
+    if (n.y < 20 || n.y > H - 20) n.dy *= -1;
+    n.flare *= 0.94;
+  }
+
+  // axons: curved connections between somas
+  ctx.lineWidth = 1;
+  for (const ax of axons) {
+    const p = axonPoints(ax);
+    const warm = cells[ax.i].kind !== 'blue' || cells[ax.j].kind !== 'blue';
+    ctx.beginPath();
+    ctx.moveTo(p.a.x, p.a.y);
+    ctx.quadraticCurveTo(p.cpx, p.cpy, p.b.x, p.b.y);
+    ctx.strokeStyle = (warm ? 'rgba(255,160,90,' : 'rgba(70,150,255,')
+                      + (0.03 + g * 0.11) + ')';
+    ctx.stroke();
+  }
+
+  // dendrites + soma glow
+  for (const n of cells) {
+    ctx.save();
+    ctx.translate(n.x, n.y);
+    ctx.strokeStyle = CELL_STROKE[n.kind]
+                      + (0.05 + g * 0.20 + n.flare * 0.35) + ')';
+    ctx.lineWidth = 1;
+    ctx.stroke(n.path);
+    ctx.restore();
+    const tw = 0.75 + 0.25 * Math.sin(t * 1.4 + n.ph);
+    const s = n.sz * 2.4 * tw * (1 + n.flare * 1.3);
+    const spr = n.kind === 'blue' ? SOMA_BLUE
+              : n.kind === 'warm' ? SOMA_WARM : SOMA_PINK;
+    ctx.globalAlpha = Math.min(1, (0.20 + g * 0.6) * tw + n.flare * 0.5);
+    ctx.drawImage(spr, n.x - s / 2, n.y - s / 2, s, s);
+    ctx.globalAlpha = 1;
+  }
+
+  // firings: sparks that ride an axon and flare the receiving soma
+  if (g > 0.2 && Math.random() < g * 0.35 && axons.length) {
+    const ax = axons[(Math.random() * axons.length) | 0];
+    firings.push({ax, p: 0, sp: 0.012 + g * 0.02,
+                  warm: cells[ax.i].kind !== 'blue'});
+  }
+  for (let k = firings.length - 1; k >= 0; k--) {
+    const f = firings[k];
+    f.p += f.sp;
+    if (f.p >= 1) { cells[f.ax.j].flare = 1; firings.splice(k, 1); continue; }
+    const p = axonPoints(f.ax);
+    const u = f.p, v = 1 - u;
+    const x = v * v * p.a.x + 2 * v * u * p.cpx + u * u * p.b.x;
+    const y = v * v * p.a.y + 2 * v * u * p.cpy + u * u * p.b.y;
+    const s = 7 + g * 4;
+    ctx.globalAlpha = 0.55 + 0.45 * g;
+    ctx.drawImage(f.warm ? SOMA_WARM : PULSE_SPR, x - s / 2, y - s / 2, s, s);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ---- the ember ring -------------------------------------------------
+const freqArr = new Uint8Array(128);
+function level(){
+  if (playing && analyser) {
+    analyser.getByteFrequencyData(freqArr);
+    let s = 0;
+    for (let i = 2; i < 40; i++) s += freqArr[i];
+    return Math.min(1, s / 40 / 140);
+  }
+  return sigLevel;
+}
+
+// Pre-rendered glow sprites: additive drawImage is far cheaper than
+// per-particle shadowBlur, and the fire look comes from stacking them.
+function makeSprite(inner, outer){
+  const s = document.createElement('canvas');
+  s.width = s.height = 64;
+  const g2 = s.getContext('2d');
+  const gr = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, inner);
+  gr.addColorStop(0.35, outer);
+  gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g2.fillStyle = gr;
+  g2.fillRect(0, 0, 64, 64);
+  return s;
+}
+const SPRITES = [
+  makeSprite('rgba(235,248,255,1)',   'rgba(120,190,255,0.55)'),
+  makeSprite('rgba(160,215,255,1)',   'rgba(70,150,255,0.45)'),
+  makeSprite('rgba(255,150,60,0.9)',  'rgba(200,80,10,0.35)'),
+];
+const SOMA_BLUE = makeSprite('rgba(210,240,255,1)', 'rgba(60,140,255,0.5)');
+const SOMA_WARM = makeSprite('rgba(255,220,170,1)', 'rgba(255,120,40,0.45)');
+const SOMA_PINK = makeSprite('rgba(255,200,240,1)', 'rgba(255,90,200,0.4)');
+const PULSE_SPR = makeSprite('rgba(240,250,255,1)', 'rgba(120,200,255,0.6)');
+const NEBULA    = makeSprite('rgba(40,110,220,0.5)', 'rgba(15,50,140,0.22)');
+
+// The avatar is a 3D globe: particles live on a unit sphere (lat/lon),
+// spin about Y, get a fixed tilt about X, then a light perspective
+// scale by depth. Additive blending is order-independent, so no sort.
+const TILT = -0.45;
+let emberR = 0, particles = [], halo = [], orbits = [], sparks = [], rot = 0;
+function buildRing(){
+  // 0.24 until 2026-08-05. Pulled in ~15% so the activity-log overlay below
+  // has quiet space to sit in without fighting the globe's bright core.
+  emberR = Math.min(W, H) * 0.204;
+  particles = [];
+  for (let i = 0; i < 520; i++) {
+    const z = Math.random() * 2 - 1;              // uniform on the sphere
+    particles.push({
+      lat: Math.asin(z),
+      lon: Math.random() * Math.PI * 2,
+      spMul: 0.55 + Math.random() * 0.9,          // differential spin
+      jp: Math.random() * Math.PI * 2,
+      jf: 0.4 + Math.random() * 1.6,
+      ja: 0.01 + Math.random() * 0.05,            // radial breathing (unit-sphere)
+      sz: 3 + Math.random() * 8,
+      al: 0.25 + Math.random() * 0.75,
+      spr: SPRITES[(Math.random() * 3) | 0],
+      tw: Math.random() * Math.PI * 2,
+    });
+  }
+  halo = [];                                       // loose equatorial debris belt
+  for (let i = 0; i < 140; i++) {
+    halo.push({
+      lon: Math.random() * Math.PI * 2,
+      rf: 1.25 + Math.random() * 0.5,
+      lift: (Math.random() - 0.5) * 0.16,          // slight belt thickness
+      spMul: 0.35 + Math.random() * 0.4,
+      sz: 2 + Math.random() * 6,
+      al: 0.15 + Math.random() * 0.5,
+      spr: SPRITES[(Math.random() * 3) | 0],
+      tw: Math.random() * Math.PI * 2,
+    });
+  }
+  orbits = [];                                     // thin tilted orbit rings
+  for (let i = 0; i < 4; i++) {
+    orbits.push({
+      rf: 1.02 + i * 0.09,
+      squish: 0.28 + Math.random() * 0.3,
+      roll: Math.random() * Math.PI,
+      sp: (0.05 + Math.random() * 0.18) * (Math.random() < 0.4 ? -1 : 1),
+      w: 1 + Math.random() * 1.5,
+      ph: Math.random() * Math.PI * 2,
+    });
+  }
+}
+buildRing();
+addEventListener('resize', buildRing);
+
+// lat/lon (+ radius factor) -> screen x, y and depth zf in [-1, 1] (front > 0)
+function project(lat, lon, rf){
+  const x = Math.cos(lat) * Math.cos(lon) * rf;
+  const y = Math.sin(lat) * rf;
+  const z = Math.cos(lat) * Math.sin(lon) * rf;
+  const y2 = y * Math.cos(TILT) - z * Math.sin(TILT);
+  const z2 = y * Math.sin(TILT) + z * Math.cos(TILT);
+  const persp = 1 + z2 * 0.18;
+  return { x: cx + x * emberR * persp, y: cy + y2 * emberR * persp, zf: z2, persp };
+}
+
+function spawnSpark(boost){
+  if (sparks.length > 160) return;
+  const a = Math.random() * Math.PI * 2;
+  sparks.push({
+    x: cx + Math.cos(a) * emberR, y: cy + Math.sin(a) * emberR,
+    dx: Math.cos(a) * (0.2 + Math.random() * 0.6 + boost) + (Math.random() - 0.5) * 0.3,
+    dy: Math.sin(a) * (0.2 + Math.random() * 0.6 + boost) - (0.2 + Math.random() * 0.5),
+    life: 1, sz: 2 + Math.random() * 4,
+    spr: SPRITES[(Math.random() * 3) | 0],
+  });
+}
+
+// Faint blue HUD dressing: frame lines, tick ring, corner dial.
+function drawHUD(){
+  const blue = 'rgba(90,175,255,';
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = blue + '0.16)';
+  ctx.beginPath();
+  ctx.moveTo(W * 0.06, H * 0.075); ctx.lineTo(W * 0.46, H * 0.075);
+  ctx.moveTo(W * 0.06, H * 0.088); ctx.lineTo(W * 0.30, H * 0.088);
+  ctx.moveTo(W * 0.54, H * 0.925); ctx.lineTo(W * 0.94, H * 0.925);
+  ctx.moveTo(W * 0.70, H * 0.938); ctx.lineTo(W * 0.94, H * 0.938);
+  ctx.stroke();
+  ctx.fillStyle = blue + '0.10)';
+  ctx.fillRect(W * 0.06, H * 0.070, W * 0.10, 3);
+  ctx.fillRect(W * 0.88, H * 0.930, W * 0.06, 3);
+  const rT = emberR * 1.62;
+  for (let i = 0; i < 120; i++) {
+    const a = (i / 120) * Math.PI * 2 + t * 0.02;
+    const long_ = i % 10 === 0;
+    ctx.strokeStyle = blue + (long_ ? '0.22)' : '0.10)');
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * rT, cy + Math.sin(a) * rT);
+    ctx.lineTo(cx + Math.cos(a) * (rT + (long_ ? 12 : 5)),
+               cy + Math.sin(a) * (rT + (long_ ? 12 : 5)));
+    ctx.stroke();
+  }
+  drawStateDial(W * 0.935, H * 0.88, Math.min(W, H) * 0.045);
+}
+
+// The corner dial is the one state read-out that survives a view change:
+// the globe disappears in graph view, this doesn't. Hue says which state,
+// brightness and spin say how hard the state is running.
+const DIAL_HUE = {
+  listening: [ 93, 255, 176],   // green  — I'm hearing you
+  speaking:  [125, 215, 255],   // cyan   — I'm talking
+  thinking:  [255, 190,  95],   // amber  — I'm reasoning
+  warming:   [255, 150,  70],   // orange — spinning up / working
+  idle:      [ 90, 175, 255],   // faint blue at rest
+};
+let dialEnergy = 0, thinkRamp = 0;
+function drawStateDial(dx0, dy0, dr){
+  const [r, g, b] = DIAL_HUE[state] || DIAL_HUE.idle;
+  const col = (a) => 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+
+  // thinking has no audio to ride, so it ramps: the longer it runs, the hotter
+  if (state === 'thinking' || state === 'warming') thinkRamp = Math.min(1, thinkRamp + 0.004);
+  else thinkRamp = Math.max(0, thinkRamp - 0.03);
+
+  // `smooth` already tracks mic level while listening and my voice while speaking
+  const live = (state === 'listening' || state === 'speaking')
+    ? Math.min(1, smooth * 3.2)
+    : thinkRamp * (0.55 + 0.45 * Math.sin(t * 3.1));
+  const target = state === 'idle' || state === 'offline' || state === 'connecting'
+    ? 0.06 : 0.25 + live * 0.75;
+  dialEnergy += (target - dialEnergy) * 0.12;
+  const e = dialEnergy;
+
+  // outer ring: swells slightly and brightens with energy
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = col(0.22 + e * 0.5);
+  ctx.beginPath(); ctx.arc(dx0, dy0, dr * (1 + e * 0.05), 0, Math.PI * 2); ctx.stroke();
+
+  // ticks: spin faster the harder the state is working
+  const spin = t * (0.35 + e * 1.9);
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2 - spin;
+    const len = 0.95 + e * 0.12 * (0.5 + 0.5 * Math.sin(a * 3 + t * 2));
+    ctx.strokeStyle = col(0.18 + e * 0.65);
+    ctx.beginPath();
+    ctx.moveTo(dx0 + Math.cos(a) * dr * 0.72, dy0 + Math.sin(a) * dr * 0.72);
+    ctx.lineTo(dx0 + Math.cos(a) * dr * len, dy0 + Math.sin(a) * dr * len);
+    ctx.stroke();
+  }
+
+  // inner sweep: arc length grows with energy, so a hard think nearly closes it
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = col(0.28 + e * 0.6);
+  ctx.beginPath();
+  ctx.arc(dx0, dy0, dr * 0.45, -spin * 2.2,
+          -spin * 2.2 + Math.PI * (0.9 + e * 1.0));
+  ctx.stroke();
+  ctx.lineWidth = 1;
+
+  // core dot: the pulse you can read from across the room
+  const cr = dr * (0.10 + e * 0.16);
+  const cg = ctx.createRadialGradient(dx0, dy0, 0, dx0, dy0, Math.max(cr, 0.1) * 3.2);
+  cg.addColorStop(0, col(0.35 + e * 0.65));
+  cg.addColorStop(1, col(0));
+  ctx.fillStyle = cg;
+  ctx.beginPath(); ctx.arc(dx0, dy0, cr * 3.2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = col(0.5 + e * 0.5);
+  ctx.beginPath(); ctx.arc(dx0, dy0, cr, 0, Math.PI * 2); ctx.fill();
+}
+
+// mic status line under the command input
+let lastMic = '';
+function renderMicLine(){
+  let text, cls;
+  if (capturing)            { text = '● listening';                     cls = 'g'; }
+  else if (lineAlive)       { text = '● terminal line owns voice';      cls = 'b'; }
+  else if (state === 'offline' || state === 'connecting')
+                            { text = '● channel offline';               cls = 'dim'; }
+  else                      { text = '● mic ready · hold to talk'; cls = 'g'; }
+  const key = text + cls;
+  if (key !== lastMic) { lastMic = key; micEl.textContent = text; micEl.className = cls; }
+}
+
+// ---- 3D vault graph: Obsidian's graph view, HUD-style ---------------
+// Nodes are vault notes, edges are wikilinks (served on /graph). A tiny
+// 3D force layout runs live: linked notes pull together, all notes push
+// apart, everything eases toward the center. Same projection idea as
+// the globe: rotate about Y (spin) then X (tilt), light perspective.
+// Drag spins it by hand, scroll zooms, and it auto-rotates when idle.
+let view = 'avatar';
+let gNodes = [], gEdges = [], gById = {};
+let gRotY = 0, gRotX = -0.25, gZoom = 1, gAutoSpin = true, gLastDrag = 0;
+const FOLDER_PALETTE = [
+  '#5ab4ff', '#7dffc4', '#ffb46e', '#ff8ad4', '#c4a4ff',
+  '#fff08a', '#8affff', '#ff9c8a',
+];
+let folderColor = {}, folderSeq = 0;
+// '#5ab4ff' + alpha -> 'rgba(90,180,255,a)'; canvas gradients need the
+// channels split out, and these hex values are all 6-digit
+function rgba(hex, a){
+  const v = parseInt(hex.slice(1), 16);
+  return `rgba(${v >> 16 & 255},${v >> 8 & 255},${v & 255},${a})`;
+}
+function colorFor(folder){
+  if (!(folder in folderColor))
+    folderColor[folder] = FOLDER_PALETTE[folderSeq++ % FOLDER_PALETTE.length];
+  return folderColor[folder];
+}
+async function loadGraph(){
+  try {
+    const r = await fetch('/graph', {cache: 'no-store'});
+    const d = await r.json();
+    const old = gById;
+    gById = {};
+    gNodes = d.nodes.map((n) => {
+      const prev = old[n.id];
+      const node = prev || {
+        // new notes drop in on a random sphere shell
+        x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2,
+        z: (Math.random() - 0.5) * 2, vx: 0, vy: 0, vz: 0,
+      };
+      node.id = n.id; node.folder = n.folder; node.links = n.links;
+      node.color = colorFor(n.folder);
+      gById[n.id] = node;
+      return node;
+    });
+    gEdges = d.edges;
+  } catch(e) { /* keep the last graph; retry on the next cycle */ }
+}
+function stepGraph(){
+  // One relaxation step; O(n^2) repulsion is nothing at vault scale.
+  const n = gNodes.length;
+  if (!n) return;
+  for (let i = 0; i < n; i++) {
+    const a = gNodes[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = gNodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+      const d2 = dx * dx + dy * dy + dz * dz + 0.01;
+      const f = 0.012 / d2;
+      dx *= f; dy *= f; dz *= f;
+      a.vx += dx; a.vy += dy; a.vz += dz;
+      b.vx -= dx; b.vy -= dy; b.vz -= dz;
+    }
+    // gravity toward the center keeps loners from drifting off-screen
+    a.vx -= a.x * 0.004; a.vy -= a.y * 0.004; a.vz -= a.z * 0.004;
+  }
+  for (const [i, j] of gEdges) {
+    const a = gNodes[i], b = gNodes[j];
+    if (!a || !b) continue;
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    const f = (d - 0.55) * 0.02 / d;   // spring toward rest length
+    a.vx += dx * f; a.vy += dy * f; a.vz += dz * f;
+    b.vx -= dx * f; b.vy -= dy * f; b.vz -= dz * f;
+  }
+  for (const a of gNodes) {
+    a.vx *= 0.85; a.vy *= 0.85; a.vz *= 0.85;
+    a.x += a.vx; a.y += a.vy; a.z += a.vz;
+  }
+}
+function projGraph(p){
+  const cy1 = Math.cos(gRotY), sy1 = Math.sin(gRotY);
+  const cx1 = Math.cos(gRotX), sx1 = Math.sin(gRotX);
+  const x1 = p.x * cy1 + p.z * sy1;
+  const z1 = -p.x * sy1 + p.z * cy1;
+  const y2 = p.y * cx1 - z1 * sx1;
+  const z2 = p.y * sx1 + z1 * cx1;
+  const scale = Math.min(W, H) * 0.30 * gZoom;
+  const persp = 1 + z2 * 0.22;
+  return {x: cx + x1 * scale * persp, y: cy + y2 * scale * persp,
+          zf: z2, persp};
+}
+function drawGraph(){
+  stepGraph();
+  if (gAutoSpin && Date.now() - gLastDrag > 4000) gRotY += 0.0022;
+  const pts = gNodes.map(projGraph);
+  // edges first, depth-faded
+  ctx.lineWidth = 1.5;
+  for (const [i, j] of gEdges) {
+    const a = pts[i], b = pts[j];
+    if (!a || !b) continue;
+    const depth = 0.25 + 0.75 * ((a.zf + b.zf) / 2 + 1) / 2;
+    // edge takes its two endpoints' folder colors, so links read as
+    // "which corners of the vault are talking to each other"
+    const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+    grad.addColorStop(0, rgba(gNodes[i].color, 0.18 + 0.40 * depth));
+    grad.addColorStop(1, rgba(gNodes[j].color, 0.18 + 0.40 * depth));
+    ctx.strokeStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+  // nodes: glow sprite sized by link count, label above
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < gNodes.length; i++) {
+    const n = gNodes[i], q = pts[i];
+    const depth = 0.45 + 0.55 * (q.zf + 1) / 2;
+    const s = (12 + Math.min(36, n.links * 4)) * q.persp;
+    // glow in the node's own folder color -- the shared blue sprite
+    // washed every folder back to blue
+    ctx.globalAlpha = 0.60 * depth + 0.35;
+    const g = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, s / 2);
+    g.addColorStop(0, rgba(n.color, 0.95));
+    g.addColorStop(0.45, rgba(n.color, 0.30));
+    g.addColorStop(1, rgba(n.color, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, s / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = depth;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, Math.max(1.6, s * 0.14), 0, Math.PI * 2);
+    ctx.fillStyle = n.color;
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  // labels: front nodes get names; back nodes stay quiet dots
+  ctx.textAlign = 'center';
+  for (let i = 0; i < gNodes.length; i++) {
+    const n = gNodes[i], q = pts[i];
+    if (q.zf < -0.35) continue;
+    const depth = (q.zf + 1) / 2;
+    ctx.font = `${Math.round(9 + 3 * depth)}px "Avenir Next", sans-serif`;
+    ctx.fillStyle = `rgba(223,242,255,${0.60 + 0.40 * depth})`;
+    ctx.fillText(n.id, q.x, q.y - 9 - Math.min(22, n.links * 2.5) * 0.3);
+  }
+  ctx.globalAlpha = 1;
+}
+// view toggle + mouse: drag spins, wheel zooms (graph view only)
+const viewBtn = document.getElementById('viewbtn');
+const hintEl = document.getElementById('graph-hint');
+const labelEl = document.getElementById('label');
+let graphTimer = null, dragging = false, dragX = 0, dragY = 0;
+viewBtn.onclick = () => {
+  view = view === 'avatar' ? 'graph' : 'avatar';
+  viewBtn.textContent = view === 'graph' ? 'Avatar' : 'Vault Graph';
+  labelEl.textContent = view === 'graph' ? 'V A U L T' : 'J A R V I S';
+  hintEl.style.display = view === 'graph' ? 'block' : 'none';
+  // The graph is something Serge reads; the log stream would sit on top of it.
+  const logBox = document.getElementById('log');
+  if (logBox) logBox.classList.toggle('hidden', view === 'graph');
+  if (view === 'graph') {
+    loadGraph();
+    graphTimer = setInterval(loadGraph, 30000);
+  } else if (graphTimer) { clearInterval(graphTimer); graphTimer = null; }
+};
+cv.addEventListener('mousedown', (e) => {
+  if (view !== 'graph') return;
+  dragging = true; dragX = e.clientX; dragY = e.clientY;
+});
+addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  gRotY += (e.clientX - dragX) * 0.006;
+  gRotX += (e.clientY - dragY) * 0.006;
+  gRotX = Math.max(-1.4, Math.min(1.4, gRotX));
+  dragX = e.clientX; dragY = e.clientY;
+  gLastDrag = Date.now();
+});
+addEventListener('mouseup', () => { dragging = false; });
+cv.addEventListener('wheel', (e) => {
+  if (view !== 'graph') return;
+  e.preventDefault();
+  gZoom = Math.max(0.35, Math.min(3, gZoom * (e.deltaY < 0 ? 1.08 : 0.92)));
+}, {passive: false});
+
+let t = 0, smooth = 0;
+function draw(){
+  requestAnimationFrame(draw);
+  t += 0.016;
+  let lv = level();
+  if (state === 'thinking' || state === 'warming') lv = 0.05 + 0.04 * Math.sin(t * 2.4);
+  if (state === 'listening') lv = Math.max(capturing ? micLevel * 0.7 : 0, 0.03);
+  smooth += (lv - smooth) * 0.2;
+  // Waiting banner: only while Jarvis is idle with a question pending —
+  // never over speaking/thinking/listening, where the answer is in flight.
+  const showWait = waitingQ && state === 'idle';
+  const waitEl = document.getElementById('waiting');
+  if (showWait) {
+    document.getElementById('waiting-q').textContent = waitingQ;
+    waitEl.style.display = 'block';
+    statusEl.textContent = 'WAITING FOR YOUR ANSWER';
+  } else {
+    waitEl.style.display = 'none';
+    statusEl.textContent = LABELS[state] || state.toUpperCase();
+  }
+  renderMicLine();
+
+  ctx.clearRect(0, 0, W, H);
+  drawHUD();
+  drawSynapses();
+
+  if (view === 'graph') {
+    // Vault graph replaces the avatar centerpiece; synapse field stays
+    // as its backdrop. Everything after this is avatar-only.
+    drawGraph();
+    return;
+  }
+
+  const churn = 1 + smooth * 5;
+  rot += 0.0035 * churn;
+
+  // solid sphere body: occludes the synapse field so the globe reads as
+  // a foreground object, with an off-center highlight faking the light.
+  const bodyG = ctx.createRadialGradient(
+    cx - emberR * 0.3, cy - emberR * 0.32, emberR * 0.05,
+    cx, cy, emberR);
+  bodyG.addColorStop(0, `rgba(40,80,150,${0.85})`);
+  bodyG.addColorStop(0.55, 'rgba(12,28,62,0.92)');
+  bodyG.addColorStop(1, 'rgba(4,10,26,0.95)');
+  ctx.fillStyle = bodyG;
+  ctx.beginPath();
+  ctx.arc(cx, cy, emberR, 0, Math.PI * 2);
+  ctx.fill();
+  // crisp lit limb
+  ctx.beginPath();
+  ctx.arc(cx, cy, emberR, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(120,190,255,${0.18 + smooth * 0.3})`;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // ember particles wrapped on the globe (additive glow, depth-faded)
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of particles) {
+    const lon = p.lon + rot * p.spMul;
+    const breathe = 1 + Math.sin(t * p.jf + p.jp) * p.ja * (1 + smooth * 2.5);
+    const q = project(p.lat, lon, breathe);
+    const depth = 0.18 + 0.82 * (q.zf + 1) / 2;   // back dim, front bright
+    const tw = 0.6 + 0.4 * Math.sin(t * 2 + p.tw);
+    const s = p.sz * (1 + smooth * 1.2) * tw * q.persp;
+    ctx.globalAlpha = p.al * (0.35 + smooth * 0.65) * tw * depth;
+    ctx.drawImage(p.spr, q.x - s / 2, q.y - s / 2, s, s);
+  }
+  // equatorial debris belt
+  for (const p of halo) {
+    const lon = p.lon + rot * p.spMul;
+    const q = project(p.lift, lon, p.rf);
+    const depth = 0.15 + 0.85 * (q.zf + 1) / 2;
+    const tw = 0.6 + 0.4 * Math.sin(t * 2 + p.tw);
+    const s = p.sz * (1 + smooth) * tw * q.persp;
+    ctx.globalAlpha = p.al * (0.3 + smooth * 0.7) * tw * depth;
+    ctx.drawImage(p.spr, q.x - s / 2, q.y - s / 2, s, s);
+  }
+  ctx.globalAlpha = 1;
+
+  // thin tilted orbit rings hugging the globe
+  for (const o of orbits) {
+    o.roll += o.sp * 0.016 * churn;
+    const r = emberR * o.rf + Math.sin(t * 0.7 + o.ph) * 4;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r, r * o.squish, o.roll, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(110,180,255,${0.08 + smooth * 0.3})`;
+    ctx.lineWidth = o.w;
+    ctx.stroke();
+  }
+
+  // drifting embers that break free and fade
+  if (Math.random() < 0.10 + smooth * 0.8) spawnSpark(smooth);
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const e = sparks[i];
+    e.x += e.dx; e.y += e.dy; e.dy -= 0.004;
+    e.life -= 0.008;
+    if (e.life <= 0) { sparks.splice(i, 1); continue; }
+    const s = e.sz * e.life * 3;
+    ctx.globalAlpha = 0.7 * e.life;
+    ctx.drawImage(e.spr, e.x - s / 2, e.y - s / 2, s, s);
+  }
+  ctx.globalAlpha = 1;
+
+  // listening focus circle: a crisp steady ring that flares with the mic,
+  // so "I'm hearing you" reads instantly, unlike any other state
+  if (state === 'listening') {
+    ctx.beginPath();
+    ctx.arc(cx, cy, emberR * 1.08, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(200,235,255,${0.35 + smooth * 0.6})`;
+    ctx.lineWidth = 1.5 + smooth * 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, emberR * (1.16 + smooth * 0.10), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(140,200,255,${0.12 + smooth * 0.3})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // white-hot core: pulled toward the light source and kept tighter than
+  // the ring version so the globe's shading still reads underneath
+  const coreR = emberR * (0.38 + smooth * 0.4);
+  const gx = cx - emberR * 0.18, gy = cy - emberR * 0.2;
+  const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, coreR);
+  g.addColorStop(0, `rgba(240,250,255,${0.55 + smooth * 0.4})`);
+  g.addColorStop(0.3, `rgba(120,185,255,${0.28 + smooth * 0.3})`);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(gx, gy, coreR, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalCompositeOperation = 'source-over';
+}
+draw();
+</script>
+</body>
+</html>
