@@ -109,6 +109,32 @@ Jarvis simply cannot hear, or cannot speak, until you fetch them.
 PyTorch/Metal processes competing for the same GPU took a healthy Kokoro down
 during testing; the installer warns if it sees port 8880 already in use.
 
+#### If Homebrew was installed by a different user on this Mac
+
+Common when you are testing in a second macOS account, or on a shared machine.
+**Homebrew does not support more than one user**, and the symptom is confusing:
+`/opt/homebrew/bin` is not in `/etc/paths` and `brew shellenv` lives in the
+installing user's own `~/.zprofile`, so your shell has no `brew` at all. The
+installer then concludes Homebrew is missing and tries to install it — and
+Homebrew's own installer finds an `/opt/homebrew` it does not own.
+
+Do not let it get that far. Add this to your `~/.zprofile`, open a new terminal,
+then run the installer:
+
+```sh
+eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+Step 1 will now report Homebrew as already installed and move on. If you also
+need to *install* formulae rather than just use them, the owning user has to do
+it, or you have to be in the group that owns `/opt/homebrew` — check with
+`ls -ld /opt/homebrew`.
+
+Obsidian and the `brew` formulae (`uv`, `whisper-cpp`) live outside your home
+directory, so a second account inherits them and those steps will report
+"already installed" too. What a fresh account genuinely exercises is Claude
+Code, your `PATH`, an empty `~/.claude`, and a brand-new vault.
+
 ### The long way
 
 **Before anything else: the paths in this project are absolute, and they are

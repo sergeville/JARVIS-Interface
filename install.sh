@@ -326,21 +326,26 @@ VAULT_DIRS=("00 - Inbox" "01 - Daily Notes" "02 - Learning AI" "03 - Personal" "
 if [[ -f "$VAULT/VAULT-INDEX.md" ]]; then
   have "vault ($(find "$VAULT" -name '*.md' 2>/dev/null | wc -l | tr -d ' ') notes) -- left untouched"
 elif would_install "vault skeleton"; then
+  # STRUCTURE ONLY. Folders, and the minimum set of notes the system cannot
+  # run without -- each carrying frontmatter, a title, and one line saying what
+  # belongs there. No profile, no rules, no invented prose. The vault is the
+  # personality; writing it is the point, and a skeleton full of somebody
+  # else's paragraphs is something you have to delete before you can start.
   mkdir -p "$VAULT"
   for d in "${VAULT_DIRS[@]}"; do
     mkdir -p "$VAULT/$d"
     idx="$VAULT/$d/${d#* - }.md"
-    [[ -f "$idx" ]] || printf -- '---\nstatus: active\nproject: meta\ntype: index\n---\n# %s\n\nIndex for this folder. List every note here with a one-line description --\nthe vault auditor fails if a note is not mentioned by its folder index.\n' "${d#* - }" > "$idx"
+    [[ -f "$idx" ]] || printf -- '---\nstatus: active\nproject: meta\ntype: index\n---\n# %s\n\nList each note in this folder with a one-line description.\n' "${d#* - }" > "$idx"
   done
-  for f in "Active Priorities:plan:The single queue of open work. The HUD parses THIS note." \
-           "Session Board:log:What each session was doing. Intent and history, never liveness."; do
+  for f in "Active Priorities:plan:The single queue of open work. The HUD reads this note." \
+           "Session Board:log:One row per session: channel, start time, what it is doing."; do
     name="${f%%:*}"; rest="${f#*:}"; typ="${rest%%:*}"; desc="${rest#*:}"
     [[ -f "$VAULT/$name.md" ]] || printf -- '---\nstatus: active\nproject: meta\ntype: %s\n---\n# %s\n\n%s\n' "$typ" "$name" "$desc" > "$VAULT/$name.md"
   done
-  # VAULT-INDEX must NAME the other root notes. The auditor's whole job is to
+  # VAULT-INDEX must NAME the other root notes -- the auditor's whole job is to
   # fail when a note exists that its map never mentions, and a skeleton that
-  # cannot pass the project's own checker on the first run teaches a new user
-  # to ignore a red result on day one.
+  # cannot pass the project's own checker on its first run teaches a new user to
+  # ignore a red result on day one. That naming is the only content here.
   if [[ ! -f "$VAULT/VAULT-INDEX.md" ]]; then
     cat > "$VAULT/VAULT-INDEX.md" <<'VIDX'
 ---
@@ -350,49 +355,18 @@ type: index
 ---
 # VAULT INDEX
 
-Read this at the start of every conversation. It is who you are, how you work,
-and the map of this vault.
-
-## Who I am
-
-Replace this with a few lines about yourself. The assistant reads it first and
-addresses you from it.
+Empty on purpose. This is yours to write -- who you are, how you work, and the
+rules you want followed. It is read first at every boot, so what you put here
+is what the assistant becomes.
 
 ## Notes at the vault root
 
-The root is not a dumping ground -- a note lives here only if every session
-needs it at boot.
-
-- [[Active Priorities]] — the single queue of open work. The HUD parses this note.
-- [[Session Board]] — what each session was doing. Intent and history, never liveness.
+- [[Active Priorities]]
+- [[Session Board]]
 - **VAULT-INDEX** — this file.
-
-## Vault structure
-
-```
-00 - Inbox          capture everything, sort later
-01 - Daily Notes    one file per day, YYYY-MM-DD.md
-02 - Learning AI    your projects
-03 - Personal       life outside the project
-04 - Archive        completed and retired notes
-05 - Resources      cross-project reference material
-06 - Email Inbox    daily read-outs, if you wire up mail
-```
-
-## Rules for the AI
-
-Every note carries YAML frontmatter: `status`, `project`, `type`.
-
-- **status:** active | completed | parked | idea | archived
-- **project:** your own project slugs
-- **type:** index | reference | guide | plan | log
-
-Every folder keeps an index note named after the folder, listing what is in it.
-Check the whole thing with `python3 vault-tools/vault-audit.py` -- exit 0 or the
-map and the vault disagree.
 VIDX
   fi
-  did "vault skeleton (7 folders, 3 root notes, 7 folder indexes)"
+  did "vault structure (7 folders, 7 folder indexes, 3 root notes -- empty)"
   note "open $VAULT as a vault in Obsidian and make it yours -- README step 6"
 fi
 
