@@ -13,10 +13,11 @@
 #      working.
 #   2. IT VERIFIES, IT DOES NOT ASSUME. An installer exiting 0 is not proof of
 #      anything. Every step ends by testing the thing FOR THIS PROJECT -- the
-#      whisper model is checked for its ggml magic bytes, kokoro is checked by
-#      importing the module the server actually imports, the vault is checked
-#      by the vault auditor. A binary being on PATH proves only that a binary
-#      is on PATH.
+#      whisper model by its magic bytes, kokoro by the presence and size of its
+#      model weights AND the import, the Python environment by importing what
+#      the stack imports, the vault by the vault auditor. A binary being on
+#      PATH proves only that a binary is on PATH -- and, learned the hard way
+#      here, a module importing proves only that a module imports.
 #   3. IT NEVER DESTROYS. It will not overwrite an existing vault, config or
 #      model. Where something exists and differs, it says so and leaves it.
 #
@@ -260,30 +261,60 @@ elif would_install "whisper model"; then
 fi
 
 # ---------------------------------------------------------------------------
-step "Kokoro -- the voice (~1.5 GB)"
+step "Kokoro -- the voice (~1.8 GB)"
 # ---------------------------------------------------------------------------
+KOKORO_WEIGHTS="$KOKORO/api/src/models/v1_0/kokoro-v1_0.pth"
+
+# Importing api.src.main is NOT proof that kokoro works, and this check said it
+# was until it was actually run. The V1 model weights (~312 MB) are a SEPARATE
+# download that the clone does not include -- with them missing the module
+# imports perfectly and the server then calls exit(0) inside
+# initialize_with_warmup, so uvicorn dies at startup with "Application startup
+# failed" and nothing ever binds the port. So the weights are checked by size,
+# and the import is kept as a second, weaker signal.
 kokoro_ok() {
-  [[ -x "$KOKORO/.venv/bin/python3" ]] && \
+  [[ -x "$KOKORO/.venv/bin/python3" ]] || return 1
+  [[ -f "$KOKORO_WEIGHTS" ]] || return 1
+  # A partial download or an HTML error page saved under this name is the
+  # failure that happens; 100 MB is far below the real ~312 MB and far above
+  # any error page.
+  local sz; sz=$(stat -f%z "$KOKORO_WEIGHTS" 2>/dev/null || echo 0)
+  [[ "$sz" -gt 104857600 ]] || return 1
   ( cd "$KOKORO" && MODEL_DIR=src/models VOICES_DIR=src/voices/v1_0 \
     .venv/bin/python3 -c "import api.src.main" >/dev/null 2>&1 )
 }
 if kokoro_ok; then
-  have "kokoro-fastapi (its venv imports the server module)"
-  ok "api.src.main imports -- the module jarvis.sh actually launches"
+  have "kokoro-fastapi (weights $(du -h "$KOKORO_WEIGHTS" | cut -f1), module imports)"
+  ok "model weights present AND api.src.main imports"
 elif would_install "kokoro-fastapi"; then
-  if confirm "install kokoro-fastapi? clone plus torch, roughly 1.5 GB"; then
+  if confirm "install kokoro-fastapi? clone, torch and the voice model, roughly 1.8 GB"; then
     mkdir -p "$VL/services"
     [[ -d "$KOKORO/.git" ]] || git clone --depth 1 "$KOKORO_URL" "$KOKORO" || fail "kokoro clone"
     if [[ -d "$KOKORO" ]]; then
-      ( cd "$KOKORO" && uv venv .venv --python 3.12 && \
-        VIRTUAL_ENV="$KOKORO/.venv" uv pip install -e ".[cpu]" ) \
+      [[ -x "$KOKORO/.venv/bin/python3" ]] || \
+        ( cd "$KOKORO" && uv venv .venv --python 3.12 && \
+          VIRTUAL_ENV="$KOKORO/.venv" uv pip install -e ".[cpu]" ) \
         || ( cd "$KOKORO" && .venv/bin/python3 -m pip install -e . )
-      kokoro_ok && { did "kokoro-fastapi"; ok "api.src.main imports"; } \
-                || fail "kokoro-fastapi (installed but api.src.main will not import -- see $KOKORO for its own README)"
+      # The step this installer originally missed entirely.
+      if [[ ! -f "$KOKORO_WEIGHTS" ]]; then
+        note "downloading the Kokoro V1 voice model (~312 MB)"
+        ( cd "$KOKORO" && .venv/bin/python3 docker/scripts/download_model.py \
+            --output api/src/models/v1_0 ) || fail "kokoro model download"
+      fi
+      kokoro_ok && { did "kokoro-fastapi"; ok "model weights present AND api.src.main imports"; } \
+                || fail "kokoro-fastapi (installed but not usable -- weights missing or module will not import; see $KOKORO)"
     fi
   else
     skip "kokoro -- Jarvis will listen and think but will not speak"
   fi
+fi
+# Two PyTorch/MPS processes competing for the GPU is not a supported
+# configuration and was observed taking down a healthy kokoro. Say so rather
+# than let someone discover it the way it was discovered here.
+if lsof -nP -iTCP:8880 -sTCP:LISTEN >/dev/null 2>&1 && [[ "$ROOT" != "$OLD_ROOT" ]]; then
+  warn "another Kokoro is already running on port 8880 (a different copy of this project?)."
+  note "    Starting a second one loads a second model onto the same GPU. Stop the"
+  note "    other stack before running this one."
 fi
 
 # ---------------------------------------------------------------------------

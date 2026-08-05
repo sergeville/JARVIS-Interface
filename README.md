@@ -93,16 +93,21 @@ Three things it promises, each of which was tested rather than intended:
 - **It skips what you already have** and says so. Run it twice and the second
   run installs nothing — proven on a fresh clone, second run byte-identical.
 - **It verifies for this project, not in general.** The whisper model is
-  checked for its magic bytes, Kokoro by importing the module the server
-  actually launches, the Python environment by importing what the stack
+  checked for its magic bytes, Kokoro by the presence and size of its model
+  weights *and* the import, the Python environment by importing what the stack
   imports, the vault by the vault auditor. A binary on `PATH` proves only that
-  a binary is on `PATH`.
+  a binary is on `PATH` — and a module importing proves only that a module
+  imports, which is exactly how a broken Kokoro passed once.
 - **It never overwrites a vault**, a config or a model. If something exists and
   looks wrong, it says so and leaves it alone.
 
-It will ask before the two large downloads (465 MB of whisper model, ~1.5 GB of
-Kokoro) and runs fine without either — Jarvis simply cannot hear, or cannot
-speak, until you fetch them.
+It will ask before the two large downloads (465 MB of whisper model, ~1.8 GB of
+Kokoro including its 312 MB voice weights) and runs fine without either —
+Jarvis simply cannot hear, or cannot speak, until you fetch them.
+
+**Do not run it against a second copy while another Jarvis stack is live.** Two
+PyTorch/Metal processes competing for the same GPU took a healthy Kokoro down
+during testing; the installer warns if it sees port 8880 already in use.
 
 ### The long way
 
@@ -180,11 +185,21 @@ cd voice-line && uv sync
 Not in this repository — it is 465 MB. Download a GGML model and put it at
 `voice-line/models/ggml-small.en.bin`:
 
+Same rule as step 4 — check first, and do nothing if it is already there. This
+one costs 465 MB and several minutes if you skip the check, and `-o` truncates
+the existing file the moment curl starts, so a re-run that fails partway leaves
+you with **less** than you had:
+
 ```sh
 mkdir -p voice-line/models
-curl -L -o voice-line/models/ggml-small.en.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
+[ -s voice-line/models/ggml-small.en.bin ] \
+  && echo "whisper model already present -- nothing to do" \
+  || curl -fL -o voice-line/models/ggml-small.en.bin \
+       https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
 ```
+
+`-f` makes curl fail on an HTTP error rather than saving the error page as your
+model file, which then fails much later and much more confusingly.
 
 **4. Kokoro (the voice)**
 
@@ -196,6 +211,21 @@ Also not in this repository. Install
 matters — models, voices and the Metal device are all read from it, so the bare
 uvicorn line starts a server that then cannot find its own voices:
 
+**Check before you start it. This step has already broken a live system once.**
+On 2026-08-05 this command was run by hand to verify the install while Kokoro
+was already up; the second instance collided with the first on port 8880 and
+**killed the running one**, taking the voice out mid-conversation. `jarvis.sh
+start` is idempotent and says "kokoro already up" — a bare command is not.
+
+So the check comes first, and it starts nothing:
+
+```sh
+curl -s -m 3 -o /dev/null -w '%{http_code}\n' 127.0.0.1:8880/v1/models
+```
+
+`200` means it is installed and running — **you are done, do not start it.**
+`000` means nothing is listening, and only then:
+
 ```sh
 cd voice-line/services/kokoro-fastapi
 USE_GPU=true USE_ONNX=false PYTHONPATH="$PWD:$PWD/api" \
@@ -204,8 +234,15 @@ USE_GPU=true USE_ONNX=false PYTHONPATH="$PWD:$PWD/api" \
   .venv/bin/python3 -m uvicorn api.src.main:app --host 127.0.0.1 --port 8880
 ```
 
-That is the exact environment `jarvis.sh` uses; run it by hand only to check
-the install. `curl -s 127.0.0.1:8880/v1/models` answering is the proof.
+That is the exact environment `jarvis.sh` uses — models, voices and the Metal
+device are all read from it, so the bare uvicorn line without it starts a
+server that cannot find its own voices. Normal running is `./jarvis.sh start`,
+which does this for you and checks first; the command above is for proving a
+fresh install only.
+
+**The general rule, and it applies to every step here: verify, then install
+only what is missing.** An install script that assumes nothing is running will
+eventually be run on a machine where something is.
 
 **5. Ambient audio (optional)**
 
