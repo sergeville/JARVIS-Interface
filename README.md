@@ -62,16 +62,55 @@ Jarvis Visual/          the browser HUD and its server
   jarvis.sh             status | start | stop | restart | sessions
   tests/run-tests.sh    the suite -- the gate for every change
 vault-tools/            vault-audit.py, the vault's own consistency checker
+install.sh              one-command setup; idempotent, verifies, never overwrites
 ```
 
 ## Install
 
 Built and run on macOS (Apple silicon).
 
+### The short way
+
+Get the code (step 0 below), then:
+
+```sh
+./install.sh
+```
+
+That is the whole thing. It installs Homebrew, Claude Code, Obsidian, `uv`,
+`whisper-cpp`, the Python dependencies, the whisper model and Kokoro; rewrites
+the absolute paths onto your clone; and creates an empty vault for you. Steps
+1–6 below are what it does, written out, for when you would rather do it by
+hand or something goes wrong.
+
+```sh
+./install.sh --check    # verify only -- installs nothing, changes nothing
+./install.sh --yes      # don't prompt before the two large downloads
+```
+
+Three things it promises, each of which was tested rather than intended:
+
+- **It skips what you already have** and says so. Run it twice and the second
+  run installs nothing — proven on a fresh clone, second run byte-identical.
+- **It verifies for this project, not in general.** The whisper model is
+  checked for its magic bytes, Kokoro by importing the module the server
+  actually launches, the Python environment by importing what the stack
+  imports, the vault by the vault auditor. A binary on `PATH` proves only that
+  a binary is on `PATH`.
+- **It never overwrites a vault**, a config or a model. If something exists and
+  looks wrong, it says so and leaves it alone.
+
+It will ask before the two large downloads (465 MB of whisper model, ~1.5 GB of
+Kokoro) and runs fine without either — Jarvis simply cannot hear, or cannot
+speak, until you fetch them.
+
+### The long way
+
 **Before anything else: the paths in this project are absolute, and they are
 not yours.** Fifteen files carry the author's home directory in 51 places — the
 server, the session hooks, the test runner, the boot file. Nothing finds
-anything until they point at your clone.
+anything until they point at your clone. `./install.sh` does this for you; by
+hand it is one line.
 
 One line fixes all of them. Run it from inside the folder you cloned into; the
 old path appears here only as the string being searched for, and `$PWD`
