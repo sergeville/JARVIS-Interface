@@ -62,7 +62,6 @@ Jarvis Visual/          the browser HUD and its server
   jarvis.sh             status | start | stop | restart | sessions
   tests/run-tests.sh    the suite -- the gate for every change
 vault-tools/            vault-audit.py, the vault's own consistency checker
-start-jarvis.sh         open a Claude Code session at the root or in Jarvis Visual/
 ```
 
 ## Install
@@ -70,9 +69,9 @@ start-jarvis.sh         open a Claude Code session at the root or in Jarvis Visu
 Built and run on macOS (Apple silicon).
 
 **Before anything else: the paths in this project are absolute, and they are
-not yours.** Sixteen files carry the author's home directory in 52 places — the
-launcher, the server, the session hooks, the boot file. Nothing finds anything
-until they point at your clone.
+not yours.** Fifteen files carry the author's home directory in 51 places — the
+server, the session hooks, the test runner, the boot file. Nothing finds
+anything until they point at your clone.
 
 One line fixes all of them. Run it from inside the folder you cloned into; the
 old path appears here only as the string being searched for, and `$PWD`
@@ -83,7 +82,7 @@ grep -rl '/Users/mike/Documents/Jarvis' . --exclude-dir=.git \
   | tr '\n' '\0' | xargs -0 sed -i '' "s|/Users/mike/Documents/Jarvis|$PWD|g"
 ```
 
-Verified against a fresh clone: 52 occurrences down to 0, and every `.py`,
+Verified against a fresh clone: every occurrence down to 0, and every `.py`,
 `.sh`, `.js` and `.json` in the repository still parses afterwards.
 
 **Seven mentions of the original username survive that command, and should.**
