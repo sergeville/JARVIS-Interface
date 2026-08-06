@@ -141,9 +141,9 @@ class SentenceChunker:
 # The model the voice line runs on. One constant feeds both the SDK
 # option and the HUD label, so the badge can never disagree with what
 # is actually answering.
-# Serge, 2026-08-06 ~9:40 AM: "can we change the model to fable model."
-# Opus 5 until now; his call, and one constant is the whole change.
-MODEL = "claude-fable-5"
+# Serge, 2026-08-06 ~4:02 PM: back to Opus 5, his call. (Fable 5 ran
+# from his 9:44 AM restart until this one; one constant is the whole change.)
+MODEL = "claude-opus-5"
 
 
 class Brain:
