@@ -93,6 +93,8 @@ let boardLatched = false;
 let taskMoveOK = false;
 let verdictBusy = '';
 let boardTasks = [];
+// The window height, as the page reads it bare. 900 -> an 80% cap of 720.
+let innerHeight = 900;
 eval(grab('boardOpen'));
 const COLS = eval('(' + COLS_SRC + ')');
 
@@ -914,6 +916,101 @@ test('the footer no longer claims the board is read-only', () => {
     'the footer does not say what he can now do');
   assert.ok(/every other status is set in Active Priorities/.test(foot),
     'the footer no longer says where the other statuses come from');
+});
+
+// Serge, 2026-08-06 ~11:40 AM: "it takes the whole screen and even it goes
+// overboard... only 80% of the screen, if it's higher it stops, but the
+// inside is scrollable." The sheet had NO height limit at all.
+
+test('the sheet is capped at 80% of the screen', () => {
+  const r = rule('#board');
+  assert.ok(/max-height:\s*80vh/.test(r),
+    'the coarse 80vh cap is gone -- the sheet can take the whole screen again');
+  assert.ok(/display:\s*flex/.test(r) && /flex-direction:\s*column/.test(r),
+    'the sheet is not a flex column, so the columns area cannot shrink to the cap');
+});
+
+test('EACH COLUMN scrolls on its own; neither the sheet nor the whole area does', () => {
+  // INVERTED from "the columns area scrolls" -- Serge's catch: a whole-area
+  // scroll let a long Done column drag every other column's cards out of
+  // view, so the counts said 2 while To Do looked empty. His shape: a short
+  // column always shows everything; only an overflowing one scrolls.
+  const col = rule('.bcol');
+  assert.ok(/overflow-y:\s*auto/.test(col),
+    'the columns do not scroll -- a long Done column overflows the cap');
+  const cols = rule('#board-cols');
+  assert.ok(!/overflow/.test(cols),
+    'the whole columns area scrolls again -- the exact bug Serge caught');
+  assert.ok(/min-height:\s*0/.test(cols) && /min-height:\s*0/.test(col),
+    'without min-height: 0 down the chain nothing can shrink to the cap, so it does nothing');
+  assert.ok(!/overflow/.test(rule('#board')),
+    'the sheet itself scrolls -- the footer would ride away with the cards');
+});
+
+// The adversary's catches (2026-08-06, verdict HOLES), each now a guard:
+
+test('the sheet is border-box, so the cap bounds the RENDERED edge', () => {
+  // maxHeight on a content-box element caps the content only; #board's 15px
+  // padding + 1px border pushed the bottom 18px past the viewport while the
+  // formula -- and the test quoting it back -- looked exactly right.
+  assert.ok(/box-sizing:\s*border-box/.test(rule('#board')),
+    'the cap measures the content box and overshoots by the padding + border');
+});
+
+test('a resize with the board open re-runs the cap', () => {
+  // The page has FOUR resize listeners; scan every one rather than the first.
+  // (A first-match helper reading the wrong one of several identical anchors
+  // is how a passing test comes to guard nothing -- same trap as 2026-08-06.)
+  let found = false;
+  for (let i = src.indexOf("addEventListener('resize'"); i !== -1;
+       i = src.indexOf("addEventListener('resize'", i + 1)) {
+    if (/boardOpen\(true\)/.test(src.slice(i, i + 250))) found = true;
+  }
+  assert.ok(found,
+    'shrinking the window with the board open runs it offscreen until reopen');
+});
+
+test('an unmeasurable strip clears a stale cap instead of keeping it', () => {
+  const s = grab('boardOpen');
+  assert.ok(/else if \(board\)/.test(s) && /maxHeight = ''/.test(s),
+    'a cap computed under a larger window survives an unmeasured open');
+});
+
+test('a redraw preserves each column\'s scroll', () => {
+  const s = grab('renderBoard');
+  assert.ok(/keepScroll/.test(s) && /scrollTop/.test(s),
+    'innerHTML resets every column to the top the moment any task changes under his read');
+  const cap = s.indexOf('keepScroll');
+  const write = s.indexOf('cols.innerHTML');
+  assert.ok(cap < write, 'the scroll is captured AFTER the rewrite, so it captures zeros');
+  assert.ok(s.lastIndexOf('keepScroll') > write,
+    'the scroll is captured and never restored -- a no-op wearing the fix\'s name');
+});
+
+test('every open snaps the columns back to the top', () => {
+  // A scroll position left over from the last look is how the board opened
+  // looking empty under non-zero counts.
+  const s = grab('boardOpen');
+  assert.ok(/scrollTop\s*=\s*0/.test(s),
+    'the board opens wherever it was last scrolled to');
+});
+
+test('boardOpen tightens the cap so the bottom edge never passes the viewport', () => {
+  const s = grab('boardOpen');
+  assert.ok(/innerHeight\s*\*\s*0\.8/.test(s),
+    'the 80% of the window is not computed');
+  assert.ok(/Math\.min\(/.test(s) && /innerHeight\s*-\s*top/.test(s),
+    'the cap ignores the sheet\'s own top -- a tall heading pushes it offscreen again');
+  assert.ok(/cap\s*>\s*0/.test(s),
+    'an absurd (non-positive) cap is trusted rather than ignored');
+});
+
+test('the column headers hold still while the cards scroll', () => {
+  const r = rule('.bcol-head');
+  assert.ok(/position:\s*sticky/.test(r) && /top:\s*0/.test(r),
+    'the headers scroll away with the cards');
+  assert.ok(/background:\s*var\(--bg-panel\)/.test(r),
+    'a transparent sticky header lets the cards show through it');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

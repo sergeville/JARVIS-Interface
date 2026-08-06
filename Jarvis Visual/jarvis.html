@@ -220,6 +220,16 @@
     box-shadow: 0 22px 60px rgba(0, 0, 0, 0.66);
     backdrop-filter: blur(7px);
     padding: 15px 15px 13px;
+    /* Serge 2026-08-06: the sheet must never take the whole screen. 80vh is
+       the coarse cap; boardOpen() tightens it so the bottom edge never
+       passes the viewport, since the sheet hangs below a variable-height
+       heading. The columns area scrolls; the sheet itself never does. */
+    display: flex; flex-direction: column;
+    max-height: 80vh;
+    /* border-box, or maxHeight caps the content box and the 15px padding +
+       1px border push the bottom edge 18px past the viewport -- the
+       adversary's catch: the formula was right and measured the wrong box. */
+    box-sizing: border-box;
   }
   body.board-open #board {
     opacity: 1; transform: translate(0, 0); pointer-events: auto;
@@ -228,13 +238,21 @@
   #board-cols {
     /* Six since 2026-08-06 (Serge): Review and Test joined the vocabulary. */
     display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px;
+    /* Serge 2026-08-06: each column scrolls on its OWN -- a whole-area scroll
+       let a long Done column drag every other column's cards out of view,
+       so counts said 2 while To Do looked empty. min-height: 0 lets the
+       grid shrink to the sheet's cap; the columns do the scrolling. */
+    min-height: 0;
   }
+  .bcol { overflow-y: auto; min-height: 0; }
   .bcol-head {
     font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
     color: rgba(var(--accent-rgb), 0.5);
     display: flex; align-items: center; justify-content: space-between;
     padding-bottom: 6px; margin-bottom: 8px;
     border-bottom: 1px solid rgba(var(--accent-rgb), 0.16);
+    /* Headers hold still while the cards scroll under them. */
+    position: sticky; top: 0; background: var(--bg-panel); z-index: 1;
   }
   .bcol-head .n { color: rgba(var(--accent-rgb), 0.85); font-size: 10px; }
   .bcol.doing   .bcol-head { border-bottom-color: rgba(0, 255, 168, 0.32); }
@@ -2182,6 +2200,10 @@ function renderBoard(tasks){
       (counts || '<span class="bs quiet">nothing queued</span>')
     + '<span class="caret">&#9660;</span>';
 
+  // A redraw must not move his read: this runs on any signature change while
+  // the board may be open under his cursor, and innerHTML resets every
+  // column's scroll to 0 -- the adversary's catch.
+  const keepScroll = Array.from(cols.children || []).map(c => c.scrollTop || 0);
   cols.innerHTML = BOARD_COLS.map(c => {
     let list = bucket(c.key);
     if (c.key === 'open') list = list.concat(strays);
@@ -2209,6 +2231,9 @@ function renderBoard(tasks){
          + '<span class="n">' + list.length + '</span></div>'
          + (cards || empty) + '</div>';
   }).join('');
+  Array.from(cols.children || []).forEach((c, i) => {
+    if (keepScroll[i]) c.scrollTop = keepScroll[i];
+  });
 }
 
 // The roll-down. Peek on hover, LATCH on contact.
@@ -2239,7 +2264,26 @@ function boardOpen(on){
       const b = strip.getBoundingClientRect();
       // Only when it has been laid out: a hidden strip measures 0 and would
       // slam the sheet to the top of the viewport.
-      if (board && b.bottom > 0) board.style.top = Math.round(b.bottom + 8) + 'px';
+      if (board && b.bottom > 0) {
+        const top = Math.round(b.bottom + 8);
+        board.style.top = top + 'px';
+        // 80% of the window, and never past the bottom edge -- whichever is
+        // smaller. A non-positive cap (absurd layout) is ignored, not trusted,
+        // same doctrine as the zero-measure guard above. #board is border-box,
+        // so this caps the rendered edge, padding and border included.
+        const cap = Math.min(Math.round(innerHeight * 0.80), innerHeight - top - 12);
+        board.style.maxHeight = cap > 0 ? cap + 'px' : '';
+      } else if (board) {
+        // Unmeasurable: drop any stale inline cap from a larger window and
+        // let the CSS 80vh hold the line.
+        board.style.maxHeight = '';
+      }
+      // Open showing the top of every column -- OUTSIDE the measure guard,
+      // so an open before layout still snaps. A scroll position left over
+      // from the last look once hid every To Do card while the counts said
+      // 2 -- an empty-looking column under a non-zero count is the board
+      // lying, and Serge caught it from his own screen.
+      document.querySelectorAll('.bcol').forEach(c => { c.scrollTop = 0; });
     }
   }
   document.body.classList.toggle('board-open', on);
@@ -2273,6 +2317,12 @@ function boardWantClose(){
     if (!board.contains(e.target) && !mid.contains(e.target)) boardOpen(false);
   });
   addEventListener('keydown', (e) => { if (e.key === 'Escape') boardOpen(false); });
+  // A window resized with the board open re-runs the cap, or shrinking the
+  // window runs the sheet offscreen again until a reopen -- the adversary's
+  // catch. boardOpen(true) on an already-open board only re-measures.
+  addEventListener('resize', () => {
+    if (document.body.classList.contains('board-open')) boardOpen(true);
+  });
 })();
 
 // ---- sessions card: every Jarvis alive right now ---------------------
