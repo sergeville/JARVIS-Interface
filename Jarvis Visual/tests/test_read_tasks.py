@@ -16,6 +16,7 @@ never read or written here.
 
 import importlib.util
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -180,16 +181,128 @@ class TestBoundaries(unittest.TestCase):
 class TestAgainstTheRealNote(unittest.TestCase):
     """Guards the live file: the card is only as good as what it parses."""
 
-    def test_real_priorities_note_yields_only_open_tasks(self):
+    def test_real_priorities_note_serves_no_STALE_done_task(self):
+        """Inverted 2026-08-06, deliberately, not loosened.
+
+        This used to assert that NOTHING is ever served as done -- which was
+        right while a finished task could only reach the card by bleeding its
+        status upward. Serge then asked for finished work to be visible for
+        the rest of its day, so `done` is now a legitimate state to serve and
+        the old assertion would forbid the feature.
+
+        What is still worth guarding is the half that was never about the
+        checkbox: a served `done` task must carry TODAY's stamp. Anything
+        else is either the old bleed bug or an expiry that stopped working,
+        and both look identical from the card.
+        """
         tasks = vws.read_tasks()
         vws._TASK_CACHE.update(mtime=None, tasks=[])
         self.assertTrue(tasks, "Active Priorities should have open tasks")
+        today = time.strftime("%Y-%m-%d")
         for t in tasks:
-            self.assertNotEqual(
-                t["status"], "done",
-                f"'{t['title']}' is served as done -- it should be checked off "
-                "with [x] in the note, or its status is bleeding from below")
+            if t["status"] == "done":
+                self.assertEqual(
+                    t["updated"][:10], today,
+                    f"'{t['title']}' is served as done but was not closed "
+                    "today -- either it is bleeding its status from an entry "
+                    "below, or the expiry has stopped running")
             self.assertTrue(t["title"], "every task needs a title")
+
+
+class TestDoneTimeToLive(unittest.TestCase):
+    """Serge, 2026-08-06: "it should be a time to live before it does
+    disappear, so the user would see it done. Maybe the next day it's
+    disappeared."
+
+    The rule: a finished task stays for the rest of the day it was closed and
+    is gone at the next day's rollover. These fix that in place, because the
+    whole value of the feature is the window -- too short and he never sees
+    it land, too long and DONE quietly becomes an archive.
+    """
+
+    TODAY = time.strftime("%Y-%m-%d")
+
+    def test_a_task_closed_TODAY_is_served_as_done(self):
+        tasks = parse(HEADER + (
+            "- [x] **Shipped this morning** (learning-ai)\n"
+            "  - status: done\n"
+            "  - priority: P2\n"
+            f"  - updated: {self.TODAY} 06:40\n"
+            "  - note: proven in his own eyes\n"))
+        self.assertEqual(len(tasks), 1, "a task closed today must be visible")
+        self.assertEqual(tasks[0]["title"], "Shipped this morning")
+        self.assertEqual(tasks[0]["status"], "done")
+        self.assertEqual(tasks[0]["priority"], "P2")
+
+    def test_a_task_closed_YESTERDAY_is_gone(self):
+        yesterday = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))
+        tasks = parse(HEADER + (
+            "- [x] **Shipped yesterday** (learning-ai)\n"
+            "  - status: done\n"
+            f"  - updated: {yesterday} 22:10\n"))
+        self.assertEqual(tasks, [], "yesterday's work is still on the board")
+
+    def test_a_finished_task_with_NO_stamp_is_dropped(self):
+        """The condensed one-liners under Completed Tasks have no fields.
+
+        Defaulting an undated finished item to *visible* would slowly fill
+        the column with everything ever finished -- the exact opposite of
+        what he asked for.
+        """
+        tasks = parse(HEADER + "- [x] **Closed long ago** (meta) — details\n")
+        self.assertEqual(tasks, [])
+
+    def test_the_CHECKBOX_outranks_a_stale_status_field(self):
+        """A checked entry whose status line was never updated is still done.
+
+        Otherwise a closed task reappears in WAITING ON YOU, which is worse
+        than not showing it at all: it asks him for something twice.
+        """
+        tasks = parse(HEADER + (
+            "- [x] **Closed but the field says otherwise** (meta)\n"
+            "  - status: waiting-on-serge\n"
+            f"  - updated: {self.TODAY} 09:00\n"))
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["status"], "done")
+
+    def test_a_done_task_still_does_not_bleed_into_the_one_above(self):
+        """The 2026-08-05 regression, re-asserted under the new behaviour.
+
+        This is the case that could quietly come back: the [x] branch now
+        CREATES a task instead of clearing the pointer, so if it ever stopped
+        reassigning `task`, every field below would land on the open entry
+        above -- the original bug, wearing the new feature's clothes.
+        """
+        tasks = parse(HEADER + (
+            "- [ ] **Still open** (learning-ai)\n"
+            "  - status: open\n"
+            "  - priority: P3\n"
+            "\n"
+            "- [x] **Finished today** (learning-ai)\n"
+            "  - status: done\n"
+            "  - priority: P1\n"
+            f"  - updated: {self.TODAY} 06:00\n"))
+        by_title = {t["title"]: t for t in tasks}
+        self.assertEqual(by_title["Still open"]["status"], "open")
+        self.assertEqual(by_title["Still open"]["priority"], "P3")
+        self.assertEqual(by_title["Finished today"]["priority"], "P1")
+
+    def test_the_private_flag_never_reaches_the_page(self):
+        """`_closed` is an implementation detail of the expiry pass."""
+        tasks = parse(HEADER + (
+            "- [x] **Done today** (meta)\n"
+            f"  - updated: {self.TODAY} 07:00\n"))
+        self.assertNotIn("_closed", tasks[0])
+
+    def test_completed_section_entries_are_still_never_read(self):
+        """Belt and braces: expiry is the second line of defence, not the first."""
+        tasks = parse(HEADER + (
+            "- [ ] **Open** (meta)\n"
+            "\n"
+            "### Completed Tasks\n\n"
+            "- [x] **Closed today somehow** (meta)\n"
+            f"  - updated: {self.TODAY} 05:00\n"))
+        self.assertEqual([t["title"] for t in tasks], ["Open"])
 
 
 if __name__ == "__main__":

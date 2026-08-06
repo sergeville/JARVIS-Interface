@@ -1890,8 +1890,13 @@ function renderBoard(tasks){
         '<div class="bcard"><div class="bt">' + esc(t.title || '(untitled)') + '</div>'
       + '<div class="bm">' + (t.priority ? '<span>' + esc(t.priority) + '</span>' : '')
       + (t.owner ? '<span>' + esc(t.owner) + '</span>' : '') + '</div></div>').join('');
+    // DONE holds only what was finished TODAY -- Serge, 2026-08-06: a closed
+    // task should linger long enough to be seen, then be gone the next day.
+    // So an empty column means a quiet day, not a broken feed, and it has to
+    // say which: "not served yet" was the truth until the server learned to
+    // emit finished tasks at all, and leaving it would now be a lie.
     const empty = c.key === 'done'
-      ? '<div class="bcol-empty">not served yet</div>'
+      ? '<div class="bcol-empty">nothing finished today</div>'
       : '<div class="bcol-empty">nothing here</div>';
     return '<div class="bcol ' + c.cls + '">'
          + '<div class="bcol-head"><span>' + c.label + '</span>'

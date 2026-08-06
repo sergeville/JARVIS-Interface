@@ -164,19 +164,30 @@ test('no tasks also force-closes the board', () => {
 
 // ---- the DONE column tells the truth ---------------------------------------
 
-test('DONE says "not served yet" rather than pretending to be empty', () => {
-  // read_tasks() stops at "### Completed Tasks" and never opens a [x] line,
-  // so this column CANNOT populate until the server changes. An empty column
-  // that explains itself is honest; one that just sits there is not.
+test('DONE says nothing finished TODAY -- not "not served yet"', () => {
+  // Inverted 2026-08-06. "Not served yet" was the literal truth while
+  // read_tasks() could not emit a finished task at all; the server can now,
+  // so the same words would be a lie -- and the worst kind, one that reads
+  // as an apology for a working feature.
   renderBoard([T('a', 'open')]);
-  assert.ok(cols().includes('not served yet'));
+  assert.ok(cols().includes('nothing finished today'));
+  assert.ok(!cols().includes('not served yet'),
+    'the column still excuses itself for a feature that now exists');
 });
 
-test('the other empty columns say "nothing here", not the served-yet excuse', () => {
+test('the other empty columns say "nothing here", not the DONE wording', () => {
   renderBoard([T('a', 'open')]);
   const c = cols();
   assert.ok(c.includes('nothing here'));
-  assert.strictEqual((c.match(/not served yet/g) || []).length, 1);
+  assert.strictEqual((c.match(/nothing finished today/g) || []).length, 1);
+});
+
+test('a finished task actually draws a card in DONE', () => {
+  renderBoard([T('a', 'open'), T('shipped it', 'done')]);
+  const c = cols();
+  assert.ok(c.includes('shipped it'), 'a done task reaches no column');
+  assert.ok(!c.includes('nothing finished today'),
+    'DONE claims an empty day while holding a card');
 });
 
 // ---- the 15 Hz guard -------------------------------------------------------

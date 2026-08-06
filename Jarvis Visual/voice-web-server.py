@@ -136,11 +136,28 @@ def read_tasks() -> list[dict]:
                     "status": "open", "owner": "unassigned",
                     "priority": "", "updated": "", "note": ""}
             tasks.append(task)
+        elif stripped.startswith("- [x] **"):
+            # A completed task used to only CLOSE the open one above it, so
+            # the board's DONE column could never show anything. Serge,
+            # 2026-08-06: "it's okay that you treat as a finish, but it should
+            # be a time to live before it does disappear, so the user would
+            # see it done. Maybe the next day it's disappeared."
+            #
+            # So it now becomes a task in its own right -- and it STILL closes
+            # the previous one, which is what the 2026-08-05 bleed fix was
+            # actually for: a "- status: done" line under a finished entry
+            # must never attach itself to the last open task.
+            title = stripped[len("- [x] **"):]
+            title, _, rest = title.partition("**")
+            task = {"title": title.strip(),
+                    "project": rest.strip().strip("()"),
+                    "status": "done", "owner": "unassigned",
+                    "priority": "", "updated": "", "note": "",
+                    "_closed": True}
+            tasks.append(task)
         elif stripped.startswith("- [x] "):
-            # A completed task closes the open one above it. Without this the
-            # "- status: done" under a finished entry attaches to the last
-            # "- [ ]" task instead, and the card reports an open task as done.
-            # (Found 2026-08-05: the parked palette task was serving as done.)
+            # A checked line that is not a task entry still closes the open
+            # task above it, for the same bleed reason.
             task = None
         elif task is not None and stripped.startswith("- ") and ":" in stripped:
             key, _, value = stripped[2:].partition(":")
@@ -148,8 +165,34 @@ def read_tasks() -> list[dict]:
             if key in task:
                 # Strip wikilink brackets: the card shows plain text.
                 task[key] = value.strip().replace("[[", "").replace("]]", "")
+    tasks = _expire_done(tasks)
     _TASK_CACHE.update(mtime=mtime, tasks=tasks)
     return tasks
+
+
+def _expire_done(tasks: list[dict]) -> list[dict]:
+    """Drop finished tasks once their day is over.
+
+    Serge's shape, 2026-08-06: a closed task stays on the board for the rest
+    of the day it was closed and is gone at the next day's rollover -- long
+    enough to see it land, short enough that DONE never becomes an archive.
+    No arithmetic on his side: "maybe the next day it's disappeared."
+
+    A finished task with NO `updated` stamp is dropped rather than kept. That
+    is deliberate and it is what keeps the condensed one-line entries under
+    Completed Tasks off the board: an item with no date cannot be shown to be
+    recent, and defaulting an undated item to *visible* would slowly fill the
+    column with everything ever finished.
+    """
+    today = time.strftime("%Y-%m-%d")
+    kept = []
+    for t in tasks:
+        if t.pop("_closed", False):
+            t["status"] = "done"     # the checkbox outranks a stale field
+            if t.get("updated", "")[:10] != today:
+                continue
+        kept.append(t)
+    return kept
 
 
 VAULT_DIR = Path(JARVIS_ROOT) / "Jarvis-brain"
