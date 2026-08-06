@@ -265,10 +265,19 @@
      and it is clamped to two lines: a note is prose and a card is not. */
   .bcard .bstep {
     font-size: 9.5px; line-height: 1.45; margin-top: 5px;
-    color: rgba(var(--ok-soft-rgb), 0.78);
+    color: rgba(var(--accent-rgb), 0.62);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  /* THE STEP LINE TAKES ITS COLUMN'S COLOUR, never a colour of its own.
+     Serge, 2026-08-06: "you should be in sync all the time -- it should be the
+     same thing, actually, it's just a different view on it." A status wearing
+     one hue in the column head and another two lines below it teaches the eye
+     two languages for one fact. These are the SAME tokens the heads and the
+     card borders already use, so a repaint moves all three together. */
+  .bcol.doing   .bcard .bstep { color: rgba(var(--ok-soft-rgb), 0.78); }
+  .bcol.waiting .bcard .bstep { color: rgba(var(--warn-soft-rgb), 0.74); }
+  .bcol.checking .bcard .bstep { color: rgba(var(--accent-rgb), 0.78); }
   .bcol.doing   .bcard { border-color: rgba(0, 255, 168, 0.30); }
   .bcol.waiting .bcard { border-color: rgba(255, 176, 32, 0.30); }
   .bcol.checking .bcard { border-color: rgba(var(--accent-rgb), 0.34); }
@@ -1901,11 +1910,20 @@ const BOARD_CHECKING = ['review', 'test'];
 // read_tasks() serves it, the sidebar hides it in a tooltip, and the board
 // dropped it on the floor. So this is a rendering fix, not a new pipeline.
 //
-// DRAWN ON In Progress ONLY, and that is a decision rather than a shortcut.
-// Notes on the other cards are long-lived prose -- whole build histories,
-// hundreds of words -- and painting them into every column would trade a
-// board you can scan for a wall you cannot. "What is happening right now" is
-// a question only the doing column can answer.
+// WIDENED TO EVERY COLUMN ~8:25 AM, on his "do what needs to be done because
+// we have to work together -- the more precise it is, the more precise we're
+// going to be." The first pass drew this on In Progress only, and the flaw
+// showed the moment it shipped: the card moved to Review on completion and
+// the feature became invisible, so the one person it was built for could not
+// see it. Every column has a live state worth reading -- Review says whose
+// eyes it waits on, Waiting on You says what it wants from Serge.
+//
+// THE COST OF WIDENING IS A DATA PROBLEM, NOT A RENDERING ONE, and it is
+// fixed in the note rather than papered over here: most notes opened with
+// their HISTORY ("Serge, 4:10 PM: can it be done..."), which renders as a
+// stale quote in a slot that claims to say what is true now. The first line
+// of every task was rewritten to be current state. The rule lives in
+// Active Priorities' legend, where the shape is defined.
 const STEP_MAX = 90;
 function stepText(note){
   if (typeof note !== 'string') return '';
@@ -1977,7 +1995,7 @@ function renderBoard(tasks){
     let list = bucket(c.key);
     if (c.key === 'open') list = list.concat(strays);
     const cards = list.map(t => {
-      const step = c.key === 'active' ? stepText(t.note) : '';
+      const step = stepText(t.note);
       return '<div class="bcard"' + (step ? ' title="' + esc(t.note) + '"' : '') + '>'
       + '<div class="bt">' + esc(t.title || '(untitled)') + '</div>'
       // No empty element when there is no note: a blank line under the title

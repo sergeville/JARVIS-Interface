@@ -442,8 +442,17 @@ test('the waveform is still protected during a browser turn', () => {
 // held in a build does not.
 
 function rule(sel) {
-  const i = src.indexOf(sel + ' {');
-  assert.ok(i !== -1, 'CSS rule is gone: ' + sel);
+  let i = src.indexOf(sel + ' {');
+  // Tolerate the column alignment this stylesheet uses (".bcol.doing   .bcard
+  // { ... }"). A helper that fails on whitespace reports a missing rule when
+  // the rule is right there, which is a false alarm dressed as a real one.
+  if (i === -1) {
+    const re = new RegExp(sel.split(/\s+/).map(p =>
+      p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+') + '\\s*\\{');
+    const m = src.match(re);
+    assert.ok(m, 'CSS rule is gone: ' + sel);
+    i = m.index;
+  }
   return src.slice(i, src.indexOf('}', i));
 }
 
@@ -656,14 +665,31 @@ test('THE In Progress CARD CARRIES ITS CURRENT STEP', () => {
     'the step line is missing -- the card says what it is called and not what is happening');
 });
 
-test('the step line is drawn ONLY under In Progress', () => {
-  // Notes on the other cards are long-lived prose -- whole build histories.
-  // Painting them everywhere trades a board you can scan for a wall you cannot.
-  for (const st of ['open', 'review', 'test', 'waiting-on-serge', 'done']) {
+// INVERTED 2026-08-06 ~8:25 AM, not extended. The first pass asserted "drawn
+// ONLY under In Progress", and that assertion described the bug: the card
+// moves to Review the moment the work is done, so the feature disappeared
+// exactly when Serge went to look at it. "Only In Progress" and "every column"
+// cannot both guard this file, so the old assertion was rewritten rather than
+// left to contradict the new one.
+test('EVERY column draws its card its current step', () => {
+  for (const c of COLS) {
     reset();
-    renderBoard([T('some task', st, { note: 'SECRETSTEP', updated: '2026-08-06' })]);
-    assert.ok(!cols().includes('SECRETSTEP'),
-      'a ' + st + ' card drew its note -- the board fills with prose');
+    renderBoard([T('some task', c.key, { note: 'THESTEP', updated: '2026-08-06' })]);
+    const m = cols().match(/class="bstep">([^<]*)</);
+    assert.ok(m && m[1] === 'THESTEP',
+      'the ' + c.key + ' column drew no step line -- that state is unreadable');
+  }
+});
+
+test('the step line takes its COLUMN\'S colour, not one of its own', () => {
+  // Serge: "it should be the same thing, actually -- just a different view."
+  // A status wearing one hue in the column head and another two lines below
+  // teaches the eye two languages for one fact.
+  const pairs = [['doing', '--ok-soft-rgb'], ['waiting', '--warn-soft-rgb']];
+  for (const [cls, token] of pairs) {
+    const r = rule('.bcol.' + cls + ' .bcard .bstep');
+    assert.ok(r && r.includes(token),
+      'the ' + cls + ' step line does not use ' + token + ' -- it will drift from its column');
   }
 });
 
@@ -717,10 +743,16 @@ test('the full note is reachable on hover', () => {
     'the clamped remainder is unreachable -- that is truncation, not folding');
 });
 
-test('the step line wears the doing green, from the token not a literal', () => {
+// INVERTED with the widening: while the line only ever appeared under In
+// Progress it was correct for it to be green everywhere. Now that it appears
+// in six columns, a fixed green would say "being worked" on a card that is
+// parked -- the colour would contradict the column it sits in.
+test('the step line has a NEUTRAL base colour, from a token not a literal', () => {
   const r = rule('.bcard .bstep');
-  assert.ok(/var\(--ok-soft-rgb\)/.test(r),
-    'the step line does not use the ok token -- it will drift from the doing column');
+  assert.ok(/var\(--accent-rgb\)/.test(r),
+    'the base step colour is not the accent token -- a raw literal or a status hue');
+  assert.ok(!/#[0-9a-fA-F]{3,6}/.test(r),
+    'a raw hex literal crept into the step line');
 });
 
 test('the step line is clamped in CSS as well as in text', () => {
