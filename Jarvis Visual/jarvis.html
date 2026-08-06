@@ -164,6 +164,10 @@
   #board-strip {
     display: flex; align-items: center; gap: 9px; cursor: default;
     margin-top: 5px; padding-left: 14px;
+    /* A fourth count (CHECKING) can appear, and this card is 300px wide --
+       the one-row heading already clipped here once. Wrapping costs a row of
+       height on a busy day; clipping loses a number Serge is reading. */
+    flex-wrap: wrap; row-gap: 3px;
   }
   #board-strip .bs {
     font-size: 9.5px; letter-spacing: 0.25em; text-transform: uppercase;
@@ -180,6 +184,7 @@
   }
   #board-strip .bs.doing   .dot { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
   #board-strip .bs.waiting .dot { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
+  #board-strip .bs.checking .dot { background: rgba(var(--accent-rgb), 0.85); }
   #board-strip .caret {
     font-size: 8px; color: rgba(var(--accent-rgb), 0.45);
     transition: transform 520ms ease;
@@ -218,7 +223,8 @@
     visibility: visible; transition-delay: 0s;
   }
   #board-cols {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    /* Six since 2026-08-06 (Serge): Review and Test joined the vocabulary. */
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px;
   }
   .bcol-head {
     font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
@@ -230,6 +236,10 @@
   .bcol-head .n { color: rgba(var(--accent-rgb), 0.85); font-size: 10px; }
   .bcol.doing   .bcol-head { border-bottom-color: rgba(0, 255, 168, 0.32); }
   .bcol.waiting .bcol-head { border-bottom-color: rgba(255, 176, 32, 0.32); }
+  /* Review and Test are work in flight that is not on Serge, so they take
+     neither the green of doing nor the amber of waiting -- a brighter accent
+     edge, which is the page's own "in hand" language and not a fourth hue. */
+  .bcol.checking .bcol-head { border-bottom-color: rgba(var(--accent-rgb), 0.40); }
   .bcard {
     border: 1px solid rgba(var(--accent-rgb), 0.16); border-radius: 4px;
     padding: 7px 8px; margin-bottom: 7px;
@@ -247,6 +257,7 @@
   }
   .bcol.doing   .bcard { border-color: rgba(0, 255, 168, 0.30); }
   .bcol.waiting .bcard { border-color: rgba(255, 176, 32, 0.30); }
+  .bcol.checking .bcard { border-color: rgba(var(--accent-rgb), 0.34); }
   .bcol-empty {
     font-size: 9.5px; color: rgba(var(--accent-rgb), 0.3);
     padding: 5px 2px; letter-spacing: 0.06em;
@@ -1845,12 +1856,24 @@ function renderTasks(tasks){
 // column can only ever be empty until the server is changed. It is drawn
 // anyway, saying so plainly -- a column Serge expects and cannot find reads
 // as a broken board, while an empty one that explains itself does not.
+//
+// Serge, 2026-08-06 ~6:44 AM: REVIEW and TEST joined the columns, and the
+// order is the order work actually flows in -- To Do, In Progress, Review,
+// Test, Waiting on You, Done.
 const BOARD_COLS = [
   {key: 'open',             label: 'To Do',        cls: ''},
   {key: 'active',           label: 'In Progress',  cls: 'doing'},
+  {key: 'review',           label: 'Review',       cls: 'checking'},
+  {key: 'test',             label: 'Test',         cls: 'checking'},
   {key: 'waiting-on-serge', label: 'Waiting on You', cls: 'waiting'},
   {key: 'done',             label: 'Done',         cls: 'done'},
 ];
+// The summary counts anything in review or test as CHECKING. Without it the
+// two new states would be INVISIBLE in the strip: a status with a column of
+// its own is excluded from the open/doing/you counts by construction, so a
+// task in Review would simply stop being counted anywhere. Drawn only when
+// non-zero, so a quiet day's heading does not get noisier for nothing.
+const BOARD_CHECKING = ['review', 'test'];
 let boardSig = '';
 function renderBoard(tasks){
   const strip = document.getElementById('board-strip');
@@ -1877,8 +1900,12 @@ function renderBoard(tasks){
   const nDoing = bucket('active').length;
   const nWait  = bucket('waiting-on-serge').length;
   const nOpen  = bucket('open').length + strays.length;
+  const nCheck = BOARD_CHECKING.reduce((n, k) => n + bucket(k).length, 0);
   strip.innerHTML =
       '<span class="bs doing"><span class="dot"></span><b>' + nDoing + '</b> doing</span>'
+    + (nCheck
+        ? '<span class="bs checking"><span class="dot"></span><b>' + nCheck + '</b> checking</span>'
+        : '')
     + '<span class="bs waiting"><span class="dot"></span><b>' + nWait + '</b> you</span>'
     + '<span class="bs"><span class="dot"></span><b>' + nOpen + '</b> open</span>'
     + '<span class="caret">&#9660;</span>';

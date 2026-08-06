@@ -63,7 +63,15 @@ const COLS_SRC = (() => {
   assert.ok(m, 'BOARD_COLS not found in jarvis.html');
   return m[1];
 })();
-eval(grab('esc') + '\nconst BOARD_COLS = ' + COLS_SRC + ';\n' + grab('renderBoard'));
+// Same reasoning for the checking set: parsed out of the page, never restated,
+// so a change to which statuses count as "checking" moves these tests with it.
+const CHECK_SRC = (() => {
+  const m = src.match(/const BOARD_CHECKING = (\[[^\]]*\]);/);
+  assert.ok(m, 'BOARD_CHECKING not found in jarvis.html');
+  return m[1];
+})();
+eval(grab('esc') + '\nconst BOARD_COLS = ' + COLS_SRC + ';'
+   + '\nconst BOARD_CHECKING = ' + CHECK_SRC + ';\n' + grab('renderBoard'));
 let boardSig = '';
 const COLS = eval('(' + COLS_SRC + ')');
 
@@ -88,9 +96,67 @@ function test(name, fn) {
 
 // ---- the columns are the statuses the vault already uses -------------------
 
-test('the four columns are To Do, In Progress, Waiting on You, Done', () => {
+// INVERTED 2026-08-06, not extended: "the four columns are ..." and "the six
+// columns are ..." cannot both guard this table. Serge added Review and Test
+// (~6:44 AM), and the order is the order work flows in.
+test('the six columns are To Do, In Progress, Review, Test, Waiting on You, Done', () => {
   assert.deepStrictEqual(COLS.map(c => c.key),
-    ['open', 'active', 'waiting-on-serge', 'done']);
+    ['open', 'active', 'review', 'test', 'waiting-on-serge', 'done']);
+});
+
+test('the grid draws as many columns as the table declares', () => {
+  // A six-entry table rendered into a four-column grid wraps Waiting on You
+  // and Done onto a second row -- which reads as a broken board, not a wide one.
+  const r = rule('#board-cols');
+  const m = r.match(/grid-template-columns: repeat\((\d+), 1fr\)/);
+  assert.ok(m, '#board-cols is no longer a repeat() grid');
+  assert.strictEqual(+m[1], COLS.length,
+    'the grid and the column table disagree: ' + m[1] + ' vs ' + COLS.length);
+});
+
+test('review and test tasks land in their OWN columns', () => {
+  renderBoard([T('needs eyes', 'review'), T('needs proof', 'test')]);
+  const c = cols();
+  const revAt = c.indexOf('Review'), tstAt = c.indexOf('Test');
+  assert.ok(c.indexOf('needs eyes') > revAt, 'a review task is not under Review');
+  assert.ok(c.indexOf('needs proof') > tstAt, 'a test task is not under Test');
+  assert.ok(revAt < tstAt, 'Review must come before Test -- work flows that way');
+});
+
+test('THE CHECKING COUNT EXISTS -- review and test are not invisible in the strip', () => {
+  // The whole reason this count was added. A status with a column of its own
+  // is excluded from doing/you/open by construction, so without a count of
+  // its own a task in Review vanishes from the heading Serge actually reads.
+  renderBoard([T('a', 'review'), T('b', 'test')]);
+  const s = strip();
+  assert.ok(/<b>2<\/b> checking/.test(s), 'checking count wrong or missing: ' + s);
+  assert.ok(/<b>0<\/b> open/.test(s),
+    'a review task was ALSO counted as open -- the strip double-counts: ' + s);
+});
+
+test('the checking count is HIDDEN when nothing is being checked', () => {
+  // His condition: only when non-zero, so a quiet day is not noisier.
+  renderBoard([T('a', 'open'), T('b', 'active')]);
+  assert.ok(!/checking/.test(strip()),
+    'the strip shows a zero checking count on a quiet day: ' + strip());
+});
+
+test('Review and Test wear neither the doing green nor the waiting amber', () => {
+  // They are work in flight that is NOT on Serge. Painting them amber would
+  // say he is blocking; painting them green would say they are being worked.
+  for (const k of ['review', 'test']) {
+    const c = COLS.find(x => x.key === k);
+    assert.notStrictEqual(c.cls, 'doing', k + ' is painted as In Progress');
+    assert.notStrictEqual(c.cls, 'waiting', k + ' is painted as Waiting on You');
+    assert.ok(c.cls, k + ' has no class at all -- it is indistinguishable from To Do');
+  }
+});
+
+test('the strip WRAPS rather than clips when the fourth count appears', () => {
+  // The 300px card clipped once already with three counts on one row. A
+  // fourth cannot be allowed to push a number off the edge silently.
+  assert.ok(/flex-wrap: wrap/.test(rule('#board-strip')),
+    'the counts row cannot wrap -- a fourth count will clip like the last one did');
 });
 
 test('a task appears under its own status', () => {
