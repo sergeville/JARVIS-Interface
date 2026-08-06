@@ -72,8 +72,17 @@ const CHECK_SRC = (() => {
   assert.ok(m, 'BOARD_CHECKING not found in jarvis.html');
   return m[1];
 })();
+// STEP_MAX is parsed out of the page like the tables above, never restated --
+// a test that hardcodes 90 would pass while the page clamped at 900.
+const STEP_MAX = (() => {
+  const m = src.match(/const STEP_MAX = (\d+);/);
+  assert.ok(m, 'STEP_MAX not found in jarvis.html');
+  return +m[1];
+})();
 eval(grab('esc') + '\nconst BOARD_COLS = ' + COLS_SRC + ';'
-   + '\nconst BOARD_CHECKING = ' + CHECK_SRC + ';\n' + grab('renderBoard'));
+   + '\nconst BOARD_CHECKING = ' + CHECK_SRC + ';'
+   + '\nconst STEP_MAX = ' + STEP_MAX + ';\n' + grab('stepText') + '\n'
+   + grab('renderBoard'));
 let boardSig = '';
 let boardLatched = false;
 eval(grab('boardOpen'));
@@ -631,6 +640,93 @@ test('an unlaid-out strip does not slam the sheet to the top of the page', () =>
 test('the CSS still carries a resting top, so a measure-less open is not broken', () => {
   assert.ok(/top: \d+px/.test(rule('#board')),
     '#board has no fallback top -- it would sit at the viewport edge');
+});
+
+// ---- the step line: what is happening INSIDE the card ----------------------
+//
+// Serge, 2026-08-06 ~8:12 AM. He asked whether Jarvis was on strike while work
+// was actually in flight, then named the cause himself: "if the Kanban was
+// telling the actual what it's doing, I would not ask this." These guard the
+// answer to that question, and the two ways it could quietly stop working --
+// the line vanishing, and the line going stale-looking by drawing junk.
+
+test('THE In Progress CARD CARRIES ITS CURRENT STEP', () => {
+  renderBoard([T('build the thing', 'active', { note: 'reading renderBoard()' })]);
+  assert.ok(cols().includes('reading renderBoard()'),
+    'the step line is missing -- the card says what it is called and not what is happening');
+});
+
+test('the step line is drawn ONLY under In Progress', () => {
+  // Notes on the other cards are long-lived prose -- whole build histories.
+  // Painting them everywhere trades a board you can scan for a wall you cannot.
+  for (const st of ['open', 'review', 'test', 'waiting-on-serge', 'done']) {
+    reset();
+    renderBoard([T('some task', st, { note: 'SECRETSTEP', updated: '2026-08-06' })]);
+    assert.ok(!cols().includes('SECRETSTEP'),
+      'a ' + st + ' card drew its note -- the board fills with prose');
+  }
+});
+
+test('a paragraph of note is clamped, not dumped into the card', () => {
+  const long = 'x'.repeat(STEP_MAX * 3);
+  renderBoard([T('big note', 'active', { note: long })]);
+  const m = cols().match(/class="bstep">([^<]*)</);
+  assert.ok(m, 'no step line rendered');
+  assert.ok(m[1].length <= STEP_MAX,
+    'the step line ran to ' + m[1].length + ' chars -- the card is now a paragraph');
+  assert.ok(m[1].endsWith('…'), 'a clamped line must say it was clamped');
+});
+
+test('only the FIRST line of the note is shown', () => {
+  // The legend calls the note "one line of current state"; everything after it
+  // is history, and history in this slot is the stale-line failure by design.
+  renderBoard([T('t', 'active', { note: 'the current step\nOLDHISTORY from last week' })]);
+  // Scoped to the step line itself, NOT the whole card: the hover text is
+  // meant to carry the history, so searching the card would fail on correct
+  // code -- which is exactly what it did on the first run.
+  const m = cols().match(/class="bstep">([^<]*)</);
+  assert.ok(m, 'no step line rendered');
+  assert.strictEqual(m[1], 'the current step',
+    'history leaked into the step line -- the card will read as stale');
+});
+
+test('markdown and wikilinks are rendered as words, not as litter', () => {
+  renderBoard([T('t', 'active', { note: '**bold** and `code` and [[Session Board]]' })]);
+  const m = cols().match(/class="bstep">([^<]*)</);
+  assert.strictEqual(m[1], 'bold and code and Session Board');
+});
+
+test('a task with no note draws NO empty element', () => {
+  // A blank line under the title reads as a card that failed to load.
+  renderBoard([T('no note', 'active')]);
+  assert.ok(!cols().includes('bstep'),
+    'an empty step line was drawn -- the card looks broken rather than quiet');
+});
+
+test('the step line is escaped', () => {
+  renderBoard([T('t', 'active', { note: '<img src=x onerror=1>' })]);
+  assert.ok(!cols().includes('<img'), 'the step line is not escaped');
+});
+
+test('the full note is reachable on hover', () => {
+  // Clamping is only acceptable if the remainder is still reachable -- the
+  // fold-never-truncate rule this page already lives by.
+  const note = 'first line here\nand the whole history after it';
+  renderBoard([T('t', 'active', { note })]);
+  assert.ok(cols().includes('and the whole history after it'),
+    'the clamped remainder is unreachable -- that is truncation, not folding');
+});
+
+test('the step line wears the doing green, from the token not a literal', () => {
+  const r = rule('.bcard .bstep');
+  assert.ok(/var\(--ok-soft-rgb\)/.test(r),
+    'the step line does not use the ok token -- it will drift from the doing column');
+});
+
+test('the step line is clamped in CSS as well as in text', () => {
+  const r = rule('.bcard .bstep');
+  assert.ok(/line-clamp: \d/.test(r),
+    'no line-clamp -- a long single line will still stretch the card');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

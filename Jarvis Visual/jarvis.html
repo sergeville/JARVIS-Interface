@@ -258,6 +258,17 @@
     margin-top: 5px; color: rgba(var(--accent-rgb), 0.42);
     display: flex; gap: 7px;
   }
+  /* The step line: what is happening INSIDE the card, not what it is called.
+     Serge, 2026-08-06 ~8:12 AM -- he had just asked whether Jarvis was on
+     strike while work was in flight, and that question is the bug report.
+     It wears the doing green because it only ever appears on In Progress,
+     and it is clamped to two lines: a note is prose and a card is not. */
+  .bcard .bstep {
+    font-size: 9.5px; line-height: 1.45; margin-top: 5px;
+    color: rgba(var(--ok-soft-rgb), 0.78);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .bcol.doing   .bcard { border-color: rgba(0, 255, 168, 0.30); }
   .bcol.waiting .bcard { border-color: rgba(255, 176, 32, 0.30); }
   .bcol.checking .bcard { border-color: rgba(var(--accent-rgb), 0.34); }
@@ -1877,6 +1888,38 @@ const BOARD_COLS = [
 // task in Review would simply stop being counted anywhere. Drawn only when
 // non-zero, so a quiet day's heading does not get noisier for nothing.
 const BOARD_CHECKING = ['review', 'test'];
+// THE CARD MUST SAY WHAT IS HAPPENING, NOT ONLY WHAT IT IS CALLED.
+//
+// Serge, 2026-08-06 ~8:12 AM: "nothing moving -- is it because you work on it
+// now? If the Kanban was telling the actual what it's doing, I would not ask
+// this." Minutes earlier he had asked whether Jarvis was on strike, while work
+// was in fact in flight. THAT QUESTION IS THE BUG REPORT: a board he has to
+// interrupt a person to interpret is doing half its job.
+//
+// The data was already here and already being thrown away -- every task
+// carries a `note` (the legend calls it "one line of current state"),
+// read_tasks() serves it, the sidebar hides it in a tooltip, and the board
+// dropped it on the floor. So this is a rendering fix, not a new pipeline.
+//
+// DRAWN ON In Progress ONLY, and that is a decision rather than a shortcut.
+// Notes on the other cards are long-lived prose -- whole build histories,
+// hundreds of words -- and painting them into every column would trade a
+// board you can scan for a wall you cannot. "What is happening right now" is
+// a question only the doing column can answer.
+const STEP_MAX = 90;
+function stepText(note){
+  if (typeof note !== 'string') return '';
+  // The FIRST line only: by the note's own shape that is the current state,
+  // and everything after it is history. Clamping the whole blob instead would
+  // fill the card with the first 90 characters of last week.
+  let s = note.split('\n')[0];
+  s = s.replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, '$2')  // wikilink -> its text
+       .replace(/[`*_]+/g, '')                          // markdown emphasis
+       .replace(/\s+/g, ' ')
+       .trim();
+  if (s.length > STEP_MAX) s = s.slice(0, STEP_MAX - 1).trimEnd() + '…';
+  return s;
+}
 let boardSig = '';
 function renderBoard(tasks){
   const strip = document.getElementById('board-strip');
@@ -1933,10 +1976,16 @@ function renderBoard(tasks){
   cols.innerHTML = BOARD_COLS.map(c => {
     let list = bucket(c.key);
     if (c.key === 'open') list = list.concat(strays);
-    const cards = list.map(t =>
-        '<div class="bcard"><div class="bt">' + esc(t.title || '(untitled)') + '</div>'
+    const cards = list.map(t => {
+      const step = c.key === 'active' ? stepText(t.note) : '';
+      return '<div class="bcard"' + (step ? ' title="' + esc(t.note) + '"' : '') + '>'
+      + '<div class="bt">' + esc(t.title || '(untitled)') + '</div>'
+      // No empty element when there is no note: a blank line under the title
+      // reads as a card that failed to load rather than one with nothing to say.
+      + (step ? '<div class="bstep">' + esc(step) + '</div>' : '')
       + '<div class="bm">' + (t.priority ? '<span>' + esc(t.priority) + '</span>' : '')
-      + (t.owner ? '<span>' + esc(t.owner) + '</span>' : '') + '</div></div>').join('');
+      + (t.owner ? '<span>' + esc(t.owner) + '</span>' : '') + '</div></div>';
+    }).join('');
     // DONE holds only what was finished TODAY -- Serge, 2026-08-06: a closed
     // task should linger long enough to be seen, then be gone the next day.
     // So an empty column means a quiet day, not a broken feed, and it has to
