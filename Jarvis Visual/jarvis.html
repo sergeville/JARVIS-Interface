@@ -1944,7 +1944,25 @@ const BOARD_INTENT_MS = 250;   // deliberate approach, not a cursor passing by
 const BOARD_CLOSE_MS  = 420;   // slower to leave than to arrive
 let boardOpenT = null, boardCloseT = null, boardLatched = false;
 
+// Serge, 2026-08-06 ~7:10 AM, from his own screenshot: with the sheet open it
+// covered the ACTIVE TASKS card, so the counts strip the board hangs off was
+// the one thing he could not see while looking at the board. Backwards.
+//
+// The offset is MEASURED, never a constant, and that is the whole point: the
+// heading's height varies now -- the counts row wraps to a second line when
+// the CHECKING count appears -- so a magic number would be correct on a quiet
+// day and wrong on exactly the busy one where it matters.
 function boardOpen(on){
+  if (on) {
+    const strip = document.getElementById('board-strip');
+    if (strip) {
+      const board = document.getElementById('board');
+      const b = strip.getBoundingClientRect();
+      // Only when it has been laid out: a hidden strip measures 0 and would
+      // slam the sheet to the top of the viewport.
+      if (board && b.bottom > 0) board.style.top = Math.round(b.bottom + 8) + 'px';
+    }
+  }
   document.body.classList.toggle('board-open', on);
   if (!on) boardLatched = false;
 }

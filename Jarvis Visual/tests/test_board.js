@@ -29,6 +29,8 @@ const HTML = path.join(__dirname, '..', 'jarvis.html');
 const nodes = {};
 function makeNode(id) {
   return { id, innerHTML: '', textContent: '', style: {},
+           rect: { bottom: 0 },
+           getBoundingClientRect() { return this.rect; },
            setAttribute() {}, getAttribute() { return null; } };
 }
 for (const id of ['board-strip', 'board-cols', 'board'])
@@ -73,6 +75,8 @@ const CHECK_SRC = (() => {
 eval(grab('esc') + '\nconst BOARD_COLS = ' + COLS_SRC + ';'
    + '\nconst BOARD_CHECKING = ' + CHECK_SRC + ';\n' + grab('renderBoard'));
 let boardSig = '';
+let boardLatched = false;
+eval(grab('boardOpen'));
 const COLS = eval('(' + COLS_SRC + ')');
 
 const T = (title, status, extra) =>
@@ -547,6 +551,56 @@ test('the INTENT delay was not slowed with the animation', () => {
   const m = src.match(/BOARD_INTENT_MS = (\d+)/);
   assert.ok(m, 'the intent delay is gone');
   assert.ok(+m[1] <= 300, 'the approach delay crept up to ' + m[1] + 'ms');
+});
+
+// ---- THE SHEET MUST NOT COVER ITS OWN HEADING -------------------------
+// Serge, 2026-08-06 ~7:10 AM, from his screenshot: the open sheet covered the
+// ACTIVE TASKS card, so the counts strip the board hangs off was the one thing
+// he could not see while looking at the board.
+
+test('opening the board pushes the sheet BELOW the heading it hangs off', () => {
+  nodes['board-strip'].rect = { bottom: 240 };
+  nodes['board'].style = {};
+  boardOpen(true);
+  const top = parseInt(nodes['board'].style.top, 10);
+  assert.ok(!isNaN(top), 'the sheet top was never set on open');
+  assert.ok(top >= 240,
+    'the sheet still overlaps its own heading: top ' + top + ' vs heading bottom 240');
+});
+
+test('the offset is MEASURED, never a constant', () => {
+  // The heading's height varies -- the counts row wraps once the CHECKING
+  // count appears -- so a magic number is right on a quiet day and wrong on
+  // exactly the busy one where the board matters most.
+  nodes['board-strip'].rect = { bottom: 240 };
+  nodes['board'].style = {};
+  boardOpen(true);
+  const a = parseInt(nodes['board'].style.top, 10);
+  boardOpen(false);
+  nodes['board-strip'].rect = { bottom: 300 };   // the strip wrapped to two rows
+  boardOpen(true);
+  const b = parseInt(nodes['board'].style.top, 10);
+  assert.ok(b > a,
+    'the sheet ignored a taller heading -- the offset is hardcoded: ' + a + ' vs ' + b);
+});
+
+test('an unlaid-out strip does not slam the sheet to the top of the page', () => {
+  // A hidden strip measures 0. Trusting that would put the sheet over the top
+  // bar, which is worse than the bug being fixed.
+  nodes['board-strip'].rect = { bottom: 240 };
+  nodes['board'].style = {};
+  boardOpen(true);
+  const good = nodes['board'].style.top;
+  boardOpen(false);
+  nodes['board-strip'].rect = { bottom: 0 };
+  boardOpen(true);
+  assert.strictEqual(nodes['board'].style.top, good,
+    'a zero measurement moved the sheet -- it will cover the top bar');
+});
+
+test('the CSS still carries a resting top, so a measure-less open is not broken', () => {
+  assert.ok(/top: \d+px/.test(rule('#board')),
+    '#board has no fallback top -- it would sit at the viewport edge');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
