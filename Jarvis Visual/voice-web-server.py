@@ -834,22 +834,46 @@ class VoiceWeb:
                "tool": tool_name, "detail": detail}
         for ws in list(WS_CLIENTS):
             await self.safe_send(ws, msg)
+        timed_out = False
         try:
             allowed = await asyncio.wait_for(fut, APPROVAL_TIMEOUT_S)
         except asyncio.TimeoutError:
             allowed = False
+            timed_out = True
         finally:
-            self.approvals.pop(aid, None)
+            rec = self.approvals.pop(aid, None)
+            interrupted = bool(rec and rec.get("interrupted"))
             for ws in list(WS_CLIENTS):
                 await self.safe_send(ws, {"type": "approval_done",
-                                          "id": aid})
-        print(f"approval #{aid}: {'allowed' if allowed else 'denied'}",
-              flush=True)
+                                          "id": aid,
+                                          "tool": tool_name,
+                                          "detail": detail,
+                                          "reason": ("interrupted" if interrupted
+                                                     else "timeout" if timed_out
+                                                     else "answered")})
+        why = ("interrupted" if interrupted
+               else "timed out" if timed_out
+               else "allowed" if allowed else "denied")
+        print(f"approval #{aid}: {why}", flush=True)
         if allowed:
             return PermissionResultAllow()
+        if interrupted:
+            # The distinction matters to Jarvis: this is NOT a refusal on the
+            # merits, so the right response is to tell Serge it never ran and
+            # ask again -- not to treat it as a decision and move on.
+            return PermissionResultDeny(
+                message="NOT RUN -- Serge spoke or typed while this was "
+                        "waiting, which cancelled the request. He did not "
+                        "refuse it; he never saw it answered. Tell him this "
+                        "did not run and ask again if it still matters.")
+        if timed_out:
+            return PermissionResultDeny(
+                message="NOT RUN -- the permission request timed out with no "
+                        "answer. Serge may never have seen it. Tell him, and "
+                        "ask again if it still matters.")
         return PermissionResultDeny(
-            message="Serge denied this from the HUD (or the approve "
-                    "button timed out). Do not retry without asking him.")
+            message="Serge denied this from the HUD. "
+                    "Do not retry without asking him.")
 
     def resolve_approval(self, aid: int, allow: bool) -> None:
         pending = self.approvals.get(aid)
@@ -915,6 +939,28 @@ class VoiceWeb:
 
     async def interrupt(self) -> None:
         self.gen += 1
+        # ANSWER EVERY PENDING PERMISSION BEFORE TEARING THE TURN DOWN.
+        #
+        # Serge, 2026-08-06: "I'm typing something and I press enter, whoop,
+        # it disappears... maybe that's the reason sometimes I think you're
+        # doing something, you're not, you're waiting for me and I don't know
+        # you're waiting for me."
+        #
+        # He was right, and worse than I first told him. ask_permission() sits
+        # on `await asyncio.wait_for(fut, ...)` INSIDE the turn. Cancelling the
+        # turn cancelled that await, so PermissionResultDeny was never returned
+        # either -- the request simply ceased to exist. No approval, no denial,
+        # no completion, nothing logged, and nothing said to him or to Jarvis.
+        # The work was abandoned in silence, which is the exact failure the
+        # whole morning has been about.
+        #
+        # Resolving the future FIRST turns that silence into a definite answer:
+        # the tool still does not run, but there is a result, a log line, and a
+        # message Jarvis can read and repeat back to him.
+        for a in list(self.approvals.values()):
+            a["interrupted"] = True
+            if not a["future"].done():
+                a["future"].set_result(False)
         if not self.turn_lock.locked():
             return               # nothing in flight -- don't poke the SDK
         try:

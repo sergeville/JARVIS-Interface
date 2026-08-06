@@ -565,6 +565,29 @@
      I could click on it." So it is centred and fixed, above every panel, with
      the rest of the page dimmed behind it by the outer shadow rather than by a
      second element. The amber body theme still fires around it, unchanged. */
+  /* The lost-permission notice. Amber like the request it replaces, but a
+     thin bar rather than a modal: the request is over, so it must not block
+     the page -- it only has to be impossible to miss and impossible to lose.
+     It sits BELOW the top bar and above everything else. */
+  #approve-lost {
+    display: none;
+    position: fixed; z-index: 190;
+    top: 46px; left: 50%; transform: translateX(-50%);
+    max-width: min(720px, 84vw);
+    padding: 7px 10px 7px 12px;
+    display: none; align-items: center; gap: 10px;
+    border: 1px solid rgba(var(--warn-soft-rgb), 0.55); border-radius: 3px;
+    background: rgba(46, 31, 4, 0.94);
+    font-size: 11px; letter-spacing: 0.04em;
+    color: var(--warn-soft);
+  }
+  #approve-lost.on { display: flex; }
+  #approve-lost-x {
+    background: none; border: none; cursor: pointer;
+    color: rgba(var(--warn-soft-rgb), 0.7); font-size: 12px;
+    padding: 0 2px; flex-shrink: 0;
+  }
+  #approve-lost-x:hover { color: var(--warn-soft); }
   #approve-box {
     display: none;
     position: fixed; z-index: 200;
@@ -1056,6 +1079,18 @@
   </div>
 </div>
 
+<!-- A permission that went away WITHOUT an answer. Serge, 2026-08-06:
+     "I press enter, whoop, it disappears... maybe that's the reason
+     sometimes I think you're doing something, you're not, you're waiting
+     for me and I don't know you're waiting for me."
+     STICKY BY DESIGN -- it stays until he dismisses it. The defect being
+     fixed is silence, so a notice that can also vanish on its own would
+     rebuild the bug in a quieter costume. -->
+<div id="approve-lost">
+  <span id="approve-lost-text"></span>
+  <button id="approve-lost-x" title="dismiss">&#10005;</button>
+</div>
+
 <script>
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
@@ -1172,6 +1207,11 @@ function connect(){
       showApproval(ev);
     } else if (ev.type === 'approval_done') {
       if (approvalId === ev.id) showApproval(null);
+      // Independent of whether THIS tab held the request: an old server
+      // sends no `reason`, and showLostApproval ignores anything it does
+      // not recognise, so a stale server degrades to today's behaviour
+      // rather than to a wrong message.
+      showLostApproval(ev);
     } else if (ev.type === 'done') {
       turnOpen = false; thinking = false;
       if (!playing && playQueue.length === 0) state = 'idle';
@@ -2244,6 +2284,32 @@ function answerApproval(allow){
 }
 document.getElementById('approve-yes').onclick = () => answerApproval(true);
 document.getElementById('approve-no').onclick = () => answerApproval(false);
+
+// ---- a permission that went away without an answer -------------------
+//
+// Serge, 2026-08-06: "I press enter, whoop, it disappears." The request
+// dies with the interrupted turn, and until now the box simply vanished --
+// so he could not tell whether he had approved it, denied it, or killed it.
+// The action is the same either way (it does NOT run); the defect is the
+// silence. This says which happened, and STAYS until he dismisses it.
+const lostBox = document.getElementById('approve-lost');
+const lostText = document.getElementById('approve-lost-text');
+function lostWords(reason, tool, detail){
+  const what = (tool || 'a tool') + (detail ? ' — ' + detail : '');
+  if (reason === 'interrupted')
+    return 'PERMISSION CANCELLED · you spoke or typed while it was waiting, '
+         + 'so it never ran: ' + what;
+  return 'PERMISSION EXPIRED · no answer in time, so it never ran: ' + what;
+}
+function showLostApproval(ev){
+  // 'answered' means he actually clicked. Saying anything then would be
+  // noise, and noise is what makes a warning stop being read.
+  if (!ev || (ev.reason !== 'interrupted' && ev.reason !== 'timeout')) return;
+  lostText.textContent = lostWords(ev.reason, ev.tool, (ev.detail || '').slice(0, 120));
+  lostBox.classList.add('on');
+}
+document.getElementById('approve-lost-x').onclick =
+  () => lostBox.classList.remove('on');
 
 // ---- left panel: live system stats ----------------------------------
 function fmtRate(kbs){
