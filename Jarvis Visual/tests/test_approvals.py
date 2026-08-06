@@ -13,16 +13,16 @@ cancelling the turn cancelled the await, and PermissionResultDeny was
 never returned either. No approval, no denial, no completion, no log
 line: the work was abandoned in silence.
 
-What these guard, in order of how much they matter:
+What these guard, in order of how much they matter (doctrine INVERTED
+2026-08-06 on Serge's 10:04 AM rule -- "it cannot be cancelled"):
 
-  * an interrupt ANSWERS every pending request rather than dropping it,
-    so there is always a definite result;
-  * the answer is never ALLOW. The one thing that must never happen is
-    an accidental grant, because that is consent Serge did not give;
-  * Jarvis is told WHICH kind of no it was, since "he refused" and "he
-    never saw it" call for opposite behaviour from me;
-  * every page is told too, with a reason, so the box cannot simply
-    vanish and leave him guessing.
+  * a pending request SURVIVES every interrupt; the only exits are his
+    APPROVE/DENY click and the half-hour time-to-live he set at 11:05;
+  * a held interrupt is SAID to the page, never silently swallowed;
+  * an answer is never ALLOW by anything but his own click -- an
+    accidental grant is consent Serge did not give;
+  * a timeout is a deny that tells Jarvis he may never have seen it,
+    since "he refused" and "he never saw it" call for opposite behaviour.
 
 The real module is imported by path and driven for real; nothing here
 touches a brain, a socket or the vault.
@@ -97,6 +97,13 @@ def with_page(fn):
 
 
 # ------------------------------------------------- the interrupt case
+#
+# INVERTED 2026-08-06 on Serge's 10:04 AM rule: "The only way it can be
+# de-active is by me doing an approval or pressing denied or approved.
+# It cannot be cancelled." The previous doctrine (7b507a4) answered a
+# pending request with a deny on interrupt; his rule outranks it. Now the
+# request SURVIVES every interrupt and only his click or the half-hour
+# time-to-live ends it.
 
 def test_interrupt():
     async def go(ws):
@@ -105,35 +112,35 @@ def test_interrupt():
             vw.ask_permission("Bash", {"command": "rm -rf /tmp/x"}, None))
         await asyncio.sleep(0)          # let it register and push
         pending = list(vw.approvals.values())
+        gen_before = vw.gen
         await vw.interrupt()
+        await asyncio.sleep(0)
+        survived = not task.done()
+        still_pending = vw.approval_pending()
+        gen_after = vw.gen
+        # Then his click resolves it, proving the popup was still live.
+        vw.resolve_approval(pending[0]["id"], False)
         result = await asyncio.wait_for(task, 2)
-        return vw, pending, result, ws.sent
+        return survived, still_pending, gen_before, gen_after, result, ws.sent
     return with_page(go)
 
 
-vw, pending, result, sent = test_interrupt()
+survived, still_pending, gen_before, gen_after, result, sent = test_interrupt()
 
-ok("the request was registered before the interrupt", len(pending) == 1)
-ok("an interrupt RESOLVES the request instead of dropping it",
+ok("an interrupt does NOT end a pending approval", survived)
+ok("the request is still pending after the interrupt", still_pending)
+# Bumping gen would mark the turn the approval belongs to as stale --
+# a quieter way of killing the same request.
+check("a held interrupt leaves gen alone", gen_after, gen_before)
+held = [m for m in sent if m.get("type") == "held"]
+ok("the page is TOLD the interrupt was held, not silently ignored",
+   len(held) >= 1)
+ok("his click still resolves it afterwards",
    isinstance(result, vws.PermissionResultDeny))
-# THE ONE THING THAT MUST NEVER HAPPEN. An interrupt granting permission
-# would be consent Serge never gave.
-ok("an interrupt never ALLOWS", not isinstance(result, vws.PermissionResultAllow))
-ok("the pending record is cleared", vw.approvals == {})
-
-msg = result.message
-ok("Jarvis is told it did NOT run", "NOT RUN" in msg)
-# "He refused" and "he never saw it" call for opposite behaviour: one is a
-# decision to respect, the other is a question still owed an answer.
-ok("Jarvis is told this was not a refusal", "did not refuse" in msg.lower())
-ok("Jarvis is told to say so and ask again",
-   "tell him" in msg.lower() and "ask again" in msg.lower())
 
 done = [m for m in sent if m.get("type") == "approval_done"]
-ok("the page is told the request is over", len(done) == 1)
-check("the page is told WHY", done[0].get("reason"), "interrupted")
-ok("the page is told what was cancelled",
-   done[0].get("tool") == "Bash" and "rm -rf" in (done[0].get("detail") or ""))
+ok("the request ends as ANSWERED, never as interrupted",
+   len(done) == 1 and done[0].get("reason") == "answered")
 
 
 # ------------------------------------------------- the normal cases
@@ -207,17 +214,66 @@ def test_two_pending():
         b = asyncio.create_task(vw.ask_permission("Bash", {"command": "two"}, None))
         await asyncio.sleep(0)
         await vw.interrupt()
-        ra, rb = await asyncio.wait_for(asyncio.gather(a, b), 2)
-        return ra, rb, vw.approvals
+        await asyncio.sleep(0)
+        both_live = not a.done() and not b.done()
+        for aid in list(vw.approvals):
+            vw.resolve_approval(aid, False)
+        await asyncio.wait_for(asyncio.gather(a, b), 2)
+        return both_live, vw.approvals
     return with_page(go)
 
 
-ra, rb, left = test_two_pending()
-# One interrupt, several requests: leaving any of them unanswered rebuilds
-# the original bug for that one.
-ok("EVERY pending request is answered, not just the first",
-   isinstance(ra, vws.PermissionResultDeny) and isinstance(rb, vws.PermissionResultDeny))
-ok("nothing is left pending", left == {})
+both_live, left = test_two_pending()
+# One interrupt, several requests: every one of them survives it.
+ok("EVERY pending request survives the interrupt, not just the first",
+   both_live)
+ok("his clicks then clear them all", left == {})
+
+# ------------------------------------------------- the brink case
+# Adversary finding: a request that registers between interrupt()'s top
+# guard and the brain teardown must still be held -- the re-check on the
+# brink catches it, undoes the gen bump, and never touches the brain.
+
+def test_brink_arrival():
+    async def go(ws):
+        vw = fresh()
+        await vw.turn_lock.acquire()        # a turn is in flight
+        calls = {"n": 0}
+        real = vws.VoiceWeb.approval_pending
+
+        def racy(self):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return False                # top guard: nothing yet
+            return real(self)               # brink: the truth
+
+        class Brain:
+            hit = False
+            async def interrupt(self):
+                Brain.hit = True
+
+        vw.brain = Brain()
+        vws.VoiceWeb.approval_pending = racy
+        try:
+            fut = asyncio.get_running_loop().create_future()
+            vw.approvals[1] = {"id": 1, "future": fut}  # arrives "late"
+            await vw.interrupt()
+        finally:
+            vws.VoiceWeb.approval_pending = real
+        return vw.gen, Brain.hit, fut.done(), ws.sent
+    return with_page(go)
+
+
+gen, brain_hit, fut_done, sent = test_brink_arrival()
+check("a brink arrival leaves gen net unchanged", gen, 0)
+ok("the brain is never torn down over a brink arrival", not brain_hit)
+ok("the late request is untouched", not fut_done)
+ok("the brink hold is said to the page",
+   any(m.get("type") == "held" for m in sent))
+
+# The timeout is HIS number -- half an hour, set 2026-08-06 ~11:05 AM
+# ("if it's more than half an hour, then it just cancels itself").
+check("the time-to-live is thirty minutes", vws.APPROVAL_TIMEOUT_S, 1800.0)
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

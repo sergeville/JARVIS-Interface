@@ -878,7 +878,11 @@ def wav_to_16k(wav_bytes: bytes) -> bytes:
     return out.getvalue()
 
 
-APPROVAL_TIMEOUT_S = 300.0
+# Serge, 2026-08-06 ~11:05 AM: "maybe a time to live -- if it's more than
+# half an hour, then it just cancels itself." So the ONLY two ways a pending
+# approval ends are his click and this expiry. It was 300 s before his
+# no-cancel rule; the half hour is his number, set in the same breath.
+APPROVAL_TIMEOUT_S = 1800.0
 
 
 class VoiceWeb:
@@ -894,8 +898,10 @@ class VoiceWeb:
     # ---- HUD approve button ------------------------------------------
     # The brain calls this when a tool needs permission. The request is
     # pushed to every connected page (and mirrored on /signals); the
-    # first APPROVE/DENY click anywhere resolves it. No click within
-    # the timeout counts as a deny -- a turn must never hang forever.
+    # first APPROVE/DENY click anywhere resolves it. Serge's rule
+    # (2026-08-06 10:04 AM): NOTHING else ends it -- no interrupt of any
+    # kind -- except the half-hour time-to-live he set himself, which
+    # counts as a deny so a turn cannot hang forever.
     async def ask_permission(self, tool_name, tool_input, context):
         self._approval_seq += 1
         aid = self._approval_seq
@@ -922,31 +928,19 @@ class VoiceWeb:
             allowed = False
             timed_out = True
         finally:
-            rec = self.approvals.pop(aid, None)
-            interrupted = bool(rec and rec.get("interrupted"))
+            self.approvals.pop(aid, None)
             for ws in list(WS_CLIENTS):
                 await self.safe_send(ws, {"type": "approval_done",
                                           "id": aid,
                                           "tool": tool_name,
                                           "detail": detail,
-                                          "reason": ("interrupted" if interrupted
-                                                     else "timeout" if timed_out
+                                          "reason": ("timeout" if timed_out
                                                      else "answered")})
-        why = ("interrupted" if interrupted
-               else "timed out" if timed_out
+        why = ("timed out" if timed_out
                else "allowed" if allowed else "denied")
         print(f"approval #{aid}: {why}", flush=True)
         if allowed:
             return PermissionResultAllow()
-        if interrupted:
-            # The distinction matters to Jarvis: this is NOT a refusal on the
-            # merits, so the right response is to tell Serge it never ran and
-            # ask again -- not to treat it as a decision and move on.
-            return PermissionResultDeny(
-                message="NOT RUN -- Serge spoke or typed while this was "
-                        "waiting, which cancelled the request. He did not "
-                        "refuse it; he never saw it answered. Tell him this "
-                        "did not run and ask again if it still matters.")
         if timed_out:
             return PermissionResultDeny(
                 message="NOT RUN -- the permission request timed out with no "
@@ -964,8 +958,9 @@ class VoiceWeb:
         this is the half that stops it dying. While a request is pending,
         a typed or spoken message must NOT interrupt -- the popup stays,
         the message queues on turn_lock, and it runs right after the turn
-        the approval belongs to. Only an explicit interrupt (the button /
-        barge-in tap) still cancels, because that one is a real order.
+        the approval belongs to. Since Serge's 10:04 AM rule, NO interrupt
+        cancels it either -- interrupt() itself holds while this is true.
+        The only exits are his click and the half-hour time-to-live.
         """
         return any(not a["future"].done() for a in self.approvals.values())
 
@@ -1032,31 +1027,42 @@ class VoiceWeb:
         return clean_transcript(r.json().get("text", ""))
 
     async def interrupt(self) -> None:
+        # THE POPUP CANNOT BE CANCELLED -- ONLY ANSWERED. Serge, 2026-08-06
+        # 10:04 AM: "The only way it can be de-active is by me doing an
+        # approval or pressing denied or approved. It cannot be cancelled."
+        #
+        # So while any permission request is pending, EVERY interrupt --
+        # button, barge-in, another tab, the terminal -- is held rather than
+        # obeyed. Tearing the turn down would cancel the await inside
+        # ask_permission() and the request would cease to exist with no
+        # answer, no log line and no word to anyone: the silent stall this
+        # whole family of fixes exists to end. (The previous build answered
+        # pending requests with a deny before tearing down; his rule inverts
+        # that -- the request now outlives the interrupt.) The pages are
+        # told, so a held interrupt is a stated fact, not a new silence.
+        # The one exit that is not his click is the half-hour time-to-live
+        # in ask_permission(), and that one arrives as an ANSWERED deny.
+        if self.approval_pending():
+            print("interrupt held -- approval pending", flush=True)
+            for ws in list(WS_CLIENTS):
+                await self.safe_send(ws, {"type": "held"})
+            return
         self.gen += 1
-        # ANSWER EVERY PENDING PERMISSION BEFORE TEARING THE TURN DOWN.
-        #
-        # Serge, 2026-08-06: "I'm typing something and I press enter, whoop,
-        # it disappears... maybe that's the reason sometimes I think you're
-        # doing something, you're not, you're waiting for me and I don't know
-        # you're waiting for me."
-        #
-        # He was right, and worse than I first told him. ask_permission() sits
-        # on `await asyncio.wait_for(fut, ...)` INSIDE the turn. Cancelling the
-        # turn cancelled that await, so PermissionResultDeny was never returned
-        # either -- the request simply ceased to exist. No approval, no denial,
-        # no completion, nothing logged, and nothing said to him or to Jarvis.
-        # The work was abandoned in silence, which is the exact failure the
-        # whole morning has been about.
-        #
-        # Resolving the future FIRST turns that silence into a definite answer:
-        # the tool still does not run, but there is a result, a log line, and a
-        # message Jarvis can read and repeat back to him.
-        for a in list(self.approvals.values()):
-            a["interrupted"] = True
-            if not a["future"].done():
-                a["future"].set_result(False)
         if not self.turn_lock.locked():
             return               # nothing in flight -- don't poke the SDK
+        # Re-check on the brink (test-adversary finding, 2026-08-06): a
+        # request can register between the guard above and this line --
+        # the awaits in the held-broadcast path yield the loop. Tearing
+        # the brain down now would cancel that request unprotected, so
+        # the bump is undone and the interrupt is held after all. The
+        # window inside brain.interrupt() itself cannot be closed from
+        # here; this shrinks the race to that single await.
+        if self.approval_pending():
+            self.gen -= 1
+            print("interrupt held -- approval pending", flush=True)
+            for ws in list(WS_CLIENTS):
+                await self.safe_send(ws, {"type": "held"})
+            return
         try:
             await self.brain.interrupt()
         except Exception:

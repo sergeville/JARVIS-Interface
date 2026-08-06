@@ -120,24 +120,77 @@ class TestServerWiring(unittest.TestCase):
             self.assertIn('"held"', branch(kind),
                           f"{kind}: the held notice is gone")
 
-    def test_explicit_interrupt_stays_unconditional(self):
-        # The interrupt button / barge-in tap is a real order and must
-        # still cancel -- and 7b507a4 already makes that cancellation an
-        # answered one. Guarding THIS path would make Jarvis unstoppable
-        # while a popup is up.
-        b = branch("interrupt")
-        self.assertIn("await VW.interrupt()", b)
-        self.assertNotIn("approval_pending", b,
-                         "the explicit interrupt must never be held")
-
-    def test_interrupt_still_answers_pending_approvals(self):
-        # The two fixes compose: hold stops the accidental kill; when a
-        # REAL interrupt does come, every pending future still gets a
-        # definite answer before the turn dies.
-        m = re.search(r"async def interrupt\(self\).*?async def", SRC, re.S)
+    def test_explicit_interrupt_is_held_while_pending(self):
+        # INVERTED 2026-08-06 on Serge's 10:04 AM rule: "The only way it
+        # can be de-active is by me doing an approval or pressing denied
+        # or approved. It cannot be cancelled." The old assertion said the
+        # button must never be held; his rule says the opposite, and the
+        # two cannot both guard this file. The guard lives INSIDE
+        # interrupt() so every caller -- button, barge-in, another tab,
+        # the terminal -- is covered by one gate.
+        m = re.search(r"async def interrupt\(self\).*?\n    (?:@|async def|def )",
+                      SRC, re.S)
         self.assertIsNotNone(m)
-        self.assertIn('a["future"].set_result(False)', m.group(0),
-                      "interrupt() no longer answers pending approvals")
+        body = m.group(0)
+        self.assertIn("approval_pending()", body,
+                      "interrupt() lost the no-cancel guard")
+        # The guard must sit BEFORE the gen bump -- bumping gen marks the
+        # approval's own turn stale, which cancels it in quieter clothes.
+        self.assertLess(body.index("approval_pending()"),
+                        body.index("self.gen += 1"),
+                        "the guard must run before gen is bumped")
+
+    def test_interrupt_never_answers_pending_approvals(self):
+        # The old build resolved every pending future with a deny before
+        # tearing down (7b507a4). Under the no-cancel rule that resolve IS
+        # the cancellation, so it must be gone.
+        m = re.search(r"async def interrupt\(self\).*?\n    (?:@|async def|def )",
+                      SRC, re.S)
+        self.assertIsNotNone(m)
+        self.assertNotIn('set_result', m.group(0),
+                         "interrupt() still resolves pending approvals")
+
+    def test_brink_recheck_before_brain_interrupt(self):
+        # Test-adversary finding: a request can register between the top
+        # guard and the brain teardown (the held-broadcast awaits yield
+        # the loop). interrupt() must re-check on the brink and undo its
+        # gen bump, or the late arrival is cancelled unprotected.
+        m = re.search(r"async def interrupt\(self\).*?\n    (?:@|async def|def )",
+                      SRC, re.S)
+        body = m.group(0)
+        self.assertEqual(body.count("approval_pending()"), 2,
+                         "interrupt() lost the brink re-check")
+        self.assertIn("self.gen -= 1", body,
+                      "the brink hold must undo the gen bump")
+        # rindex on both: the comment explaining the re-check names
+        # brain.interrupt() in prose, and grepping source must not
+        # punish the prose explaining the decision (standing lesson).
+        self.assertLess(body.rindex("approval_pending()"),
+                        body.rindex("await self.brain.interrupt()"),
+                        "the re-check must sit before the brain teardown")
+
+    def test_timeout_is_his_half_hour(self):
+        # Adversary finding: only test_approvals guarded the constant, so
+        # a lone run of this suite would miss it reverting. His number,
+        # 2026-08-06 ~11:05 AM: "more than half an hour, it just cancels
+        # itself."
+        self.assertEqual(srv.APPROVAL_TIMEOUT_S, 1800.0)
+
+    def test_bogus_approval_reply_cannot_kill_the_socket_loop(self):
+        # Adversary finding: int("abc") raises ValueError inside the ws
+        # loop; the except is what keeps a malformed reply from costing
+        # the connection. Pin that it stays.
+        b = branch("approval_reply")
+        self.assertIn("except (TypeError, ValueError)", b,
+                      "the approval_reply branch lost its bad-id guard")
+
+    def test_held_interrupt_is_said_to_the_page(self):
+        # An ignored button with no feedback is a new silence -- the page
+        # must be told the interrupt was held.
+        m = re.search(r"async def interrupt\(self\).*?\n    (?:@|async def|def )",
+                      SRC, re.S)
+        self.assertIn('"held"', m.group(0),
+                      "a held interrupt says nothing to the page")
 
 
 class TestPageWiring(unittest.TestCase):
@@ -160,6 +213,14 @@ class TestPageWiring(unittest.TestCase):
     def test_page_says_held(self):
         self.assertIn("'held'", PAGE_SRC,
                       "the page no longer handles the held message")
+
+    def test_page_restores_popup_from_signals(self):
+        # Adversary finding: under a 30-minute time-to-live, a reload
+        # mid-approval depends entirely on the /signals restore -- the
+        # popup must come back, and a payload with no approval must
+        # clear it rather than leave a stale box.
+        self.assertIn("showApproval(d.approval || null)", PAGE_SRC,
+                      "the page no longer restores the popup from /signals")
 
 
 if __name__ == "__main__":
