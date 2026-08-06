@@ -32,6 +32,16 @@ uploads/
 archive/
 .scratch/
 *.log
+
+# Live state the running stack writes INTO the tree. Found 2026-08-06 by a
+# see-page test that scans the repo for stray files: `.voice_question` was
+# untracked and committable, and this repo is public. Everything here is
+# runtime state, never source.
+voice-line/.voice_question
+voice-line/.stack-events.jsonl
+voice-line/.sessions.jsonl
+voice-line/.session-mail.jsonl
+voice-line/.usage.json
 transcripts/
 references/
 
