@@ -138,27 +138,32 @@
      meant the position, not the paint. So the summary IS the ACTIVE TASKS
      heading row now -- .sec-title's bullet and tracking, the title, then his
      counts and the caret pushed to the right edge of the card. */
+     TWO ROWS, his call, 2026-08-06 ~6:22 AM: "we have the active task as a
+     title, then underneath the Kanban." The one-row version clipped -- this
+     card is 300px and the title plus three labelled counts plus the caret do
+     not fit, so "1 open" was cut off at the card's edge. Stacking them is
+     better than abbreviating: the counts keep their words, and it costs one
+     row of height. The approach zone is both rows together. */
   #tasks-head {
-    display: flex; align-items: center; gap: 6px;
     font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase;
     color: var(--sec); margin-bottom: 10px; flex-shrink: 0;
     padding: 2px 4px; margin-left: -4px; margin-right: -4px;
     border-radius: 3px; cursor: default;
     transition: background 220ms ease;
   }
+  #tasks-head .th-title { display: flex; align-items: center; gap: 6px; }
   /* The section bullet is the card's, not a decoration -- this row has to
      keep reading as a heading and never as a control. A border would say
      pressable, so the approach highlight is a fill and nothing else. */
-  #tasks-head::before { content: "\25CF"; font-size: 8px; }
+  #tasks-head .th-title::before { content: "\25CF"; font-size: 8px; }
   #tasks-head:hover, body.board-open #tasks-head {
     background: rgba(var(--accent-rgb), 0.10);
   }
-  #tasks-head .th-title { flex-shrink: 0; }
-  /* Pushed hard right so the counts sit at the card's edge, opposite the
-     title, instead of crowding it. */
+  /* Its own row under the title, indented to the title's text rather than to
+     the bullet, so the two read as a heading and its subtitle. */
   #board-strip {
     display: flex; align-items: center; gap: 9px; cursor: default;
-    margin-left: auto;
+    margin-top: 5px; padding-left: 14px;
   }
   #board-strip .bs {
     font-size: 9.5px; letter-spacing: 0.25em; text-transform: uppercase;

@@ -359,7 +359,8 @@ test('the heading keeps .sec-title\'s bullet and tracking', () => {
   const r = rule('#tasks-head');
   assert.ok(/letter-spacing: 0\.25em/.test(r), 'the heading no longer tracks with the other cards');
   assert.ok(/color: var\(--sec\)/.test(r), 'the heading is not the section colour');
-  assert.ok(/content: "\\25CF"/.test(rule('#tasks-head::before')), 'the section bullet is gone');
+  assert.ok(/content: "\\25CF"/.test(rule('#tasks-head .th-title::before')),
+    'the section bullet is gone');
 });
 
 test('the heading is NOT styled as a control', () => {
@@ -371,9 +372,17 @@ test('the heading is NOT styled as a control', () => {
     'the approach gives no feedback at all');
 });
 
-test('the counts sit at the far edge of the card, opposite the title', () => {
-  assert.ok(/margin-left: auto/.test(rule('#board-strip')),
-    'the counts crowd the title instead of sitting at the card edge');
+test('the counts sit on their OWN ROW, under the title', () => {
+  // Inverted from "pushed to the far edge of the card", which is what the
+  // one-row version did and what CLIPPED: at 300px the title plus three
+  // labelled counts plus the caret do not fit, so "1 open" was cut off.
+  // Serge's call: "the active task as a title, then underneath the Kanban."
+  const r = rule('#board-strip');
+  assert.ok(!/margin-left: auto/.test(r),
+    'the counts are back on the title row -- they will clip at 300px');
+  assert.ok(/margin-top: \d+px/.test(r), 'the counts do not sit below the title');
+  assert.ok(!/display: flex/.test(rule('#tasks-head')),
+    'the heading is still a single flex row -- the counts cannot stack');
 });
 
 test('the sheet wears the panel EDGE the cards use', () => {
