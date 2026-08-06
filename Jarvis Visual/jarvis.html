@@ -185,6 +185,9 @@
   #board-strip .bs.doing   .dot { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
   #board-strip .bs.waiting .dot { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
   #board-strip .bs.checking .dot { background: rgba(var(--accent-rgb), 0.85); }
+  /* The all-zero heading. Dimmer than a count and carrying no dot: it is the
+     absence of work, and it must not read as a fourth status. */
+  #board-strip .bs.quiet { color: rgba(var(--accent-rgb), 0.40); }
   #board-strip .caret {
     font-size: 8px; color: rgba(var(--accent-rgb), 0.45);
     transition: transform 520ms ease;
@@ -1901,13 +1904,30 @@ function renderBoard(tasks){
   const nWait  = bucket('waiting-on-serge').length;
   const nOpen  = bucket('open').length + strays.length;
   const nCheck = BOARD_CHECKING.reduce((n, k) => n + bucket(k).length, 0);
+  // Serge, 2026-08-06 ~7:18 AM, handing the call over: "You decide." So
+  // CHECKING's rule became the rule -- EVERY count hides at zero.
+  //
+  // The case for keeping the standing three at a fixed width was that a
+  // stable position is easier to scan. But that shape was already gone: the
+  // CHECKING count appears and disappears, so the row's contents already
+  // move. Holding space for three zeros protects a stability that does not
+  // exist, and spends the glance on numbers whose whole message is "nothing
+  // here". A heading is an instrument; it shows what is true.
+  const bs = (n, cls, word) => n
+    ? '<span class="bs' + (cls ? ' ' + cls : '') + '"><span class="dot"></span><b>'
+      + n + '</b> ' + word + '</span>'
+    : '';
+  const counts = bs(nDoing, 'doing', 'doing')
+               + bs(nCheck, 'checking', 'checking')
+               + bs(nWait, 'waiting', 'you')
+               + bs(nOpen, '', 'open');
+  // THE EDGE CASE IS THE WHOLE BUILD: with every count hidden, a quiet day
+  // draws an EMPTY row, which reads as a broken card rather than a calm one
+  // -- and it would collapse the two-row heading Serge chose this morning
+  // back to one. So an all-zero heading says so in words instead. The row
+  // never renders to nothing.
   strip.innerHTML =
-      '<span class="bs doing"><span class="dot"></span><b>' + nDoing + '</b> doing</span>'
-    + (nCheck
-        ? '<span class="bs checking"><span class="dot"></span><b>' + nCheck + '</b> checking</span>'
-        : '')
-    + '<span class="bs waiting"><span class="dot"></span><b>' + nWait + '</b> you</span>'
-    + '<span class="bs"><span class="dot"></span><b>' + nOpen + '</b> open</span>'
+      (counts || '<span class="bs quiet">nothing queued</span>')
     + '<span class="caret">&#9660;</span>';
 
   cols.innerHTML = BOARD_COLS.map(c => {

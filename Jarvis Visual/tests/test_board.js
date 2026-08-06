@@ -134,15 +134,45 @@ test('THE CHECKING COUNT EXISTS -- review and test are not invisible in the stri
   renderBoard([T('a', 'review'), T('b', 'test')]);
   const s = strip();
   assert.ok(/<b>2<\/b> checking/.test(s), 'checking count wrong or missing: ' + s);
-  assert.ok(/<b>0<\/b> open/.test(s),
+  // INVERTED 2026-08-06 ~7:25 AM, not deleted. This used to assert "<b>0</b>
+  // open" -- which described the very behaviour Serge has now removed. The
+  // property it guards is unchanged and still matters: a review task must not
+  // ALSO be counted as open. With zeroes hidden, the way to say that is that
+  // the word does not appear at all.
+  assert.ok(!/\bopen<\/span>|<b>\d+<\/b> open/.test(s),
     'a review task was ALSO counted as open -- the strip double-counts: ' + s);
 });
 
-test('the checking count is HIDDEN when nothing is being checked', () => {
-  // His condition: only when non-zero, so a quiet day is not noisier.
-  renderBoard([T('a', 'open'), T('b', 'active')]);
-  assert.ok(!/checking/.test(strip()),
-    'the strip shows a zero checking count on a quiet day: ' + strip());
+test('EVERY count hides at zero, not just checking', () => {
+  // Serge's call, 2026-08-06: CHECKING's rule became the rule. A count whose
+  // whole message is "nothing here" spends the glance and says nothing.
+  renderBoard([T('a', 'open')]);
+  const s = strip();
+  assert.ok(/<b>1<\/b> open/.test(s), 'the one real count is missing: ' + s);
+  for (const w of ['doing', 'checking', 'you']) {
+    assert.ok(!new RegExp('<b>0</b> ' + w).test(s) && !new RegExp('\\b' + w + '\\b').test(s),
+      'a zero ' + w.toUpperCase() + ' count is still drawn: ' + s);
+  }
+});
+
+test('AN ALL-ZERO HEADING SAYS SO -- the row never renders empty', () => {
+  // The edge case that makes this a build. Hiding every count on a genuinely
+  // quiet day would leave a blank row, which reads as a broken card and
+  // collapses the two-row heading Serge chose. It must say something.
+  renderBoard([T('shipped', 'done')]);   // served, but in no counted bucket
+  const s = strip();
+  assert.ok(/nothing queued/.test(s),
+    'an all-zero heading drew an empty counts row: ' + s);
+  assert.ok(!/<b>0<\/b>/.test(s), 'a zero leaked into the quiet heading: ' + s);
+});
+
+test('the quiet line is NOT dressed as a fourth status', () => {
+  // No dot, and dimmer than a count: it is the absence of work, not a state.
+  renderBoard([T('shipped', 'done')]);
+  assert.ok(!/quiet[^>]*"><span class="dot"/.test(strip()),
+    'the quiet line carries a status dot: ' + strip());
+  assert.ok(/#board-strip \.bs\.quiet/.test(src),
+    'the quiet line has no style of its own -- it will read as a count');
 });
 
 test('Review and Test wear neither the doing green nor the waiting amber', () => {
