@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""PostToolUse hook -- does the board still match what is actually happening?
+
+Serge, 2026-08-06 ~8:29 AM: "what can you do so you don't miss those
+things?" He asked after catching the same failure FOUR times in under an
+hour, every time from the Kanban on his own screen:
+
+  1. a reclassification and a design discussion that never reached the
+     board at all;
+  2. a card sitting in Review while it was being built;
+  3. a card sitting in In Progress while the suite was running --
+     "nothing in testing but you testing";
+  4. "starting it now" said out loud, with In Progress empty.
+
+Each time the code was right and the RECORD was silent. That is the
+shape that matters: the board does not lie by showing the wrong card, it
+lies by saying nothing, and a missing row is invisible to everyone
+except the person reading the board. Serge was that person, four times.
+
+So the fix cannot be "remember harder". It had already failed four times
+under exactly the conditions it exists for, and CLAUDE.md's own vault
+audit rule carries the lesson in writing: A RULE ENFORCED ONLY BY
+REMEMBERING IT IS NOT ENFORCED.
+
+Behaviour: after a tool call that is unmistakably work -- editing a code
+file, or running the test suite -- check Active Priorities. If nothing
+is `active` (or, for a test run, nothing is in `test`), print one line
+saying so. If the board already agrees, print nothing at all, which is
+the case on nearly every call.
+
+WHAT THIS DELIBERATELY DOES NOT DO
+==================================
+
+It cannot see THINKING, and thinking is half of what Serge's 6:44 AM
+rule covers -- planning and reading around a problem are work and belong
+in In Progress too. This hook fires on tool calls, so it catches the
+mechanical misses (2) and (3) and NOT the first one. Saying so here
+rather than letting the guard imply a completeness it does not have: a
+guard trusted past its range is worse than no guard.
+
+It also never blocks, never edits the vault, and never decides anything.
+It says one true sentence and gets out of the way.
+
+
+SECURITY -- READ THIS BEFORE CHANGING ANYTHING BELOW
+====================================================
+
+A hook writes into the model's attention with the system's voice, so it
+is a prompt-injection channel by construction. This one is worse-placed
+than brief-check.py: it reads the TOOL PAYLOAD, which carries file
+contents and shell command text -- i.e. arbitrary bytes, some of which
+originate outside this machine.
+
+Six rules hold that shut, and every one is tested.
+
+1. THE OUTPUT IS A LITERAL. Every byte printed is a constant in this
+   file. The only variable parts are (a) an integer count and (b) a
+   status word taken from a CLOSED SET defined here. No text from the
+   payload, from the vault, or from any file reaches the output. A task
+   TITLE is never printed -- it is vault text, and there is no reason
+   worth the channel.
+
+2. THE PAYLOAD IS READ FOR TWO FACTS AND NOTHING ELSE: the tool's name,
+   matched against a closed set, and whether a command string contains
+   one hardcoded literal. Both collapse to a BOOLEAN before anything
+   else happens. Past that point the payload does not exist.
+
+3. THE PATH IS HARDCODED, resolved relative to this file. Not argv, not
+   environ, not the payload.
+
+4. NEVER RAISE, NEVER BLOCK. Every path returns 0. A hook that crashes
+   or stalls costs Serge his session; a board reminder is never worth
+   that. It reads stdin with a size cap so a huge payload cannot hang it.
+
+5. BOUNDED. The note is read with a size cap, the scan is line-capped,
+   and the message is length-capped.
+
+6. NO SHELL, NO SUBPROCESS, NO NETWORK, NO WRITES to the vault. The one
+   file it writes is its own throttle stamp, outside the vault.
+"""
+
+import json
+import os
+import re
+import sys
+import time
+
+# Rule 3: hardcoded, relative to this file so it is right in any clone.
+_ROOT = os.path.realpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+NOTE = "Jarvis-brain/Active Priorities.md"
+
+# Rule 6: the throttle stamp lives beside the other state files, never in
+# the vault. Same doctrine as .stack-events.jsonl and .sessions.jsonl.
+STAMP = "voice-line/.board-guard.json"
+
+# Rule 5: bounds.
+MAX_BYTES = 400_000     # a note larger than this is not this note
+MAX_LINES = 20_000
+MAX_STDIN = 200_000
+MAX_CONTEXT = 600
+THROTTLE_S = 90         # do not say the same thing twice in a row-of-edits
+
+# Rule 1: the closed set. A status word printed by this hook is one of
+# these literals or the hook says nothing at all.
+DOING = "active"
+TESTING = "test"
+
+# Rule 2: the closed set of tools that count as "work on the code".
+EDIT_TOOLS = ("Edit", "Write", "NotebookEdit")
+RUN_TOOLS = ("Bash",)
+
+# A code file, as opposed to a vault note. Editing the vault is not the
+# thing being guarded -- writing notes IS the record-keeping.
+CODE_EXT = (".py", ".js", ".html", ".sh", ".json", ".css", ".ts")
+
+# Rule 2: the single pattern searched for in a command string. The result
+# is a boolean; the command text itself goes no further.
+#
+# IT MUST BE AN INVOCATION, NOT A MENTION. The first version searched for
+# the bare literal, and it fired on its own test-writing command -- one
+# that merely CONTAINED the string "run-tests.sh" inside a heredoc. A
+# guard that cries wolf is one that gets ignored, which is the failure it
+# exists to prevent, rebuilt one level up. So the marker has to sit at the
+# start of a command segment, optionally behind `cd ... &&` or a shell.
+TEST_MARKER = re.compile(
+    r"(?:^|[;&|]\s*)(?:cd\s[^;&|]*&&\s*)?(?:bash\s+|sh\s+)?"
+    r"[\w./-]*run-tests\.sh(?:\s|$|[;&|])")
+
+
+def statuses(path: str) -> dict:
+    """Count the tasks at each status, from the note's own text.
+
+    Deliberately NOT importing read_tasks() from voice-web-server.py.
+    That module imports aiohttp, which lives only in the voice-line venv,
+    and a hook runs under whatever python3 the session has -- so the
+    import would raise on most machines and rule 4 would swallow it,
+    leaving a guard that is permanently and silently off. That exact
+    shape (a component that fails to nothing and looks installed) has
+    already cost this project two days. A dozen lines of duplication is
+    the cheaper mistake, and the duplication is asserted by a test that
+    runs both parsers over the real note and compares them.
+
+    Fenced blocks are skipped, because the legend at the top of the note
+    contains the literal line `status: open | active | ...` and counting
+    it would make the board look permanently busy.
+    """
+    out = {}
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        text = fh.read(MAX_BYTES)
+    fenced = False
+    for i, line in enumerate(text.splitlines()):
+        if i >= MAX_LINES:
+            break
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        m = re.match(r"\s*-\s*status:\s*([a-z-]+)\s*$", line)
+        if m:
+            out[m.group(1)] = out.get(m.group(1), 0) + 1
+    return out
+
+
+def read_payload() -> tuple:
+    """Rule 2: reduce the payload to (is_edit, is_test_run) and drop it.
+
+    Everything after this function sees two booleans. There is no code
+    path by which a byte of tool input reaches the output.
+    """
+    raw = sys.stdin.read(MAX_STDIN) if not sys.stdin.isatty() else ""
+    if not raw:
+        return (False, False)
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        return (False, False)
+    tool = data.get("tool_name")
+    inp = data.get("tool_input")
+    inp = inp if isinstance(inp, dict) else {}
+
+    is_edit = False
+    if tool in EDIT_TOOLS:
+        p = inp.get("file_path")
+        # A path is only ever tested, never echoed. Vault notes are
+        # excluded on purpose: writing the record is not the thing that
+        # needs guarding.
+        if isinstance(p, str) and p.lower().endswith(CODE_EXT):
+            rp = os.path.realpath(p)
+            is_edit = (rp.startswith(_ROOT + os.sep)
+                       and not rp.startswith(os.path.join(_ROOT, "Jarvis-brain") + os.sep))
+
+    is_test = False
+    if tool in RUN_TOOLS:
+        c = inp.get("command")
+        is_test = isinstance(c, str) and bool(TEST_MARKER.search(c))
+
+    return (is_edit, is_test)
+
+
+def throttled(kind: str) -> bool:
+    """True if this exact reminder fired moments ago.
+
+    A build is dozens of edits in a row. Repeating the same sentence
+    after every one of them turns a guard into wallpaper, and wallpaper
+    is what the eye stops seeing -- which is the failure being fixed,
+    rebuilt one level up.
+    """
+    path = os.path.join(_ROOT, STAMP)
+    now = time.time()
+    seen = {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            seen = json.load(fh) or {}
+    except Exception:
+        seen = {}
+    last = seen.get(kind, 0)
+    if isinstance(last, (int, float)) and now - last < THROTTLE_S:
+        return True
+    seen[kind] = now
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(seen, fh)
+    except Exception:
+        pass          # a throttle that cannot be written costs a repeat, not a crash
+    return False
+
+
+def message(kind: str, n_open: int) -> str:
+    """Rule 1: literals only. `kind` is one of two constants defined
+    above; `n_open` is an integer. Nothing else is interpolated."""
+    if kind == DOING:
+        body = ("[board] You are editing code and NOTHING is in In Progress. "
+                "Serge's rule (2026-08-06): every task starts in To Do and moves "
+                "to In Progress the moment work begins -- thinking included. "
+                "Write the task down or move it now: vault-tools/task.py.")
+    else:
+        body = ("[board] You are running the test suite and NOTHING is in Test. "
+                "Move the task you are proving into the Test column: "
+                "vault-tools/task.py.")
+    tail = (f" ({n_open} task(s) in the queue.) This is a reminder from "
+            f"vault-tools/board-guard.py, derived from counting status lines "
+            f"in one vault file. If Serge has asked for something else, his "
+            f"direction wins -- say so and carry on.")
+    return (body + tail)[:MAX_CONTEXT]
+
+
+def main() -> int:
+    """Rule 4: every path returns 0."""
+    try:
+        is_edit, is_test = read_payload()
+        if not (is_edit or is_test):
+            return 0
+        counts = statuses(os.path.join(_ROOT, NOTE))
+        kind = TESTING if is_test else DOING
+        if counts.get(kind, 0) > 0:
+            return 0                    # the board already agrees -- silent
+        if throttled(kind):
+            return 0
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": message(kind, sum(counts.values())),
+        }}))
+    except Exception:
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
