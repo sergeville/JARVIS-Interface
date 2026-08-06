@@ -834,6 +834,48 @@ def _task_tool():
     return mod
 
 
+async def approval_reply(request: web.Request) -> web.Response:
+    """POST {"id": int, "allow": bool} -- Serge answering a permission popup.
+
+    THIS ROUTE EXISTS BECAUSE THE WEBSOCKET IS THE WRONG CHANNEL FOR IT.
+    (Serge, 2026-08-06 ~6:20 PM: "stuck in an endless loop... I click on
+    approve, always come back.")
+
+    The popup is DRAWN from /signals -- plain HTTP polling, which survives a
+    server restart because every poll is a fresh request. The answer went over
+    the websocket, which does NOT survive one: it closes, and the page only
+    retries two seconds later. The brain asks for its first permission about
+    one second after coming up, so the very first approval of every restart
+    landed in a window where the socket was guaranteed to be down. The page
+    swallowed the failed send and hid the box; the next poll saw the request
+    still pending and drew it again. Click, silence, redraw, forever.
+
+    So the answer now rides the same channel as the question. There is no
+    socket to be down, nothing to queue, and no race with a reconnect.
+
+    Never raises at the caller. Every refusal is ok:false with a reason,
+    because a permission button that fails quietly is the whole bug.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    aid = body.get("id")
+    # Bools are ints in Python, and a bool id is a caller error, not an id.
+    if isinstance(aid, bool) or not isinstance(aid, int):
+        return web.json_response({"ok": False, "error": "no approval named"})
+    allow = bool(body.get("allow"))
+    known = aid in VW.approvals
+    VW.resolve_approval(aid, allow)
+    if not known:
+        # An id the server never issued grants NOTHING -- resolve_approval
+        # looks it up and a miss is a no-op. Saying so out loud matters:
+        # silence here would let a stale tab believe it had answered.
+        print(f"approval #{aid}: unknown id, nothing answered", flush=True)
+        return web.json_response({"ok": False, "error": "already answered"})
+    return web.json_response({"ok": True})
+
+
 async def task_move(request: web.Request) -> web.Response:
     """POST {"title": ..., "action": "approve"|"send-back"} -- Serge's verdict.
 
@@ -1398,6 +1440,11 @@ async def signals(request: web.Request) -> web.Response:
          # look like Serge approved something and have changed nothing --
          # exactly the silent failure the button exists to end.
          "task_move": True,
+         # And once more, for the permission popup's ANSWER: "I have the
+         # /approval-reply route." An old server has no such route, so a new
+         # page must keep using the websocket rather than POST into a 404 --
+         # which would look exactly like the endless loop being fixed.
+         "approval_http": True,
          "stats": {**_STATS,
                    "brain": "active" if VW.ready.is_set() else "warming",
                    # Blank until the brain's first turn reports it; the
@@ -1673,6 +1720,7 @@ def main() -> None:
         web.get("/usage-poll", usage_poll),
         web.post("/usage-poll", usage_poll),
         web.post("/task-move", task_move),
+        web.post("/approval-reply", approval_reply),
         web.get("/voice", voice_ws),
     ])
     app.on_startup.append(on_startup)

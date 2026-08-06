@@ -686,6 +686,14 @@
     line-height: 1.5; margin-bottom: 16px; word-break: break-word;
     max-height: 34vh; overflow-y: auto;
   }
+  /* The line that says what happened to his click. Empty (and so invisible)
+     until there is something true to say -- an element that always occupies
+     space would read as a card that failed to load, the page's own rule. */
+  .approve-note:empty { display: none; }
+  .approve-note {
+    font-family: "Menlo", monospace; font-size: 11px; color: var(--warn);
+    letter-spacing: .04em; margin: -8px 0 12px; word-break: break-word;
+  }
   #approve-row { display: flex; gap: 8px; }
   #approve-row button {
     flex: 1; padding: 11px 0; font-size: 12px; letter-spacing: 0.18em;
@@ -1160,6 +1168,7 @@
 <div id="approve-box">
   <div id="approve-head">PERMISSION REQUEST</div>
   <div id="approve-detail"></div>
+    <div id="approve-note" class="approve-note"></div>
   <div id="approve-row">
     <button id="approve-yes">APPROVE</button>
     <button id="approve-no">DENY</button>
@@ -2580,26 +2589,100 @@ const approveBox = document.getElementById('approve-box');
 function showApproval(a){
   if (!a) {
     approvalId = null;
+    approvalQueued = null;
+    approvalStatus('');
     approveBox.style.display = 'none';
     document.body.classList.remove('alert');   // back to blue
     return;
   }
   if (approvalId === a.id) return;
   approvalId = a.id;
+  approvalQueued = null;      // a NEW request; a queued answer to the old
+  approvalStatus('');         // one is stale and must never be delivered
   document.getElementById('approve-head').textContent =
     'PERMISSION · ' + (a.tool || 'TOOL').toUpperCase();
   document.getElementById('approve-detail').textContent = a.detail || '';
   approveBox.style.display = 'block';
   document.body.classList.add('alert');        // whole HUD goes amber
 }
-function answerApproval(allow){
-  if (approvalId === null) return;
-  try {
-    ws.send(JSON.stringify(
-      {type: 'approval_reply', id: approvalId, allow: allow}));
-  } catch(e){}
-  showApproval(null);
+// THE ANSWER RIDES HTTP, NOT THE SOCKET. (Serge, 2026-08-06 ~6:20 PM:
+// "stuck in an endless loop... I click on approve, always come back.")
+//
+// The question is DRAWN from /signals -- plain polling, which survives a
+// server restart because every poll is a fresh request. The answer used to
+// go over the websocket, which does not survive one: it closes and the page
+// only retries 2s later, while the fresh brain asks for its first permission
+// about 1s after boot. So the first approval of every restart was sent into
+// a dead socket, `catch(e){}` ate the failure, the box hid as though he had
+// answered, and the next poll drew it again. Forever, silently.
+//
+// Two rules now, and they are the whole fix:
+//   1. THE BOX NEVER HIDES ON AN UNCONFIRMED CLICK. It goes away when the
+//      SERVER says the request is answered -- via the approval_done push or
+//      the poll dropping it -- never merely because a click happened.
+//   2. A FAILURE IS SAID OUT LOUD AND THE ANSWER IS KEPT. If the answer
+//      cannot be delivered, the click is remembered and retried rather than
+//      discarded; there is no empty catch anywhere in this path.
+let approvalHttp = false;      // set from /signals; false until told otherwise
+let approvalSending = false;
+let approvalQueued = null;     // {id, allow} kept when delivery failed
+const approveNote = document.getElementById('approve-note');
+
+function approvalStatus(text){
+  if (approveNote) approveNote.textContent = text || '';
 }
+
+async function deliverApproval(id, allow){
+  // An old server has no /approval-reply route, so POSTing would 404 --
+  // which would look exactly like the loop being fixed. Fall back to the
+  // socket, and only when it is genuinely open.
+  if (approvalHttp) {
+    const r = await fetch('/approval-reply', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: id, allow: allow}),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || 'server refused');
+    return;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    throw new Error('not connected');
+  }
+  ws.send(JSON.stringify(
+    {type: 'approval_reply', id: id, allow: allow}));
+}
+
+async function answerApproval(allow){
+  if (approvalId === null || approvalSending) return;
+  const id = approvalId;
+  approvalSending = true;
+  approvalStatus('sending…');
+  try {
+    await deliverApproval(id, allow);
+    approvalQueued = null;
+    approvalStatus('answered — waiting for Jarvis');
+  } catch (e) {
+    // Kept, not dropped: his click is his decision and it should survive a
+    // socket that happened to be reconnecting.
+    approvalQueued = {id: id, allow: allow};
+    approvalStatus('not connected — will send when the link is back');
+    if (!approvalHttp && ws && ws.readyState !== WebSocket.OPEN) connect();
+  } finally {
+    approvalSending = false;
+  }
+}
+
+async function flushApproval(){
+  if (!approvalQueued) return;
+  const q = approvalQueued;
+  try {
+    await deliverApproval(q.id, q.allow);
+    approvalQueued = null;
+    approvalStatus('answered — waiting for Jarvis');
+  } catch (e) { /* stays queued; the next poll tries again */ }
+}
+
 document.getElementById('approve-yes').onclick = () => answerApproval(true);
 document.getElementById('approve-no').onclick = () => answerApproval(false);
 
@@ -3032,6 +3115,11 @@ async function poll(){
     // Absent on an older server, and absent must mean NO -- the buttons stay
     // hidden until the route is really there. See verdictButtons().
     taskMoveOK = !!d.task_move;
+    approvalHttp = !!d.approval_http;
+    // Retry a click that could not be delivered. On the poll rather than on
+    // reconnect alone, because the poll is the channel that always works --
+    // which is the whole lesson of this bug.
+    if (approvalQueued) flushApproval();
     // Stale-tab self-heal: the server stamps each served copy with its
     // file version and reports the live one here; a mismatch means this
     // tab missed a reload push -- reload between turns like any push.
