@@ -84,9 +84,14 @@ eval(grab('esc') + '\nconst BOARD_COLS = ' + COLS_SRC + ';'
    + '\nconst BOARD_CHECKING = ' + CHECK_SRC + ';'
    + '\nconst STEP_MAX = ' + STEP_MAX + ';\n' + grab('stepText') + '\n'
    + grab('verdictButtons') + '\n' + grab('wireVerdicts') + '\n'
+   + grab('clearDrag') + '\n' + grab('wireDrag') + '\n'
    + grab('renderBoard'));
 let boardSig = '';
 let boardLatched = false;
+// Declared exactly as the page declares them. dragTitle empty = nothing in his
+// hand, which is the state every test starts in.
+let dragTitle = '';
+let dragFrom = '';
 // The approve button's state, declared here exactly as the page declares it.
 // taskMoveOK starts FALSE on purpose -- that is the page's own default, and
 // the version-skew rule depends on it.
@@ -379,18 +384,25 @@ test('the markup it writes into exists in the page', () => {
     assert.ok(src.includes('id="' + id + '"'), 'missing markup: ' + id);
 });
 
-test('READ-ONLY in this pass -- no card is draggable and nothing writes back', () => {
-  // Serge parked the drag ("for right now, maybe remove the drag part").
-  // A draggable card that silently does nothing is worse than none.
-  // Scoped to the FUNCTION BODY with comments stripped. The first version
-  // sliced up to BOARD_INTENT_MS and so read the comment block in between --
-  // which explains why the latch matters "once the cards are draggable" and
-  // was duly failed for saying so. Grepping source punishes the prose that
-  // documents the decision; assert on the code. (Second time today.)
+// INVERTED 2026-08-06, not deleted. This asserted the board was READ-ONLY --
+// "no card is draggable and nothing writes back" -- which was true while Serge
+// had the drag parked ("for right now, maybe remove the drag part") and became
+// a lie the moment he unparked it. The two cannot both guard this file.
+//
+// What survives is the half that still matters and always did: a card that
+// LOOKS draggable must actually be handled. The original worry was a card that
+// invites a gesture and silently does nothing, and that worry outlives the
+// parking -- so it is now asserted the other way round.
+test('nothing is draggable unless something handles the drop', () => {
   const body = grab('renderBoard')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.ok(!/draggable/.test(body), 'a card is draggable but nothing handles it');
-  assert.ok(!/fetch\(/.test(body), 'the board writes back -- not in this pass');
+  if (/draggable/.test(body)) {
+    assert.ok(/\bwireDrag\(\);/.test(body),
+      'cards invite a drag that nothing listens for');
+    const drop = grab('wireDrag');
+    assert.ok(/'drop'/.test(drop), 'nothing handles the drop event');
+    assert.ok(/fetch\(/.test(drop), 'a completed drag never reaches the vault');
+  }
 });
 
 test('the board is animated, per his ask', () => {
@@ -1011,6 +1023,122 @@ test('the column headers hold still while the cards scroll', () => {
     'the headers scroll away with the cards');
   assert.ok(/background:\s*var\(--bg-panel\)/.test(r),
     'a transparent sticky header lets the cards show through it');
+});
+
+// ---- THE DRAG -------------------------------------------------------------
+// Serge unparked it 2026-08-06 and handed the call over ("you decide"). Native
+// HTML5 drag, so the browser itself separates a click from a gesture -- a
+// stray press can never move his work, and that is a guarantee worth having
+// rather than mouse arithmetic I would have to prove.
+
+const DROP_SRC = grab('wireDrag');
+
+test('every card is draggable and carries its own identity', () => {
+  // renderBoard rewrites this subtree at any signature change, so the drop
+  // handler must read the ELEMENT. Anything remembered in a closure is gone.
+  renderBoard([T('alpha', 'open'), T('beta', 'active')]);
+  const cards = cols().match(/<div class="bcard"[^>]*>/g) || [];
+  assert.strictEqual(cards.length, 2, 'expected two cards');
+  for (const c of cards) {
+    assert.ok(/draggable="true"/.test(c), 'a card is not draggable: ' + c);
+    assert.ok(/data-title="/.test(c), 'a card carries no title: ' + c);
+    assert.ok(/data-from="/.test(c), 'a card does not know its column: ' + c);
+  }
+});
+
+test('every column names itself, or a drop has nowhere to land', () => {
+  renderBoard([T('alpha', 'open')]);
+  const keys = (cols().match(/data-key="([a-z-]+)"/g) || [])
+    .map(m => m.replace(/.*"([a-z-]+)"/, '$1'));
+  assert.deepStrictEqual(keys, COLS.map(c => c.key));
+});
+
+test('a card in his hand is NOT redrawn out of it', () => {
+  // The whole failure mode: innerHTML destroys the dragged element and the
+  // browser cancels the gesture with it. The card would vanish mid-drag.
+  renderBoard([T('alpha', 'open')]);
+  const before = cols();
+  dragTitle = 'alpha';
+  renderBoard([T('alpha', 'open'), T('beta', 'active')]);
+  assert.strictEqual(cols(), before, 'the board redrew while a card was held');
+  dragTitle = '';
+  renderBoard([T('alpha', 'open'), T('beta', 'active')]);
+  assert.ok(cols().includes('beta'), 'the board never caught up after the drop');
+});
+
+test('the poll is not swallowed -- the signature is cleared while held', () => {
+  // If the guard returned WITHOUT clearing boardSig, the board would keep the
+  // stale signature and never redraw after the drag ended.
+  assert.ok(/if \(dragTitle\) \{ boardSig = ''; return; \}/.test(grab('renderBoard')),
+    'the mid-drag guard does not clear the signature');
+});
+
+test('the drop posts a drag with the COLUMN it landed on', () => {
+  assert.ok(/action: 'drag'/.test(DROP_SRC), "the drop does not name the drag action");
+  assert.ok(/status: to/.test(DROP_SRC), 'the drop does not send the target column');
+  assert.ok(/getAttribute\('data-key'\)/.test(DROP_SRC),
+    'the target column is not read from the element it was dropped on');
+});
+
+test('a drop back on the SAME column writes nothing', () => {
+  // Otherwise it stamps the note and records "moved by Serge" about nothing.
+  assert.ok(/if \(!to \|\| to === from\) return;/.test(DROP_SRC),
+    'a same-column drop still reaches the server');
+  const i = DROP_SRC.indexOf('to === from');
+  const j = DROP_SRC.indexOf('fetch(');
+  assert.ok(i !== -1 && j !== -1 && i < j, 'the same-column check runs after the fetch');
+});
+
+test('the card does NOT move optimistically', () => {
+  // The note is the record. A card that slides into a column the server then
+  // refused is the page telling him a comfortable lie.
+  assert.ok(!/appendChild|insertBefore|\.remove\(\)/.test(DROP_SRC),
+    'the drop moves the card in the DOM before the vault has agreed');
+});
+
+test('a failed drop SAYS SO -- both the refusal and the unreachable server', () => {
+  assert.ok(/could not move it/.test(DROP_SRC), 'a refusal is silent');
+  assert.ok(/could not reach the server/.test(DROP_SRC), 'a dead server is silent');
+  assert.ok(/showLine/.test(DROP_SRC), 'nothing is ever said out loud');
+});
+
+test('the board latches while dragging, so it cannot roll up mid-gesture', () => {
+  assert.ok(/boardLatched = true/.test(DROP_SRC),
+    'the board can close under his cursor while he is carrying a card');
+});
+
+test('wireDrag is actually CALLED, not merely defined', () => {
+  // The exact trap that let a mail strip drawing nothing pass its own test on
+  // 2026-08-05: the wiring assertion matched a commented-out call.
+  const body = grab('renderBoard');
+  const live = body.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  assert.ok(/\bwireDrag\(\);/.test(live), 'wireDrag() is never called from renderBoard');
+});
+
+test('the drop target lights with the ACCENT, never with a status colour', () => {
+  // A column glowing green would say "this work is in progress" when all it
+  // means is "let go here".
+  const r = rule('.bcol.drop-to');
+  assert.ok(/var\(--accent-rgb\)/.test(r), 'the drop target does not use the accent');
+  for (const status of ['--ok', '--warn', '--bad'])
+    assert.ok(!new RegExp('var\\(' + status + '\\b').test(r),
+      'the drop target borrowed the status colour ' + status);
+});
+
+test('a card offers grab, and gains no border -- a border says pressable', () => {
+  // NARROWED after failing a CORRECT page. The first version also forbade a
+  // border -- but these cards have carried one since the board shipped; the
+  // "a border says pressable" rule is about STATUS being styled as a control,
+  // and a card you can genuinely pick up is not that case. It was asserting my
+  // own misreading, not the page's rule.
+  // ⚠ rule('.bcard') cannot be used here: indexOf('.bcard {') matches
+  // ".bcol.done .bcard {" first -- the same first-match trap that made a
+  // helper read the wrong one of two identical selectors twice before on this
+  // page. Anchored to the rule's own line instead.
+  const m = src.match(/\n\s*\.bcard \{([\s\S]*?)\}/);
+  assert.ok(m, 'the .bcard rule is gone');
+  const r = m[1];
+  assert.ok(/cursor:\s*grab/.test(r), 'a draggable card gives no affordance');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

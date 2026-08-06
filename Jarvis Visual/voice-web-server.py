@@ -805,6 +805,24 @@ TASK_ACTIONS = {
 }
 MAX_TITLE = 200
 
+# THE DRAG, added 2026-08-06 on Serge's "you decide" after he unparked it.
+#
+# The two verdicts above are a closed table of WRITES. A drag cannot be, because
+# its whole point is that he chooses the column -- so the closure moves to the
+# STATUS SET instead. This tuple is the entire set of statuses a drag can ever
+# write, it is the same six the board draws, and anything else is refused
+# before task.py is ever called. The page does not get to invent a status.
+#
+# What deliberately does NOT carry over from the verdict path: `only_from`.
+# A verdict may only touch a card in Review; a drag is Serge moving his own
+# work and may start anywhere. That is the actual widening, and it is stated
+# here rather than buried, because it is the moment this page stopped being
+# able to write two values and started being able to write six.
+DRAG_STATUSES = (
+    "open", "active", "review", "test", "waiting-on-serge", "done",
+)
+DRAG_NOTE = "moved by Serge on the board"
+
 
 def _task_tool():
     """vault-tools/task.py, imported by path so it cannot drift from the CLI."""
@@ -833,14 +851,24 @@ async def task_move(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": "no task named"})
     if len(title) > MAX_TITLE:
         return web.json_response({"ok": False, "error": "title too long"})
-    if action not in TASK_ACTIONS:
+    # Two shapes on one route, and the difference is the guard, not the path.
+    # A verdict names an ACTION and the server chooses the status; a drag names
+    # a STATUS and the server refuses anything outside the board's own six.
+    if action == "drag":
+        status = body.get("status")
+        if status not in DRAG_STATUSES:
+            return web.json_response({"ok": False, "error": "unknown column"})
+        note, only_from = DRAG_NOTE, None
+    elif action in TASK_ACTIONS:
+        status, note = TASK_ACTIONS[action]
+        only_from = ("review",)
+    else:
         return web.json_response({"ok": False, "error": "unknown action"})
-    status, note = TASK_ACTIONS[action]
     try:
         tool = _task_tool()
         moved = await asyncio.to_thread(
             tool.move, title.strip(), status, note,
-            exact=True, only_from=("review",))
+            exact=True, only_from=only_from)
     except Exception as exc:
         # TaskError carries the reason Serge should read; anything else is a
         # real fault and must not take the request down with it.

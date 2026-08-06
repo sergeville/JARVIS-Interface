@@ -317,11 +317,21 @@ class TestTheRoute(unittest.TestCase):
                              f"the route writes for itself via {forbidden!r}")
 
     def test_the_route_passes_BOTH_narrowing_guards(self):
+        # UPDATED 2026-08-06, not loosened. The drag branch made `only_from`
+        # a VARIABLE -- ("review",) for a verdict, None for a drag -- so the
+        # old literal search for `only_from=("review",)` at the call site went
+        # red against a correct file. It was matching a spelling, not the
+        # property. Both halves are now asserted where they actually live, and
+        # the behavioural guard is TestTheDrag's
+        # test_the_verdict_path_is_UNCHANGED_by_the_new_branch.
         src = SERVER.read_text()
         i = src.index("async def task_move")
         body = src[i:src.index("WHISPER_URL", i)]
         self.assertIn("exact=True", body)
-        self.assertIn('only_from=("review",)', body)
+        self.assertIn('only_from = ("review",)', body,
+                      "the verdict branch no longer narrows to review")
+        self.assertIn("only_from=only_from", body,
+                      "the narrowing is computed but never passed to the write")
 
     def test_the_real_note_is_not_modified_by_the_route_tests(self):
         """These exercise the REAL writer, so prove the real note stood still.
@@ -339,6 +349,92 @@ class TestTheRoute(unittest.TestCase):
                        "action": "approve"})
         self.assertFalse(d["ok"])
         self.assertEqual(note.stat().st_mtime_ns, before)
+
+
+class TestTheDrag(Base):
+    """The drag, added 2026-08-06 when Serge unparked it.
+
+    The verdict path is a closed table of WRITES. A drag cannot be -- its whole
+    point is that Serge picks the column -- so the closure moves to the STATUS
+    SET. These tests are about that boundary holding, because this is the moment
+    the page went from writing two values to writing six.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load("voice_web_server_drag", SERVER)
+
+    def setUp(self):
+        super().setUp()
+        # ⚠ THE ROUTE'S OWN TESTS ABOVE ONLY EVER PROVOKE REFUSALS, so they can
+        # safely run against the real note. These tests WRITE, so the server's
+        # task tool is pinned to this test's temp copy -- a suite that edits
+        # Serge's live queue would be a far worse bug than any it could catch.
+        self.srv._task_tool = lambda: self.task
+
+    def call(self, payload):
+        r = asyncio.run(self.srv.task_move(FakeRequest(payload)))
+        return json.loads(r.body.decode())
+
+    def test_the_drag_status_set_is_exactly_the_board(self):
+        # If a seventh column is ever added, this fails until someone decides
+        # on purpose whether a drag may reach it.
+        self.assertEqual(
+            list(self.srv.DRAG_STATUSES),
+            ["open", "active", "review", "test", "waiting-on-serge", "done"],
+        )
+
+    def test_a_drag_moves_a_card_to_any_board_column(self):
+        d = self.call({"title": "Beta in flight", "action": "drag",
+                       "status": "test"})
+        self.assertTrue(d.get("ok"), d)
+        self.assertEqual(self.status_of("Beta in flight"), "test")
+
+    def test_a_drag_may_start_ANYWHERE__only_from_does_not_apply(self):
+        # The actual widening, asserted rather than assumed: a verdict may only
+        # touch a card in Review; a drag is Serge moving his own work.
+        self.assertEqual(self.status_of("Beta in flight"), "active")
+        d = self.call({"title": "Beta in flight", "action": "drag",
+                       "status": "waiting-on-serge"})
+        self.assertTrue(d.get("ok"), d)
+        self.assertEqual(self.status_of("Beta in flight"), "waiting-on-serge")
+
+    def test_a_status_outside_the_board_is_refused(self):
+        for bad in ("archived", "DONE", "", None, 7, "open ", "../../etc"):
+            d = self.call({"title": "Beta in flight", "action": "drag",
+                           "status": bad})
+            self.assertFalse(d.get("ok"), f"accepted {bad!r}")
+            self.assertEqual(d["error"], "unknown column")
+        self.assertEqual(self.status_of("Beta in flight"), "active")
+
+    def test_a_drag_with_no_status_at_all_is_refused(self):
+        d = self.call({"title": "Beta in flight", "action": "drag"})
+        self.assertFalse(d.get("ok"))
+        self.assertEqual(d["error"], "unknown column")
+
+    def test_a_drag_still_matches_the_title_EXACTLY(self):
+        # The verdict path's protection must not be lost on the new branch.
+        d = self.call({"title": "Beta", "action": "drag", "status": "test"})
+        self.assertFalse(d.get("ok"), "a substring selected a card")
+        self.assertEqual(self.status_of("Beta in flight"), "active")
+
+    def test_a_refused_drag_does_not_touch_the_note(self):
+        note = self.note.stat().st_mtime_ns
+        self.call({"title": "Beta in flight", "action": "drag",
+                   "status": "nonsense"})
+        self.assertEqual(self.note.stat().st_mtime_ns, note)
+
+    def test_the_note_line_says_who_moved_it(self):
+        self.call({"title": "Beta in flight", "action": "drag",
+                   "status": "review"})
+        body = self.note.read_text()
+        self.assertIn("moved by Serge on the board", body)
+
+    def test_the_verdict_path_is_UNCHANGED_by_the_new_branch(self):
+        # A drag must not have loosened approve/send-back on the way past.
+        d = self.call({"title": "Beta in flight", "action": "approve"})
+        self.assertFalse(d.get("ok"), "approve reached a card outside review")
+        self.assertEqual(self.status_of("Beta in flight"), "active")
 
 
 if __name__ == "__main__":

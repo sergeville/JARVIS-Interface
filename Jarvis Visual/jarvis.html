@@ -282,9 +282,26 @@
     border: 1px solid rgba(var(--accent-rgb), 0.16); border-radius: 4px;
     padding: 7px 8px; margin-bottom: 7px;
     background: rgba(var(--accent-rgb), 0.045);
+    cursor: grab;                 /* the drag's only affordance -- see below */
     transition: background 160ms ease, border-color 160ms ease;
   }
   .bcard:hover { background: rgba(var(--accent-rgb), 0.09); }
+  /* THE DRAG, 2026-08-06. `grab` is the only affordance -- no border is added,
+     because on this page a border says pressable and these cards are not
+     buttons. While a card is in his hand the cursor becomes `grabbing`
+     everywhere, so the gesture is unmistakable even off the board. */
+  .bcard.dragging { opacity: 0.4; cursor: grabbing; }
+  body.dragging, body.dragging * { cursor: grabbing !important; }
+  /* The target column lights with the ACCENT, never with a status colour: a
+     column glowing green would say "this work is in progress" when all it
+     means is "let go here". */
+  .bcol.drop-to {
+    background: rgba(var(--accent-rgb), 0.07);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.35);
+  }
+  /* The verdict buttons must not start a drag -- a press that turns into a
+     gesture would swallow the click he meant. */
+  .bcard .bv { -webkit-user-drag: none; }
   .bcard .bt {
     font-size: 10.5px; line-height: 1.4; color: rgba(var(--accent-rgb), 0.92);
   }
@@ -2189,6 +2206,91 @@ function wireVerdicts(){
     boardSig = '';                      // the note changed; redraw on next poll
   });
 }
+// THE DRAG -- Serge unparked it 2026-08-06 and handed the call over
+// ("you decide"). Native HTML5 drag on purpose, not mouse arithmetic: the
+// browser already distinguishes a click from a drag, which is exactly the
+// guarantee I wanted -- a stray press can never move his work. Dragging a
+// card back is the undo, so no separate one is invented.
+//
+// Delegated on the columns container, like the verdict buttons and for the
+// same reason: renderBoard rewrites this subtree whenever the data changes,
+// so a listener bound to a card would be thrown away under his cursor.
+let dragTitle = '', dragFrom = '';
+function wireDrag(){
+  const cols = document.getElementById('board-cols');
+  if (!cols || cols._dragWired) return;
+  cols._dragWired = true;
+
+  cols.addEventListener('dragstart', (ev) => {
+    const card = ev.target.closest && ev.target.closest('.bcard');
+    if (!card) return;
+    dragTitle = card.getAttribute('data-title') || '';
+    dragFrom  = card.getAttribute('data-from') || '';
+    card.classList.add('dragging');
+    document.body.classList.add('dragging');
+    boardLatched = true;                 // the board must not roll up mid-drag
+    try { ev.dataTransfer.effectAllowed = 'move';
+          ev.dataTransfer.setData('text/plain', dragTitle); } catch (e) {}
+  });
+
+  cols.addEventListener('dragover', (ev) => {
+    if (!dragTitle) return;
+    const col = ev.target.closest && ev.target.closest('.bcol');
+    if (!col) return;
+    ev.preventDefault();                 // without this the drop never fires
+    ev.dataTransfer.dropEffect = 'move';
+    if (col.getAttribute('data-key') !== dragFrom) col.classList.add('drop-to');
+  });
+
+  cols.addEventListener('dragleave', (ev) => {
+    const col = ev.target.closest && ev.target.closest('.bcol');
+    if (col) col.classList.remove('drop-to');
+  });
+
+  cols.addEventListener('drop', async (ev) => {
+    const col = ev.target.closest && ev.target.closest('.bcol');
+    if (!col || !dragTitle) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const to = col.getAttribute('data-key');
+    const title = dragTitle, from = dragFrom;
+    clearDrag();
+    // Dropping a card back where it came from is not a move. Writing it would
+    // stamp the note and say "moved by Serge" about nothing at all.
+    if (!to || to === from) return;
+    let msg = '';
+    try {
+      const r = await fetch('/task-move', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: title, action: 'drag', status: to})
+      });
+      const d = await r.json();
+      msg = d && d.ok
+        ? 'moved to ' + (colFor(to).label || to) + ': ' + title
+        : 'could not move it -- ' + ((d && d.error) || 'no reason given');
+    } catch (e) {
+      msg = 'could not reach the server -- nothing was changed';
+    }
+    // SAY WHAT HAPPENED, ALWAYS -- and note the card does NOT move optimistically.
+    // The note is the record; a card that slides into a column the server then
+    // refused is the page telling him a comfortable lie. It moves on the next
+    // poll, from the vault, or it does not move at all.
+    showLine('jarvis', msg);
+    boardSig = '';
+  });
+
+  cols.addEventListener('dragend', clearDrag);
+}
+function clearDrag(){
+  dragTitle = ''; dragFrom = '';
+  document.body.classList.remove('dragging');
+  const cols = document.getElementById('board-cols');
+  if (!cols) return;
+  Array.from(cols.querySelectorAll('.drop-to')).forEach(c => c.classList.remove('drop-to'));
+  Array.from(cols.querySelectorAll('.dragging')).forEach(c => c.classList.remove('dragging'));
+}
+
 function renderBoard(tasks){
   const strip = document.getElementById('board-strip');
   const cols  = document.getElementById('board-cols');
@@ -2199,8 +2301,13 @@ function renderBoard(tasks){
   // presses it, or a slow write invites a second press on the same card.
   boardTasks = tasks;
   wireVerdicts();
+  wireDrag();
   const sig = JSON.stringify(tasks) + '|' + String(taskMoveOK) + '|' + verdictBusy;
   if (sig === boardSig) return;          // this polls at 15 Hz
+  // NOT while a card is in his hand. innerHTML would destroy the element being
+  // dragged and the browser cancels the drag with it -- the card would vanish
+  // mid-gesture. The poll keeps arriving; it simply waits for him to let go.
+  if (dragTitle) { boardSig = ''; return; }
   boardSig = sig;
 
   if (!tasks.length) {
@@ -2255,7 +2362,12 @@ function renderBoard(tasks){
     if (c.key === 'open') list = list.concat(strays);
     const cards = list.map(t => {
       const step = stepText(t.note);
-      return '<div class="bcard"' + (step ? ' title="' + esc(t.note) + '"' : '') + '>'
+      // draggable + its own identity on the element: renderBoard rewrites
+      // this subtree at any signature change, so nothing may be remembered in
+      // a closure -- the drop handler reads the card, not a variable.
+      return '<div class="bcard" draggable="true" data-title="' + esc(t.title || '')
+      + '" data-from="' + esc(c.key) + '"'
+      + (step ? ' title="' + esc(t.note) + '"' : '') + '>'
       + '<div class="bt">' + esc(t.title || '(untitled)') + '</div>'
       // No empty element when there is no note: a blank line under the title
       // reads as a card that failed to load rather than one with nothing to say.
@@ -2272,7 +2384,7 @@ function renderBoard(tasks){
     const empty = c.key === 'done'
       ? '<div class="bcol-empty">nothing finished today</div>'
       : '<div class="bcol-empty">nothing here</div>';
-    return '<div class="bcol ' + c.cls + '">'
+    return '<div class="bcol ' + c.cls + '" data-key="' + c.key + '">'
          + '<div class="bcol-head"><span>' + c.label + '</span>'
          + '<span class="n">' + list.length + '</span></div>'
          + (cards || empty) + '</div>';
