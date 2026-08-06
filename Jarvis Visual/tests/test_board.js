@@ -312,5 +312,156 @@ test('the waveform is still protected during a browser turn', () => {
     'sigLevel is computed during a browser turn -- the ring will go flat');
 });
 
+// ---- THE HEADER IS THE CARD'S, NOT THE TOP BAR'S ----------------------
+// Serge, 2026-08-06 ~6:05 AM: the collapsed strip should read as the header
+// of the active tasks -- "it's like an extension of the active task" -- and
+// the roll-down should go "down and sideways, sliding... slowly."
+//
+// These assert his words, not my taste, for the same reason the ambient
+// tests do: a preference stated in a test survives a future restyle, one
+// held in a build does not.
+
+function rule(sel) {
+  const i = src.indexOf(sel + ' {');
+  assert.ok(i !== -1, 'CSS rule is gone: ' + sel);
+  return src.slice(i, src.indexOf('}', i));
+}
+
+// The first pass of these tests asserted that the strip was PAINTED like the
+// card while it still sat in the top bar. Serge corrected that within ten
+// minutes -- "it should be ON TOP OF the active task" -- so those assertions
+// were inverted rather than extended: a strip styled like the card and a
+// strip that IS the card's heading cannot both be what this file guards.
+
+test('the summary lives IN the tasks card, not in the top bar', () => {
+  const head = src.indexOf('<div id="tasks-head">');
+  assert.ok(head !== -1, 'the tasks card has no heading row');
+  // Between the heading row opening and the task list is the whole of
+  // "inside the heading" -- no offset arithmetic, which is what made the
+  // first version of this assertion fail against a correct page.
+  const headRow = src.slice(head, src.indexOf('id="tasks-body"', head));
+  assert.ok(/id="board-strip"/.test(headRow),
+    'the board summary is not inside the tasks heading row');
+  // And it must not have been left behind in the title block as well.
+  const mid = src.slice(src.indexOf('<div class="mid">'), src.indexOf('id="topbar-right"'));
+  assert.ok(!/id="board-strip"/.test(mid),
+    'the strip is still in the top bar -- exactly what he asked me to undo');
+});
+
+test('the heading row is the ACTIVE TASKS heading, title and all', () => {
+  const head = src.slice(src.indexOf('<div id="tasks-head">'),
+                         src.indexOf('id="tasks-body"'));
+  assert.ok(/Active Tasks/.test(head),
+    'the card lost its title when the strip moved in');
+});
+
+test('the heading keeps .sec-title\'s bullet and tracking', () => {
+  const r = rule('#tasks-head');
+  assert.ok(/letter-spacing: 0\.25em/.test(r), 'the heading no longer tracks with the other cards');
+  assert.ok(/color: var\(--sec\)/.test(r), 'the heading is not the section colour');
+  assert.ok(/content: "\\25CF"/.test(rule('#tasks-head::before')), 'the section bullet is gone');
+});
+
+test('the heading is NOT styled as a control', () => {
+  // A border says pressable. This row is a heading that happens to react to
+  // an approach, so the hover affordance is a fill and nothing else.
+  const r = rule('#tasks-head');
+  assert.ok(!/border: /.test(r), 'the heading grew a border -- it will read as a button');
+  assert.ok(/background: rgba\(var\(--accent-rgb\)/.test(rule('#tasks-head:hover, body.board-open #tasks-head')),
+    'the approach gives no feedback at all');
+});
+
+test('the counts sit at the far edge of the card, opposite the title', () => {
+  assert.ok(/margin-left: auto/.test(rule('#board-strip')),
+    'the counts crowd the title instead of sitting at the card edge');
+});
+
+test('the sheet wears the panel EDGE the cards use', () => {
+  // 0.28 is the exact accent alpha #left/#right are framed with. A different
+  // number is the whole failure mode here: nearly-matching reads as a mistake.
+  assert.ok(/border: 1px solid rgba\(var\(--accent-rgb\), 0\.28\)/
+    .test(rule('#board')), 'the sheet edge does not match the panels');
+});
+
+test('the sheet hangs off the RIGHT, where its heading now is', () => {
+  const r = rule('#board');
+  assert.ok(/right: \d+px/.test(r), 'the sheet is not anchored to the right');
+  assert.ok(!/left: 50%/.test(r),
+    'the sheet still drops from the middle -- it has no visible parent there');
+});
+
+test('the sheet wears the card fill too', () => {
+  assert.ok(/background: var\(--bg-panel\)/.test(rule('#board')),
+    'the roll-down still has its own hardcoded background');
+});
+
+test('the heading tracking matches the card headings beside it', () => {
+  const m = rule('.sec-title').match(/letter-spacing: ([\d.]+em)/);
+  assert.ok(m, '.sec-title lost its tracking');
+  assert.ok(new RegExp('letter-spacing: ' + m[1]).test(rule('#tasks-head')),
+    'the tasks heading no longer tracks with SESSIONS and MAIL below it');
+});
+
+test('OPEN, the heading stays visibly lit', () => {
+  // The seam-dissolve from the first pass went with the move, deliberately:
+  // the sheet is far wider than the 300px card, so the two cannot be flush,
+  // and faking it would draw a border stub across the stage. The heading
+  // holds its highlight instead -- that is what ties the sheet to its parent.
+  assert.ok(/body\.board-open #tasks-head/.test(src),
+    'the heading gives no sign the board hanging below belongs to it');
+});
+
+test('the slide is SLOW -- 500ms or more', () => {
+  const r = rule('#board');
+  const ms = [...r.matchAll(/transform (\d+)ms/g)].map(m => +m[1]);
+  assert.ok(ms.length, 'the transform is not transitioned at all');
+  assert.ok(ms.every(v => v >= 500),
+    'the roll-down is still fast: ' + ms.join(', ') + 'ms');
+});
+
+test('it slides SIDEWAYS as well as down', () => {
+  const r = rule('#board');
+  const m = r.match(/transform: translate\(([^;]+)\);/);
+  assert.ok(m, '#board has no resting transform');
+  // Right-anchored now, so the sideways leg is a plain positive offset: it
+  // comes in from the right, the side its heading sits on.
+  assert.ok(/^\s*[\d.]+px/.test(m[1]),
+    'no sideways leg -- it drops straight down: ' + m[1]);
+  assert.ok(/,\s*-[\d.]+px/.test(m[1]),
+    'no downward leg: ' + m[1]);
+});
+
+test('the sideways move is a TRANSFORM, never a left/right animation', () => {
+  // `left` is not compositable; animating it over half a second is visibly
+  // janky, and jank is what a slow animation cannot hide.
+  const r = rule('#board');
+  assert.ok(!/transition:[^;]*\bleft\b/.test(r),
+    '#board animates `left` -- it will stutter');
+});
+
+test('visibility still lifts in step with the slide', () => {
+  // visibility is delayed by the transition length so the sheet is not
+  // clickable while it is still on its way out. A stale 260ms here makes it
+  // vanish mid-slide, which reads as a flicker.
+  const r = rule('#board');
+  const t = r.match(/transform (\d+)ms/)[1];
+  assert.ok(new RegExp('visibility 0s linear ' + t + 'ms').test(r),
+    'the visibility delay no longer matches the slide length');
+});
+
+test('the caret turns at the same pace as the sheet', () => {
+  const t = rule('#board').match(/transform (\d+)ms/)[1];
+  assert.ok(new RegExp('transform ' + t + 'ms').test(rule('#board-strip .caret')),
+    'the caret and the sheet move at different speeds');
+});
+
+test('the INTENT delay was not slowed with the animation', () => {
+  // Slowing the approach threshold would make the board feel unresponsive;
+  // he asked for a slow SLIDE, which is a different number.
+  const m = src.match(/BOARD_INTENT_MS = (\d+)/);
+  assert.ok(m, 'the intent delay is gone');
+  assert.ok(+m[1] <= 300, 'the approach delay crept up to ' + m[1] + 'ms');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

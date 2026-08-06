@@ -39,6 +39,19 @@
     --stage-core:  #0a1830;
     --fill-lo:     #0066aa;
     --fill-hi:     #00ccff;
+
+    /* Status colours. These deliberately do NOT change under body.alert:
+       green/amber/red mean up, waiting and broken in BOTH themes, and a
+       status that repaints with the mood is a status that stops meaning
+       anything. The frame changes; the instruments do not. */
+    --ok:          #00ffa8;
+    --ok-soft:     #7ff0c8;
+    --ok-soft-rgb: 127, 240, 200;
+    --warn:        #ffb020;
+    --warn-soft:   #ffc75a;
+    --warn-soft-rgb: 255, 199, 90;
+    --off:         #6b5a1f;
+    --bad:         #ff5f57;
   }
   /* Alert: a permission request is pending and Jarvis is blocked on Serge.
      Same layout, same information -- only the mood changes, so the state is
@@ -112,20 +125,45 @@
      then parked it: "for right now, maybe remove the drag part." Dragging
      would make this page an editor of the vault, which is a different blast
      radius and wants its own build. The columns are ready for it. */
+  /* Serge, 2026-08-06 ~6:05 AM: "I would see that as the header of the active
+     task... it's like an extension of the active task." So the strip stops
+     being top-bar chrome and takes the TASKS card's own language: the panel
+     fill, the 0.28 accent edge that frames every panel on this page, and
+     .sec-title's bullet and tracking. It is that card's header, which happens
+     to sit in the top bar. The card itself stays exactly where it is -- his
+     call: "get style to match it, make room for the new header." */
+  /* Serge, 2026-08-06 ~6:09 AM, correcting my first pass: "the Kanban header
+     is still on top. It should be ON TOP OF the active task." The first pass
+     styled the strip to match the card while leaving it in the top bar; he
+     meant the position, not the paint. So the summary IS the ACTIVE TASKS
+     heading row now -- .sec-title's bullet and tracking, the title, then his
+     counts and the caret pushed to the right edge of the card. */
+  #tasks-head {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase;
+    color: var(--sec); margin-bottom: 10px; flex-shrink: 0;
+    padding: 2px 4px; margin-left: -4px; margin-right: -4px;
+    border-radius: 3px; cursor: default;
+    transition: background 220ms ease;
+  }
+  /* The section bullet is the card's, not a decoration -- this row has to
+     keep reading as a heading and never as a control. A border would say
+     pressable, so the approach highlight is a fill and nothing else. */
+  #tasks-head::before { content: "\25CF"; font-size: 8px; }
+  #tasks-head:hover, body.board-open #tasks-head {
+    background: rgba(var(--accent-rgb), 0.10);
+  }
+  #tasks-head .th-title { flex-shrink: 0; }
+  /* Pushed hard right so the counts sit at the card's edge, opposite the
+     title, instead of crowding it. */
   #board-strip {
     display: flex; align-items: center; gap: 9px; cursor: default;
-    padding: 3px 9px; border-radius: 3px;
-    transition: background 220ms ease, box-shadow 220ms ease;
-  }
-  #board-strip:hover, #board.open + #board-strip,
-  body.board-open #board-strip {
-    background: rgba(var(--accent-rgb), 0.10);
-    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.22);
+    margin-left: auto;
   }
   #board-strip .bs {
-    font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase;
+    font-size: 9.5px; letter-spacing: 0.25em; text-transform: uppercase;
     display: flex; align-items: center; gap: 5px;
-    color: rgba(var(--accent-rgb), 0.55);
+    color: var(--sec);
   }
   #board-strip .bs b {
     font-size: 11px; font-weight: 600;
@@ -135,32 +173,43 @@
     width: 5px; height: 5px; border-radius: 50%;
     background: rgba(var(--accent-rgb), 0.35);
   }
-  #board-strip .bs.doing   .dot { background: #00ffa8; box-shadow: 0 0 5px #00ffa8; }
-  #board-strip .bs.waiting .dot { background: #ffb020; box-shadow: 0 0 5px #ffb020; }
+  #board-strip .bs.doing   .dot { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+  #board-strip .bs.waiting .dot { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
   #board-strip .caret {
     font-size: 8px; color: rgba(var(--accent-rgb), 0.45);
-    transition: transform 260ms ease;
+    transition: transform 520ms ease;
   }
   body.board-open #board-strip .caret { transform: rotate(180deg); }
 
   /* The roll-down itself. Transformed and faded rather than height-animated:
      a max-height transition on a grid of unknown height either clips or
      eases at the wrong speed. This slides from behind the top bar. */
+  /* Serge, 2026-08-06: "it will go down and sideways, sliding... and it slides
+     slowly." So the sheet no longer drops straight down at 260ms -- it comes
+     down AND across, at 520ms. The sideways leg is a translate on the same
+     transform, never a `left` change: `left` is not compositable and would
+     make a slow slide visibly janky, which is the one thing a slow animation
+     cannot hide. The intent delay before it opens is untouched. */
+  /* Anchored to the RIGHT now, because it hangs off the tasks card's heading
+     rather than off the page title -- a sheet that still dropped from the
+     middle would have no visible parent. It keeps rolling over the stage, so
+     nothing was given up by moving it. */
   #board {
-    position: fixed; left: 50%; top: 34px; transform: translate(-50%, -12px);
-    width: min(1120px, 94vw); z-index: 60;
+    position: fixed; right: 12px; top: 74px;
+    transform: translate(26px, -14px);
+    width: min(1060px, calc(100vw - 262px)); z-index: 60;
     opacity: 0; pointer-events: none; visibility: hidden;
-    transition: opacity 260ms ease, transform 260ms cubic-bezier(.2,.8,.3,1),
-                visibility 0s linear 260ms;
-    background: rgba(6, 14, 22, 0.94);
-    border: 1px solid rgba(var(--accent-rgb), 0.22);
-    border-top: none; border-radius: 0 0 6px 6px;
+    transition: opacity 520ms ease, transform 520ms cubic-bezier(.2,.8,.3,1),
+                visibility 0s linear 520ms;
+    background: var(--bg-panel);
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    border-radius: 6px;
     box-shadow: 0 22px 60px rgba(0, 0, 0, 0.66);
     backdrop-filter: blur(7px);
     padding: 15px 15px 13px;
   }
   body.board-open #board {
-    opacity: 1; transform: translate(-50%, 0); pointer-events: auto;
+    opacity: 1; transform: translate(0, 0); pointer-events: auto;
     visibility: visible; transition-delay: 0s;
   }
   #board-cols {
@@ -212,7 +261,7 @@
   }
   .tu .k { color: rgba(var(--accent-rgb), 0.5); }
   .tu .v { font-family: "Menlo", monospace; color: var(--text-val); }
-  .tu.warn .v { color: #ffc75a; }
+  .tu.warn .v { color: var(--warn-soft); }
   .tu.bad  .v { color: #ff8a82; }
   #topbar-usage.stale { opacity: 0.5; }
 
@@ -292,13 +341,13 @@
   .st-row .pid {
     font-family: "Menlo", monospace; font-size: 10.5px; color: var(--text-val);
   }
-  .st-row.up .dot { background: #00ffa8; box-shadow: 0 0 7px #00ffa8; }
-  .st-row.up .pid { color: #7ff0c8; }
+  .st-row.up .dot { background: var(--ok); box-shadow: 0 0 7px var(--ok); }
+  .st-row.up .pid { color: var(--ok-soft); }
   /* "off" is a choice (the terminal line), "down" is a problem. Different
      colours on purpose -- Serge read a plain "not running" as a failure. */
-  .st-row.off .dot { background: #6b5a1f; }
+  .st-row.off .dot { background: var(--off); }
   .st-row.off .pid { color: rgba(190, 175, 110, 0.85); }
-  .st-row.down .dot { background: #ff5f57; box-shadow: 0 0 7px #ff5f57; }
+  .st-row.down .dot { background: var(--bad); box-shadow: 0 0 7px var(--bad); }
   .st-row.down .pid { color: #ffa39e; }
   /* Serge, 2026-08-04: start time + how long it has been up, under each row.
      Its own dim line rather than a third column -- the panel is narrow and
@@ -320,7 +369,7 @@
   }
   #page-age { margin-top: 7px; }
   .ports-row b { font-weight: normal; color: rgba(var(--accent-rgb), 0.5); }
-  .port.held { color: #7ff0c8; }
+  .port.held { color: var(--ok-soft); }
   .port.free { color: rgba(190, 175, 110, 0.85); }
 
   /* left panel: stack events (Serge, 2026-08-05) -- the stack's history, read
@@ -344,9 +393,9 @@
   /* The text wraps rather than ellipsising: an event Serge cannot read is the
      same as an event that was never logged. */
   .ev-row .msg { color: rgba(var(--accent-rgb), 0.72); flex: 1; }
-  .ev-row.up .dot   { background: #00ffa8; box-shadow: 0 0 5px #00ffa8; }
-  .ev-row.off .dot  { background: #6b5a1f; }
-  .ev-row.down .dot { background: #ff5f57; box-shadow: 0 0 5px #ff5f57; }
+  .ev-row.up .dot   { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+  .ev-row.off .dot  { background: var(--off); }
+  .ev-row.down .dot { background: var(--bad); box-shadow: 0 0 5px var(--bad); }
   .ev-row.down .msg { color: #ffa39e; }
   /* Only the newest few stand on the panel; the rest are one hover away
      (Serge, 2026-08-05 -- the column ran to the bottom edge). The history is
@@ -384,8 +433,8 @@
   .ml-row .who { color: rgba(var(--accent-rgb), 0.95); }
   /* Amber is "held" -- the same language the rest of the HUD uses for a
      deliberate state that is waiting on somebody, not a fault. */
-  .ml-row.claimed  .dot { background: #ffb020; box-shadow: 0 0 5px #ffb020; }
-  .ml-row.released .dot { background: #00ffa8; box-shadow: 0 0 5px #00ffa8; }
+  .ml-row.claimed  .dot { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
+  .ml-row.released .dot { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
   .ml-row.opened   .dot { background: rgba(var(--accent-rgb), 0.45); }
   #mail-more { display: none; }
   .mail-sec:hover #mail-more { display: block; }
@@ -411,8 +460,8 @@
     background: transparent; transition: opacity 0.2s ease;
   }
   #usage-toggle:hover, #music-toggle:hover { opacity: 0.75; }
-  #usage-toggle.paused, #music-toggle.off { color: #ffc75a; border: 1px solid rgba(255, 199, 90, 0.5); }
-  #usage-toggle.live, #music-toggle.on    { color: #7ff0c8; border: 1px solid rgba(127, 240, 200, 0.5); }
+  #usage-toggle.paused, #music-toggle.off { color: var(--warn-soft); border: 1px solid rgba(var(--warn-soft-rgb), 0.5); }
+  #usage-toggle.live, #music-toggle.on    { color: var(--ok-soft); border: 1px solid rgba(var(--ok-soft-rgb), 0.5); }
   /* The music volume slider. Deliberately small and quiet: it is a trim, not a
      transport control, and it sits beside the toggle it belongs to. */
   #music-vol {
@@ -424,11 +473,11 @@
   #music-vol::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
     width: 9px; height: 9px; border-radius: 50%;
-    background: #7ff0c8; border: none; cursor: pointer;
+    background: var(--ok-soft); border: none; cursor: pointer;
   }
   #music-vol::-moz-range-thumb {
     width: 9px; height: 9px; border-radius: 50%;
-    background: #7ff0c8; border: none; cursor: pointer;
+    background: var(--ok-soft); border: none; cursor: pointer;
   }
   /* Status, not controls. No border, no fill, no padding box -- the three
      things that made the old chips read as buttons. Colour carries the state
@@ -452,15 +501,15 @@
     width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
     background: rgba(var(--accent-rgb), 0.3);
   }
-  .bs.on  .dot { background: #00ffa8; box-shadow: 0 0 6px #00ffa8; }
+  .bs.on  .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
   .bs.on  .t   { color: var(--text-bright); }
-  .bs.warm .dot { background: #ffb020; box-shadow: 0 0 6px #ffb020; }
-  .bs.warm .t   { color: #ffc75a; }
+  .bs.warm .dot { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+  .bs.warm .t   { color: var(--warn-soft); }
   /* Off is a CHOICE, and the doctrine paints a choice amber -- the same
      #6b5a1f the STACK and EVENTS rows use for it. Serge, 2026-08-05: "the
      terminal line at the bottom, the light should be amber." Dimming it to a
      grey dot said "nothing here" when the truth is "deliberately not running". */
-  .bs.off .dot { background: #6b5a1f; }
+  .bs.off .dot { background: var(--off); }
   .bs.off .t   { color: rgba(190, 175, 110, 0.85); }
 
   /* Jarvis needs Serge's sign-off. It used to sit above the AI CORE chip, at
@@ -616,18 +665,18 @@
   }
   /* active -- the one Jarvis is on right now. The pulsing dot is the point:
      Serge asked to "see a task running". */
-  #tasks .task.active { border-left-color: #00ffa8; }
+  #tasks .task.active { border-left-color: var(--ok); }
   #tasks .task.active .dot {
-    background: #00ffa8; box-shadow: 0 0 7px #00ffa8;
+    background: var(--ok); box-shadow: 0 0 7px var(--ok);
     animation: taskpulse 1.6s ease-in-out infinite;
   }
   #tasks .task.active .title { color: var(--text-bright); font-weight: 600; }
-  #tasks .task.active .st { color: #00ffa8; }
+  #tasks .task.active .st { color: var(--ok); }
   /* waiting on Serge -- amber, the same "your move" colour as the alert theme */
-  #tasks .task.waiting { border-left-color: #ffb020; }
-  #tasks .task.waiting .dot { background: #ffb020; box-shadow: 0 0 6px #ffb020; }
+  #tasks .task.waiting { border-left-color: var(--warn); }
+  #tasks .task.waiting .dot { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
   #tasks .task.waiting .title { color: var(--text-bright); }
-  #tasks .task.waiting .st { color: #ffb020; }
+  #tasks .task.waiting .st { color: var(--warn); }
   @keyframes taskpulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.25; }
@@ -661,17 +710,17 @@
     font-size: 9.5px; letter-spacing: 0.06em;
     color: rgba(var(--accent-rgb), 0.7); flex-shrink: 0;
   }
-  #sessions .sess.busy { border-left-color: #00ffa8; }
+  #sessions .sess.busy { border-left-color: var(--ok); }
   #sessions .sess.busy .dot {
-    background: #00ffa8; box-shadow: 0 0 7px #00ffa8;
+    background: var(--ok); box-shadow: 0 0 7px var(--ok);
     animation: taskpulse 1.6s ease-in-out infinite;
   }
   #sessions .sess.busy .who { color: var(--text-bright); font-weight: 600; }
-  #sessions .sess.busy .sess-meta { color: #00ffa8; }
-  #sessions .sess.unreg { border-left-color: #ffb020; }
-  #sessions .sess.unreg .dot { background: #ffb020; box-shadow: 0 0 6px #ffb020; }
+  #sessions .sess.busy .sess-meta { color: var(--ok); }
+  #sessions .sess.unreg { border-left-color: var(--warn); }
+  #sessions .sess.unreg .dot { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
   #sessions .sess.unreg .who { color: var(--text-bright); }
-  #sessions .sess.unreg .sess-meta { color: #ffb020; }
+  #sessions .sess.unreg .sess-meta { color: var(--warn); }
 
   /* ===== activity log -- a stream, not a panel =====
      Serge, 2026-08-05: "maybe the activity log should be a text that is
@@ -783,9 +832,10 @@
   <div>MARK III</div>
   <div class="mid">
     J.A.R.V.I.S &nbsp;INTERFACE
-    <!-- The board summary sits under the title, in the middle, where Serge
-         asked for it. Hidden until there is a task to count. -->
-    <div id="board-strip" style="display:none"></div>
+    <!-- The board summary used to sit here, under the title. Serge, 2026-08-06
+         ~6:09 AM: "the Kanban header is still on top. It should be on top of
+         the active task." It moved into the ACTIVE TASKS card's own heading
+         row; see #tasks-head below. -->
   </div>
   <!-- Rolls down over the stage on approach. Read-only in this pass. -->
   <div id="board">
@@ -864,8 +914,16 @@
   </div>
 
   <div id="right" class="panel">
+    <!-- Serge, 2026-08-06 ~6:09 AM: "It should be on top of the active task."
+         So the board's summary is not top-bar chrome sitting near the title --
+         it IS this card's heading row, and the board rolls down from it. The
+         hover zone is this whole row, which the wiring picks up on its own by
+         reading the strip's parent. -->
     <div id="tasks" style="display:none">
-      <div class="sec-title">Active Tasks</div>
+      <div id="tasks-head">
+        <span class="th-title">Active Tasks</span>
+        <div id="board-strip" style="display:none"></div>
+      </div>
       <div id="tasks-body"></div>
     </div>
     <!-- Every Jarvis alive right now, resolved server-side from the process
