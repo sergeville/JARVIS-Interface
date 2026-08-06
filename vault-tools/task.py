@@ -45,6 +45,20 @@ import sys
 import tempfile
 from datetime import datetime
 
+
+class TaskError(Exception):
+    """A refusal, with the reason Serge or a caller should be told.
+
+    The core functions RAISE this; only the CLI turns it into an exit.
+    That split exists because there is a second caller now -- the HUD's
+    approve button (`POST /task-move` in voice-web-server.py) -- and a
+    `sys.exit()` inside a request handler would raise SystemExit through
+    aiohttp and take a piece of the server with it. One writer, two
+    front doors: the CLI and the route must never be able to disagree
+    about what a move does, which is the same reason the session
+    registry keeps its writer, resolver and CLI in one file.
+    """
+
 _ROOT = os.path.realpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 NOTE = os.path.join(_ROOT, "Jarvis-brain", "Active Priorities.md")
@@ -121,8 +135,9 @@ def field(lines, start, end, key):
 def save(lines, mtime_ns):
     """Atomic, and only if nobody else wrote while we were thinking."""
     if os.stat(NOTE).st_mtime_ns != mtime_ns:
-        sys.exit("REFUSING: Active Priorities changed while this ran -- "
-                 "another session is editing it. Nothing was written.")
+        raise TaskError(
+            "REFUSING: Active Priorities changed while this ran -- "
+            "another session is editing it. Nothing was written.")
     d = os.path.dirname(NOTE)
     fd, tmp = tempfile.mkstemp(dir=d, prefix=".task-", suffix=".md")
     try:
@@ -148,22 +163,49 @@ def cmd_list():
     return 0
 
 
-def cmd_move(needle, status, note):
+def move(needle, status, note, exact=False, only_from=None):
+    """Move one task. Returns its title; raises TaskError on any refusal.
+
+    `exact` and `only_from` exist for the HUD button, which is the first
+    caller-controlled write this vault has ever taken, and they are the
+    two constraints that make it narrow:
+
+      * `exact` matches the whole title rather than a substring. The CLI
+        wants "part of title" because a human is typing it and can see
+        the refusal; a button sends the exact string it drew, and a
+        substring from a page could quietly match a DIFFERENT card.
+      * `only_from` refuses unless the task is currently in one of the
+        given statuses. So the approve button can move a card out of
+        `review` and NOTHING ELSE -- it cannot touch work in flight, and
+        a page that is compromised or simply stale cannot reach past the
+        column Serge is actually looking at.
+    """
     if status not in STATUSES:
-        sys.exit(f"unknown status {status!r} -- one of {', '.join(STATUSES)}")
+        raise TaskError(
+            f"unknown status {status!r} -- one of {', '.join(STATUSES)}")
     lines, mtime = load()
-    hits = [b for b in blocks(lines) if needle.lower() in b[0].lower()]
+    if exact:
+        hits = [b for b in blocks(lines) if b[0] == needle]
+    else:
+        hits = [b for b in blocks(lines) if needle.lower() in b[0].lower()]
     if not hits:
-        sys.exit(f"no task matching {needle!r}")
+        raise TaskError(f"no task matching {needle!r}")
     if len(hits) > 1:
         # Refuse rather than guess: moving the wrong card is a lie on the
         # board, which is the thing this tool exists to prevent.
-        sys.exit("ambiguous -- matches:\n  " + "\n  ".join(h[0] for h in hits))
+        raise TaskError(
+            "ambiguous -- matches:\n  " + "\n  ".join(h[0] for h in hits))
     title, s, e = hits[0]
 
     st = field(lines, s, e, "status")
     if st is None:
-        sys.exit(f"{title!r} has no status line")
+        raise TaskError(f"{title!r} has no status line")
+    if only_from is not None:
+        was = lines[st].split(":", 1)[1].strip()
+        if was not in only_from:
+            raise TaskError(
+                f"{title!r} is {was!r}, not {' or '.join(only_from)} -- "
+                "refusing to move it")
     indent = re.match(r"\s*", lines[st]).group(0)
     lines[st] = f"{indent}- status: {status}\n"
 
@@ -185,6 +227,14 @@ def cmd_move(needle, status, note):
                       lines[s], count=1)
 
     save(lines, mtime)
+    return title
+
+
+def cmd_move(needle, status, note):
+    try:
+        title = move(needle, status, note)
+    except TaskError as exc:
+        sys.exit(str(exc))
     print(f"{title} -> {status}")
     return 0
 
@@ -208,7 +258,10 @@ def cmd_add(title, priority, note):
         "\n",
     ]
     lines[at:at] = block
-    save(lines, mtime)
+    try:
+        save(lines, mtime)
+    except TaskError as exc:
+        sys.exit(str(exc))
     print(f"added: {title} (open, {priority})")
     return 0
 

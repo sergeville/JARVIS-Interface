@@ -319,10 +319,17 @@ p = fresh()
 lines, mtime = tk.load()
 time.sleep(0.01)
 Path(p).write_text(FIXTURE + "\n- [ ] **Delta** (x)\n  - status: open\n")
+# FOLLOWED THE MECHANISM, 2026-08-06: save() used to sys.exit and now raises
+# TaskError. The property it guards has not moved a millimetre -- another
+# session's edit must abort this write rather than be overwritten -- but the
+# CLI is no longer the only caller. The HUD's approve button reaches the same
+# writer through a request handler, where a sys.exit would raise SystemExit
+# through aiohttp and take part of the server with it. So the core raises and
+# only the CLI turns that into an exit.
 try:
     tk.save(lines, mtime)
     ok("refuses to overwrite a concurrent edit", False)
-except SystemExit:
+except tk.TaskError:
     ok("refuses to overwrite a concurrent edit", True)
 ok("the other session's work survived", "Delta" in Path(p).read_text())
 

@@ -285,6 +285,30 @@
   .bcol.doing   .bcard .bstep { color: rgba(var(--ok-soft-rgb), 0.78); }
   .bcol.waiting .bcard .bstep { color: rgba(var(--warn-soft-rgb), 0.74); }
   .bcol.checking .bcard .bstep { color: rgba(var(--accent-rgb), 0.78); }
+  /* The verdict pair. These ARE controls, so unlike the status dots
+     elsewhere on this page they get a border -- "a border says pressable"
+     cuts both ways, and a verdict he cannot tell is clickable is a verdict
+     he will not give. Approve wears the up-green, send back the warn-amber,
+     both from the palette tokens rather than literals. */
+  .bcard .bverdict { display: flex; gap: 5px; margin-top: 5px; }
+  .bcard .bv {
+    flex: 1; font: inherit; font-size: 9px; letter-spacing: 0.06em;
+    padding: 3px 4px; cursor: pointer; border-radius: 3px;
+    background: transparent; text-transform: uppercase;
+  }
+  .bcard .bv.ok {
+    color: rgba(var(--ok-soft-rgb), 0.92);
+    border: 1px solid rgba(var(--ok-soft-rgb), 0.38);
+  }
+  .bcard .bv.no {
+    color: rgba(var(--warn-soft-rgb), 0.88);
+    border: 1px solid rgba(var(--warn-soft-rgb), 0.34);
+  }
+  .bcard .bv.ok:hover { background: rgba(var(--ok-soft-rgb), 0.14); }
+  .bcard .bv.no:hover { background: rgba(var(--warn-soft-rgb), 0.14); }
+  /* Dead while the write is in flight, and visibly so -- a button that still
+     looks live invites a second press on a card that is already moving. */
+  .bcard .bv:disabled { opacity: 0.4; cursor: default; }
   .bcol.doing   .bcard { border-color: rgba(0, 255, 168, 0.30); }
   .bcol.waiting .bcard { border-color: rgba(255, 176, 32, 0.30); }
   .bcol.checking .bcard { border-color: rgba(var(--accent-rgb), 0.34); }
@@ -930,7 +954,11 @@
   <div id="board">
     <div id="board-cols"></div>
     <div id="board-foot">
-      <span>read-only &middot; status is set in Active Priorities</span>
+      <!-- This said "read-only" until the approve buttons landed, and leaving
+           it would have been the board lying about itself in its own footer.
+           Review is the one column Serge can move from; everything else is
+           still set in the note. -->
+      <span id="board-foot">approve or send back a review &middot; every other status is set in Active Priorities</span>
       <span id="board-hint">esc to close</span>
     </div>
   </div>
@@ -2021,12 +2049,86 @@ function stepText(note){
   return s;
 }
 let boardSig = '';
+// SERGE CAN CLOSE A REVIEW HIMSELF.
+//
+// His words, 2026-08-06 ~9:26 AM: "all the review, you're waiting for me, but
+// how do I say I'm done? I approve the review. That's why the list is so long.
+// I cannot approve, I cannot say nothing. It stays there."
+//
+// Exactly right, and it is a hole rather than a missing nicety. Review means
+// "finished, waiting on his eyes" -- so HE is the only one who can empty it,
+// and until now the column could only be cleared by a session hand-editing the
+// note. The queue grew, and the person it was addressed to could not answer it.
+//
+// TWO BUTTONS, NOT ONE. Approve alone would make "no" the unspoken option, and
+// a verdict he cannot give is the same silence in a different costume. Send
+// back returns the card to In Progress with a note saying he rejected it.
+//
+// DRAWN ONLY ON REVIEW CARDS, and only when the server has the route. Both
+// halves matter: a button on a column he is not the approver of would be a
+// lie about who decides, and a button posting into a 404 would look like an
+// approval that changed nothing -- the silent failure this whole morning has
+// been about. The page assumes the route is absent until /signals says so.
+let taskMoveOK = false;
+let verdictBusy = '';
+let boardTasks = [];
+function verdictButtons(colKey, title){
+  if (colKey !== 'review' || !taskMoveOK) return '';
+  const busy = verdictBusy === title;
+  return '<div class="bverdict"' + (busy ? ' data-busy="1"' : '') + '>'
+    + '<button class="bv ok" data-act="approve" data-title="' + esc(title || '') + '"'
+    + (busy ? ' disabled' : '') + '>approve</button>'
+    + '<button class="bv no" data-act="send-back" data-title="' + esc(title || '') + '"'
+    + (busy ? ' disabled' : '') + '>send back</button></div>';
+}
+// Delegated, because renderBoard rewrites this subtree whenever the data
+// changes -- listeners bound to individual buttons would be discarded under
+// his cursor mid-click, at 15 Hz.
+function wireVerdicts(){
+  const cols = document.getElementById('board-cols');
+  if (!cols || cols._verdictWired) return;
+  cols._verdictWired = true;
+  cols.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest && ev.target.closest('button.bv');
+    if (!btn || btn.disabled) return;
+    ev.stopPropagation();               // never let a verdict roll the board up
+    const title = btn.getAttribute('data-title') || '';
+    const act   = btn.getAttribute('data-act');
+    verdictBusy = title;
+    boardSig = '';                      // force a redraw into the busy state
+    renderBoard(boardTasks);
+    let msg = '';
+    try {
+      const r = await fetch('/task-move', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: title, action: act})
+      });
+      const d = await r.json();
+      msg = d && d.ok
+        ? (act === 'approve' ? 'approved: ' : 'sent back: ') + title
+        : 'could not move it -- ' + ((d && d.error) || 'no reason given');
+    } catch (e) {
+      msg = 'could not reach the server -- nothing was changed';
+    }
+    // SAY WHAT HAPPENED, ALWAYS. A verdict that fails quietly leaves him
+    // believing he approved something that is still sitting there.
+    showLine('jarvis', msg);
+    verdictBusy = '';
+    boardSig = '';                      // the note changed; redraw on next poll
+  });
+}
 function renderBoard(tasks){
   const strip = document.getElementById('board-strip');
   const cols  = document.getElementById('board-cols');
   if (!strip || !cols) return;
   tasks = Array.isArray(tasks) ? tasks : [];
-  const sig = JSON.stringify(tasks);
+  // Held so a verdict click can redraw itself into the busy state without
+  // waiting for the next poll -- the button must go dead the instant he
+  // presses it, or a slow write invites a second press on the same card.
+  boardTasks = tasks;
+  wireVerdicts();
+  const sig = JSON.stringify(tasks) + '|' + String(taskMoveOK) + '|' + verdictBusy;
   if (sig === boardSig) return;          // this polls at 15 Hz
   boardSig = sig;
 
@@ -2084,7 +2186,8 @@ function renderBoard(tasks){
       // reads as a card that failed to load rather than one with nothing to say.
       + (step ? '<div class="bstep">' + esc(step) + '</div>' : '')
       + '<div class="bm">' + (t.priority ? '<span>' + esc(t.priority) + '</span>' : '')
-      + (t.owner ? '<span>' + esc(t.owner) + '</span>' : '') + '</div></div>';
+      + (t.owner ? '<span>' + esc(t.owner) + '</span>' : '') + '</div>'
+      + verdictButtons(c.key, t.title) + '</div>';
     }).join('');
     // DONE holds only what was finished TODAY -- Serge, 2026-08-06: a closed
     // task should linger long enough to be seen, then be gone the next day.
@@ -2711,6 +2814,9 @@ async function poll(){
     // Absent on an old server, which is exactly what it is there to detect.
     serverVoiceImage = !!d.voice_image;
     serverMultiImage = !!d.multi_image;
+    // Absent on an older server, and absent must mean NO -- the buttons stay
+    // hidden until the route is really there. See verdictButtons().
+    taskMoveOK = !!d.task_move;
     // Stale-tab self-heal: the server stamps each served copy with its
     // file version and reports the live one here; a mismatch means this
     // tab missed a reload push -- reload between turns like any push.

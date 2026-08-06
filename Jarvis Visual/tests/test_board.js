@@ -29,8 +29,9 @@ const HTML = path.join(__dirname, '..', 'jarvis.html');
 const nodes = {};
 function makeNode(id) {
   return { id, innerHTML: '', textContent: '', style: {},
-           rect: { bottom: 0 },
+           rect: { bottom: 0 }, listeners: {},
            getBoundingClientRect() { return this.rect; },
+           addEventListener(ev, fn) { (this.listeners[ev] ||= []).push(fn); },
            setAttribute() {}, getAttribute() { return null; } };
 }
 for (const id of ['board-strip', 'board-cols', 'board'])
@@ -82,9 +83,16 @@ const STEP_MAX = (() => {
 eval(grab('esc') + '\nconst BOARD_COLS = ' + COLS_SRC + ';'
    + '\nconst BOARD_CHECKING = ' + CHECK_SRC + ';'
    + '\nconst STEP_MAX = ' + STEP_MAX + ';\n' + grab('stepText') + '\n'
+   + grab('verdictButtons') + '\n' + grab('wireVerdicts') + '\n'
    + grab('renderBoard'));
 let boardSig = '';
 let boardLatched = false;
+// The approve button's state, declared here exactly as the page declares it.
+// taskMoveOK starts FALSE on purpose -- that is the page's own default, and
+// the version-skew rule depends on it.
+let taskMoveOK = false;
+let verdictBusy = '';
+let boardTasks = [];
 eval(grab('boardOpen'));
 const COLS = eval('(' + COLS_SRC + ')');
 
@@ -93,6 +101,7 @@ const T = (title, status, extra) =>
 
 function reset() {
   boardSig = '';
+  taskMoveOK = false; verdictBusy = ''; boardTasks = [];
   bodyClasses.clear();
   nodes['board-strip'].innerHTML = ''; nodes['board-strip'].style = {};
   nodes['board-cols'].innerHTML = '';
@@ -759,6 +768,152 @@ test('the step line is clamped in CSS as well as in text', () => {
   const r = rule('.bcard .bstep');
   assert.ok(/line-clamp: \d/.test(r),
     'no line-clamp -- a long single line will still stretch the card');
+});
+
+// ---- the approve button ----------------------------------------------------
+//
+// Serge, 2026-08-06 ~9:26 AM: "how do I say I'm done? I approve the review...
+// I cannot approve, I cannot say nothing. It stays there." He is the approver
+// and had no way to give a verdict, so Review only grew.
+//
+// These guard the two ways this can go wrong SILENTLY, which is the shape of
+// every failure he has caught today: a button drawn where he is not the
+// decider, and a button drawn against a server that cannot honour it.
+
+test('a Review card carries approve and send back', () => {
+  taskMoveOK = true;
+  renderBoard([T('Alpha', 'review')]);
+  assert.ok(/data-act="approve"/.test(cols()), 'no approve button on a Review card');
+  assert.ok(/data-act="send-back"/.test(cols()), 'no send-back button on a Review card');
+});
+
+test('TWO buttons, not one -- a verdict he cannot refuse is not a verdict', () => {
+  taskMoveOK = true;
+  renderBoard([T('Alpha', 'review')]);
+  assert.strictEqual((cols().match(/class="bv /g) || []).length, 2);
+});
+
+test('NO other column gets a verdict -- he is not the decider there', () => {
+  taskMoveOK = true;
+  for (const c of COLS) {
+    if (c.key === 'review') continue;
+    reset(); taskMoveOK = true;
+    renderBoard([T('X', c.key)]);
+    assert.ok(!/class="bv /.test(cols()),
+      'a verdict button was drawn on the ' + c.key + ' column');
+  }
+});
+
+// VERSION SKEW, and it matters more here than anywhere else on this page. The
+// page reaches his tab the moment the file changes; the SERVER only changes on
+// a restart. A button posting into a 404 would look like he approved something
+// and have changed nothing -- the exact silent failure this button exists to
+// end. So absent must mean no.
+test('no buttons until the server advertises the route', () => {
+  taskMoveOK = false;
+  renderBoard([T('Alpha', 'review')]);
+  assert.ok(!/class="bv /.test(cols()),
+    'buttons drawn against a server with no /task-move route');
+});
+
+test('the capability flag is part of the redraw signature', () => {
+  // Otherwise the buttons would not appear until the task data happened to
+  // change -- so his first restart would look like the feature did not ship.
+  taskMoveOK = false;
+  renderBoard([T('Alpha', 'review')]);
+  assert.ok(!/class="bv /.test(cols()));
+  taskMoveOK = true;
+  renderBoard([T('Alpha', 'review')]);
+  assert.ok(/class="bv /.test(cols()), 'the board did not redraw when the route appeared');
+});
+
+test('the buttons go dead while that card is being written', () => {
+  taskMoveOK = true; verdictBusy = 'Alpha';
+  renderBoard([T('Alpha', 'review'), T('Beta', 'review')]);
+  const cards = cols().split('<div class="bcard"');
+  const alpha = cards.find(c => c.includes('>Alpha<'));
+  const beta  = cards.find(c => c.includes('>Beta<'));
+  assert.ok(/disabled/.test(alpha), 'the card being written still looks live');
+  assert.ok(!/disabled/.test(beta), 'an unrelated card was disabled too');
+});
+
+test('the title is escaped into the data attribute', () => {
+  taskMoveOK = true;
+  renderBoard([T('Al"pha <b>&', 'review')]);
+  assert.ok(!/data-title="Al"pha/.test(cols()), 'an unescaped quote broke out of the attribute');
+  assert.ok(/&lt;b&gt;/.test(cols()), 'the title was not escaped');
+});
+
+test('a verdict click never rolls the board up', () => {
+  // Hover-to-open and click-to-decide are in direct conflict; the handler has
+  // to stop the click reaching the board's own close logic.
+  const s = grab('wireVerdicts');
+  assert.ok(/stopPropagation/.test(s),
+    'a verdict click will bubble and close the board under his cursor');
+});
+
+test('the handler is delegated, not bound per button', () => {
+  // renderBoard rewrites this subtree whenever the data changes; per-button
+  // listeners would be discarded under his cursor mid-click, at 15 Hz.
+  const s = grab('wireVerdicts');
+  assert.ok(/addEventListener/.test(s) && /closest/.test(s),
+    'the verdict handler is not delegated from the column container');
+  assert.ok(/_verdictWired/.test(s), 'the listener is re-added on every render');
+});
+
+test('EVERY outcome is spoken, including the failures', () => {
+  // A verdict that fails quietly leaves him believing he approved something
+  // that is still sitting there -- the bug, rebuilt one level up.
+  const s = grab('wireVerdicts');
+  assert.strictEqual((s.match(/showLine\(/g) || []).length, 1,
+    'there should be exactly one exit, so no path can skip it');
+  // AND IT MUST BE UNCONDITIONAL. Counting the call was not enough: an
+  // injected `if (msg.indexOf('could not') === -1) showLine(...)` -- failures
+  // silently swallowed, the exact bug -- kept the count at one and the suite
+  // stayed green. The fault injection found that hole, not the reasoning that
+  // wrote the test. A guarded report is the same silence in a nicer costume.
+  const line = s.split('\n').find(l => l.includes('showLine('));
+  assert.ok(/^\s*showLine\(/.test(line),
+    'the outcome message is conditional -- some verdicts will fail silently');
+  assert.ok(/catch/.test(s) && /could not reach the server/.test(s),
+    'a dead server produces no message');
+  assert.ok(/could not move it/.test(s), 'a refusal from the route is not reported');
+});
+
+test('the buttons are styled as CONTROLS, with a border', () => {
+  // This page's own rule is "a border says pressable". Status must never look
+  // pressable -- and a control must never look like status.
+  assert.ok(/border: 1px solid/.test(rule('.bcard .bv.ok')),
+    'approve has no border, so it does not read as pressable');
+  assert.ok(/border: 1px solid/.test(rule('.bcard .bv.no')),
+    'send back has no border');
+});
+
+test('the verdict colours come from the palette tokens, not literals', () => {
+  for (const sel of ['.bcard .bv.ok', '.bcard .bv.no']) {
+    const r = rule(sel);
+    assert.ok(/var\(--(ok|warn)-soft-rgb\)/.test(r), 'no palette token in ' + sel);
+    assert.ok(!/#[0-9a-fA-F]{3,6}/.test(r), 'a raw hex literal in ' + sel);
+  }
+});
+
+test('the footer no longer claims the board is read-only', () => {
+  // It said "read-only" until these buttons landed. Leaving it would be the
+  // board lying about itself in its own footer.
+  //
+  // Scoped to the footer ELEMENT, not the file. The first version searched the
+  // whole source and matched the COMMENT that explains this very change --
+  // fifth time in this project that grepping source has punished the prose
+  // describing a decision rather than a breach of it. What ships to his eyes
+  // is the span, so the span is what this reads.
+  const m = src.match(/<span id="board-foot">([\s\S]*?)<\/span>/);
+  assert.ok(m, 'the board footer span is gone');
+  const foot = m[1];
+  assert.ok(!/read-only/.test(foot), 'the footer still says read-only');
+  assert.ok(/approve or send back a review/.test(foot),
+    'the footer does not say what he can now do');
+  assert.ok(/every other status is set in Active Priorities/.test(foot),
+    'the footer no longer says where the other statuses come from');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

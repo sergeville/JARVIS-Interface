@@ -771,6 +771,87 @@ async def usage_poll(request: web.Request) -> web.Response:
                              headers={"Cache-Control": "no-store"})
 
 
+# ---------------------------------------------------------------------------
+# THE APPROVE BUTTON -- the first thing on this page that WRITES to the vault.
+#
+# Serge, 2026-08-06 ~9:26 AM: "all the review, you're waiting for me, but how
+# do I say I'm done? I approve the review. That's why the list is so long. I
+# cannot approve, I cannot say nothing. It stays there."
+#
+# He is the approver and had no way to approve. Review only ever emptied when
+# a session got round to hand-editing the note, so the column grew and the one
+# person who could clear it could not reach it.
+#
+# Everything on this page has been read-only until now, so the shape of this
+# route matters more than its size. Four constraints, and they are the build:
+#
+#   1. A CLOSED VOCABULARY. The page sends an ACTION -- "approve" or "send
+#      back" -- never a status. There is no path from the browser to an
+#      arbitrary status string, so the table below is the entire set of
+#      writes this route can ever perform.
+#   2. IT CAN ONLY REACH `review`. `only_from` refuses anything else, so the
+#      button cannot touch work in flight, and a stale tab cannot move a card
+#      that has since gone somewhere else.
+#   3. EXACT TITLE MATCH, not a substring, so a title from the page cannot
+#      quietly select a different card. Length-capped before it is used.
+#   4. ONE WRITER. The edit goes through vault-tools/task.py -- the same
+#      surgical, mtime-guarded, atomic write the CLI and the hook use. A
+#      second writer would eventually disagree with the first, and this note
+#      is edited by other sessions while the server is running.
+TASK_ACTIONS = {
+    # action     -> (status, what the note's `note:` line will say)
+    "approve":   ("done", "APPROVED by Serge on the board"),
+    "send-back": ("active", "sent back by Serge on the board -- not approved"),
+}
+MAX_TITLE = 200
+
+
+def _task_tool():
+    """vault-tools/task.py, imported by path so it cannot drift from the CLI."""
+    import importlib.util
+    path = os.path.join(JARVIS_ROOT, "vault-tools", "task.py")
+    spec = importlib.util.spec_from_file_location("_task_tool", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+async def task_move(request: web.Request) -> web.Response:
+    """POST {"title": ..., "action": "approve"|"send-back"} -- Serge's verdict.
+
+    Never raises at the caller: every refusal comes back as ok:false with the
+    reason, because a button that fails silently is the exact bug that put
+    this whole morning's work on the board.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    title = body.get("title")
+    action = body.get("action")
+    if not isinstance(title, str) or not title.strip():
+        return web.json_response({"ok": False, "error": "no task named"})
+    if len(title) > MAX_TITLE:
+        return web.json_response({"ok": False, "error": "title too long"})
+    if action not in TASK_ACTIONS:
+        return web.json_response({"ok": False, "error": "unknown action"})
+    status, note = TASK_ACTIONS[action]
+    try:
+        tool = _task_tool()
+        moved = await asyncio.to_thread(
+            tool.move, title.strip(), status, note,
+            exact=True, only_from=("review",))
+    except Exception as exc:
+        # TaskError carries the reason Serge should read; anything else is a
+        # real fault and must not take the request down with it.
+        print(f"task-move refused: {exc}", flush=True)
+        return web.json_response({"ok": False, "error": str(exc)[:300]})
+    _TASK_CACHE["mtime"] = None      # the note just changed under the cache
+    print(f"task-move: {moved!r} -> {status} ({action}, by Serge)", flush=True)
+    return web.json_response({"ok": True, "title": moved, "status": status},
+                             headers={"Cache-Control": "no-store"})
+
+
 WHISPER_URL = "http://127.0.0.1:2022/v1/audio/transcriptions"
 KOKORO_URL = "http://127.0.0.1:8880/v1/audio/speech"
 KOKORO_VOICE = "bm_lewis"
@@ -1264,6 +1345,12 @@ async def signals(request: web.Request) -> web.Response:
          # still waiting, rather than shipping a list an old server would
          # ignore -- which would lose the very images this is meant to keep.
          "multi_image": True,
+         # Same doctrine again, and it matters more here than anywhere: this
+         # says "I have the /task-move route." Without it the approve buttons
+         # do not draw at all, because a button that posts into a 404 would
+         # look like Serge approved something and have changed nothing --
+         # exactly the silent failure the button exists to end.
+         "task_move": True,
          "stats": {**_STATS,
                    "brain": "active" if VW.ready.is_set() else "warming",
                    # Blank until the brain's first turn reports it; the
@@ -1529,6 +1616,7 @@ def main() -> None:
         *[web.get(u, _serve_ambient(f)) for u, f, _t in AMBIENT_TRACKS],
         web.get("/usage-poll", usage_poll),
         web.post("/usage-poll", usage_poll),
+        web.post("/task-move", task_move),
         web.get("/voice", voice_ws),
     ])
     app.on_startup.append(on_startup)
