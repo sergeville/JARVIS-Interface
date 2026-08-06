@@ -2625,11 +2625,23 @@ function showApproval(a){
 //      discarded; there is no empty catch anywhere in this path.
 let approvalHttp = false;      // set from /signals; false until told otherwise
 let approvalSending = false;
-let approvalQueued = null;     // {id, allow} kept when delivery failed
+let approvalQueued = null;     // {id, allow, boot} kept when delivery failed
+let serverBoot = null;         // which server process asked the question
 const approveNote = document.getElementById('approve-note');
 
 function approvalStatus(text){
   if (approveNote) approveNote.textContent = text || '';
+}
+
+function retryWords(e){
+  // The old wording said "not connected" whatever went wrong -- so on a
+  // server REFUSAL, when the link is perfectly fine and retrying changes
+  // nothing, the page stated the one thing that was not true. The server
+  // writes an honest reason; this carries it rather than overwriting it.
+  const why = (e && e.message) ? String(e.message) : '';
+  if (!why || /not connected|failed to fetch|network|closed/i.test(why))
+    return 'not connected — will send when the link is back';
+  return 'the server did not accept that: ' + why + ' — retrying';
 }
 
 async function deliverApproval(id, allow){
@@ -2665,22 +2677,66 @@ async function answerApproval(allow){
   } catch (e) {
     // Kept, not dropped: his click is his decision and it should survive a
     // socket that happened to be reconnecting.
-    approvalQueued = {id: id, allow: allow};
-    approvalStatus('not connected — will send when the link is back');
+    // The generation is part of the answer. Ids restart at #1 on every
+    // server boot, so "id 1" is not a question -- "id 1 asked by THIS
+    // process" is. Without it a stale ALLOW can answer a request Serge
+    // never read, which is the one thing this whole page must not do.
+    approvalQueued = {id: id, allow: allow, boot: serverBoot};
+    approvalStatus(retryWords(e));
     if (!approvalHttp && ws && ws.readyState !== WebSocket.OPEN) connect();
   } finally {
     approvalSending = false;
   }
 }
 
+function approvalPoll(d){
+  // EVERYTHING the poll does about approvals, in one place a test can drive.
+  // The reviewer's finding: the three lines this replaces lived loose inside
+  // poll(), which no test extracts -- so deleting the retry, deleting the
+  // capability read, or reordering them all left the suite green. A guard
+  // that covers the parts and not the wiring is not a guard.
+  approvalHttp = !!d.approval_http;
+  const boot = d.boot_id || null;
+
+  // Drop a queued verdict that can no longer belong to the question in
+  // front of him. Two independent reasons, and the first works even against
+  // a server too old to send a boot id:
+  //   1. the request is GONE -- nothing it could answer still exists;
+  //   2. the SERVER has restarted -- ids restart at #1, so the same number
+  //      is a different question.
+  if (!d.approval) approvalQueued = null;
+  if (approvalQueued && boot && approvalQueued.boot && boot !== approvalQueued.boot)
+    approvalQueued = null;
+  serverBoot = boot;
+
+  showApproval(d.approval || null);
+
+  // Retry on the POLL rather than on reconnect alone, because the poll is
+  // the channel that always works -- the whole lesson of this bug. It runs
+  // after the drops above, and that order is the safety property.
+  if (approvalQueued) flushApproval();
+}
+
 async function flushApproval(){
-  if (!approvalQueued) return;
+  // approvalSending is checked AND set here, not just in answerApproval:
+  // poll() calls this at 15Hz, so without it a queued ALLOW could still be
+  // on the wire when Serge changes his mind and clicks DENY, and the server
+  // gives the first arrival the win.
+  if (!approvalQueued || approvalSending) return;
   const q = approvalQueued;
+  approvalSending = true;
   try {
     await deliverApproval(q.id, q.allow);
     approvalQueued = null;
     approvalStatus('answered — waiting for Jarvis');
-  } catch (e) { /* stays queued; the next poll tries again */ }
+  } catch (e) {
+    // Not empty, and not silent: it stays queued, and the reason is shown.
+    // An empty catch here was the third one on this page in a day, shipped
+    // in the very commit that claimed to have removed them.
+    approvalStatus(retryWords(e));
+  } finally {
+    approvalSending = false;
+  }
 }
 
 document.getElementById('approve-yes').onclick = () => answerApproval(true);
@@ -3098,7 +3154,7 @@ async function poll(){
       for (const e of d.transcript)
         if (!shownLines.has(e.who + '|' + e.text)) showLine(e.who, e.text);
     }
-    showApproval(d.approval || null);
+    // (the approval block moved into approvalPoll(d), below)
     waitingQ = (d.question || '').trim();
     renderTasks(d.tasks || []);
     renderBoard(d.tasks || []);
@@ -3115,11 +3171,7 @@ async function poll(){
     // Absent on an older server, and absent must mean NO -- the buttons stay
     // hidden until the route is really there. See verdictButtons().
     taskMoveOK = !!d.task_move;
-    approvalHttp = !!d.approval_http;
-    // Retry a click that could not be delivered. On the poll rather than on
-    // reconnect alone, because the poll is the channel that always works --
-    // which is the whole lesson of this bug.
-    if (approvalQueued) flushApproval();
+    approvalPoll(d);
     // Stale-tab self-heal: the server stamps each served copy with its
     // file version and reports the live one here; a mismatch means this
     // tab missed a reload push -- reload between turns like any push.

@@ -952,6 +952,13 @@ def wav_to_16k(wav_bytes: bytes) -> bytes:
 # half an hour, then it just cancels itself." So the ONLY two ways a pending
 # approval ends are his click and this expiry. It was 300 s before his
 # no-cancel rule; the half hour is his number, set in the same breath.
+# Identifies THIS server process. Approval ids restart at #1 on every boot --
+# tonight's log carries two different "approval #1" from two processes -- so a
+# page holding an undelivered verdict cannot tell, from the id alone, whether
+# the request in front of it is the one Serge answered or a new question
+# wearing the same number. This is what it binds to instead.
+BOOT_ID = f"{os.getpid()}-{int(time.time())}"
+
 APPROVAL_TIMEOUT_S = 1800.0
 
 
@@ -1445,6 +1452,9 @@ async def signals(request: web.Request) -> web.Response:
          # page must keep using the websocket rather than POST into a 404 --
          # which would look exactly like the endless loop being fixed.
          "approval_http": True,
+         # The generation marker. A queued approval answer is only valid
+         # against the process that asked the question; see BOOT_ID.
+         "boot_id": BOOT_ID,
          "stats": {**_STATS,
                    "brain": "active" if VW.ready.is_set() else "warming",
                    # Blank until the brain's first turn reports it; the

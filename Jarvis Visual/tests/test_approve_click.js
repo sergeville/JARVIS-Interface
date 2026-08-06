@@ -62,6 +62,7 @@ let approvalId = null;
 let approvalHttp = false;
 let approvalSending = false;
 let approvalQueued = null;
+let serverBoot = null;
 let ws = null;
 let posted = [];
 let sent = [];
@@ -71,8 +72,9 @@ let fetchImpl = null;
 function connect(){ connectCalls++; }
 global.fetch = (...a) => fetchImpl(...a);
 
-eval(grab('approvalStatus') + '\n' + grab('deliverApproval') + '\n'
-   + grab('answerApproval') + '\n' + grab('flushApproval') + '\n'
+eval(grab('approvalStatus') + '\n' + grab('retryWords') + '\n'
+   + grab('deliverApproval') + '\n' + grab('answerApproval') + '\n'
+   + grab('flushApproval') + '\n' + grab('approvalPoll') + '\n'
    + grab('showApproval'));
 
 // ---- helpers --------------------------------------------------------------
@@ -124,7 +126,8 @@ function test(name, fn) { queue.push([name, fn]); }
 async function runAll() {
   for (const [name, fn] of queue) {
     approvalId = null; approvalQueued = null; approvalSending = false;
-    approvalHttp = false; posted = []; sent = []; connectCalls = 0;
+    approvalHttp = false; serverBoot = null;
+    posted = []; sent = []; connectCalls = 0;
     note.textContent = ''; box.style.display = 'none'; classes.clear();
     try { await fn(); passed++; console.log('ok   ' + name); }
     catch (e) { failed++; console.log('FAIL ' + name + '\n     ' + e.message); }
@@ -207,6 +210,146 @@ test('an answered-and-cleared request drops the queue too', async () => {
   await answerApproval(true);
   showApproval(null);
   assert.strictEqual(approvalQueued, null);
+});
+
+// ---- THE WIRING, which the first gate never touched ----------------------
+// The reviewer proved three edits that left all 33 tests green: delete the
+// retry call, move it above showApproval, delete the capability read. They
+// lived loose inside poll(), which no test extracts. Now they live in
+// approvalPoll(d) and these drive it.
+
+test('the poll reads the capability flag', async () => {
+  approvalPoll({approval: null, approval_http: true, boot_id: 'b1'});
+  assert.strictEqual(approvalHttp, true, 'the page would use the socket forever');
+});
+
+test('the poll RETRIES a queued answer', async () => {
+  approvalHttp = true; deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'x'},
+                approval_http: true, boot_id: 'b1'});
+  await answerApproval(true);
+  assert.ok(approvalQueued, 'setup');
+  okServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'x'},
+                approval_http: true, boot_id: 'b1'});
+  await new Promise(r => setTimeout(r, 5));
+  assert.strictEqual(posted.length, 1, 'the retry is not wired to the poll');
+  assert.strictEqual(approvalQueued, null);
+});
+
+test('the retry runs after showApproval, so a new id drops it first', async () => {
+  // Injection (b): move the flush above showApproval and it still passed --
+  // because my order test only used a boot-id change, which is dropped
+  // earlier anyway. THE case it misses is a NEW id in the SAME generation,
+  // where showApproval is what clears the queue. Found by re-running the
+  // reviewer's own four against the fix rather than trusting the fix.
+  approvalHttp = true; deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'old'},
+                approval_http: true, boot_id: 'b1'});
+  await answerApproval(true);
+  assert.ok(approvalQueued, 'setup');
+  okServer();
+  approvalPoll({approval: {id: 2, tool: 'Bash', detail: 'a NEW question'},
+                approval_http: true, boot_id: 'b1'});
+  await new Promise(r => setTimeout(r, 5));
+  assert.strictEqual(posted.length, 0,
+    'the verdict for #1 was POSTed while #2 was the pending request');
+  assert.strictEqual(approvalQueued, null);
+});
+
+test('the retry runs AFTER the stale-drop, never before', async () => {
+  // Order is the whole safety property: flushing first would ship the stale
+  // verdict at the reused id before anything had a chance to drop it.
+  approvalHttp = true; deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'old'},
+                approval_http: true, boot_id: 'b1'});
+  await answerApproval(true);
+  okServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'NEW question'},
+                approval_http: true, boot_id: 'b2'});
+  await new Promise(r => setTimeout(r, 5));
+  assert.strictEqual(posted.length, 0,
+    'a stale verdict was POSTed against a new server generation');
+});
+
+// ---- id REUSE across a restart: the reviewer's finding 2 ------------------
+
+test('a REUSED id from a NEW server does not inherit the queued answer', async () => {
+  approvalHttp = true; deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'old'},
+                approval_http: true, boot_id: 'b1'});
+  await answerApproval(true);
+  assert.ok(approvalQueued, 'setup');
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'a different one'},
+                approval_http: true, boot_id: 'b2'});
+  assert.strictEqual(approvalQueued, null,
+    'a stale ALLOW survived into a request he never saw');
+});
+
+test('a request that GOES AWAY drops the queue, even with no boot id', async () => {
+  // The rule that protects him against a server too old to send boot_id.
+  approvalHttp = true; deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'x'}, approval_http: true});
+  await answerApproval(true);
+  assert.ok(approvalQueued, 'setup');
+  approvalPoll({approval: null, approval_http: true});
+  assert.strictEqual(approvalQueued, null, 'a dead request kept its answer');
+});
+
+test('the SAME request across polls keeps its queued answer', async () => {
+  // The drops must not be so eager that a genuine retry never happens.
+  approvalHttp = true; deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'x'},
+                approval_http: true, boot_id: 'b1'});
+  await answerApproval(true);
+  deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'x'},
+                approval_http: true, boot_id: 'b1'});
+  await new Promise(r => setTimeout(r, 5));
+  assert.ok(approvalQueued, 'a valid queued answer was thrown away');
+});
+
+// ---- a later DENY must not lose to an earlier queued ALLOW ---------------
+
+test('a flush in flight blocks a second send', async () => {
+  approvalHttp = true; showing(1);
+  let calls = 0;
+  fetchImpl = async () => {
+    calls++;
+    await new Promise(r => setTimeout(r, 20));
+    return {ok: true, json: async () => ({ok: true})};
+  };
+  approvalQueued = {id: 1, allow: true, boot: null};
+  const f = flushApproval();
+  await answerApproval(false);      // his change of mind, mid-flush
+  await f;
+  assert.strictEqual(calls, 1, 'an ALLOW and a DENY were both sent');
+});
+
+// ---- the refusal message tells the truth ---------------------------------
+
+test('a server refusal does not claim the link is down', async () => {
+  approvalHttp = true; refusingServer('already answered'); showing(1);
+  await answerApproval(true);
+  assert.ok(!/not connected/i.test(note.textContent),
+    'it blamed the link when the link was fine: ' + note.textContent);
+  assert.ok(/already answered/.test(note.textContent), note.textContent);
+});
+
+test('a genuine link failure still says so', async () => {
+  approvalHttp = true; deadServer(); showing(1);
+  await answerApproval(true);
+  assert.ok(/not connected/i.test(note.textContent), note.textContent);
+});
+
+test('there is no empty catch in ANY function of the path', () => {
+  // The old version read two of the three functions -- and the one it
+  // skipped was the one that had it, shipped in the commit that claimed
+  // otherwise. A guard scoped to where you expect the fault is a grep.
+  const body = grab('answerApproval') + grab('deliverApproval')
+             + grab('flushApproval') + grab('approvalPoll') + grab('retryWords');
+  assert.ok(!/catch\s*\([^)]*\)\s*\{\s*(\/\*[^]*?\*\/|\/\/[^\n]*)?\s*\}/.test(body),
+    'an empty catch is back in the approval path');
 });
 
 // ---- 3. the page says which happened --------------------------------------
