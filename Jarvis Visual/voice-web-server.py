@@ -956,6 +956,19 @@ class VoiceWeb:
             message="Serge denied this from the HUD. "
                     "Do not retry without asking him.")
 
+    def approval_pending(self) -> bool:
+        """True while any permission request is waiting on Serge.
+
+        Serge, 2026-08-06 ~9:55 AM: "again i press enter key lose the
+        approve popup." The sticky notice (7b507a4) told him WHAT died;
+        this is the half that stops it dying. While a request is pending,
+        a typed or spoken message must NOT interrupt -- the popup stays,
+        the message queues on turn_lock, and it runs right after the turn
+        the approval belongs to. Only an explicit interrupt (the button /
+        barge-in tap) still cancels, because that one is a real order.
+        """
+        return any(not a["future"].done() for a in self.approvals.values())
+
     def resolve_approval(self, aid: int, allow: bool) -> None:
         pending = self.approvals.get(aid)
         if pending and not pending["future"].done():
@@ -1522,7 +1535,13 @@ async def voice_ws(request: web.Request) -> web.WebSocketResponse:
                     continue
                 except Exception as e:
                     print(f"inbox route failed: {e}", flush=True)
-            await VW.interrupt()
+            if VW.approval_pending():
+                # Do NOT interrupt: the popup survives, the message waits
+                # its turn on turn_lock. The page is told, so the queueing
+                # is a stated fact rather than a new silence.
+                await VW.safe_send(ws, {"type": "held"})
+            else:
+                await VW.interrupt()
             asyncio.create_task(
                 VW.run_turn(ws, text, t0=time.monotonic()))
         elif kind == "image":
@@ -1549,7 +1568,10 @@ async def voice_ws(request: web.Request) -> web.WebSocketResponse:
                     continue
                 except Exception as e:
                     print(f"inbox route failed: {e}", flush=True)
-            await VW.interrupt()
+            if VW.approval_pending():
+                await VW.safe_send(ws, {"type": "held"})
+            else:
+                await VW.interrupt()
             asyncio.create_task(
                 VW.run_turn(ws, prompt, t0=time.monotonic()))
         elif kind == "audio":

@@ -1231,6 +1231,10 @@ function connect(){
       pendingReload = true;
     } else if (ev.type === 'routed') {
       // typed line handed to the terminal voice line -- it replies there
+    } else if (ev.type === 'held') {
+      // server queued the message behind a pending approval -- say so,
+      // or the wait reads as Jarvis ignoring him
+      showLine('jarvis', '(holding that until you answer the approval above)');
     } else if (ev.type === 'approval') {
       showApproval(ev);
     } else if (ev.type === 'approval_done') {
@@ -1653,7 +1657,10 @@ async function press(){
   // Unlock audio inside a real user gesture (Chrome autoplay policy).
   ensureOut();
   if (outCtx.state === 'suspended') outCtx.resume();
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify({type: 'interrupt'}));
+  // While an approval is waiting, talking must not kill it -- the popup
+  // survives and the spoken message queues behind the turn it belongs to.
+  if (ws && ws.readyState === 1 && approvalId === null)
+    ws.send(JSON.stringify({type: 'interrupt'}));
   try { await ensureMic(); } catch(e) { state = 'idle'; statusEl.textContent = 'MIC BLOCKED'; return; }
   if (micCtx.state === 'suspended') await micCtx.resume();
   capBufs = [];
@@ -1774,7 +1781,7 @@ function sendTyped(){
       stopPlayback();
       ensureOut();
       if (outCtx.state === 'suspended') outCtx.resume();
-      ws.send(JSON.stringify({type: 'interrupt'}));
+      if (approvalId === null) ws.send(JSON.stringify({type: 'interrupt'}));
       showLine('you', (text ? text + ' ' : '') + label);
       turnOpen = true; thinking = true; state = 'thinking';
     }
@@ -1794,7 +1801,7 @@ function sendTyped(){
   stopPlayback();
   ensureOut();
   if (outCtx.state === 'suspended') outCtx.resume();
-  ws.send(JSON.stringify({type: 'interrupt'}));
+  if (approvalId === null) ws.send(JSON.stringify({type: 'interrupt'}));
   showLine('you', text);
   turnOpen = true; thinking = true; state = 'thinking';
   ws.send(JSON.stringify({type: 'text', text}));
