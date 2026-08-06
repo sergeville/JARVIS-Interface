@@ -243,6 +243,13 @@
      neither the green of doing nor the amber of waiting -- a brighter accent
      edge, which is the page's own "in hand" language and not a fourth hue. */
   .bcol.checking .bcol-head { border-bottom-color: rgba(var(--accent-rgb), 0.40); }
+  /* Done carried a class and NO styling at all -- found 2026-08-06 by a test
+     asserting the row list and the board share one vocabulary. Dimmed rather
+     than coloured: finished work should read as spent, not compete with live
+     work for the eye. */
+  .bcol.done .bcol-head { border-bottom-color: rgba(var(--ok-soft-rgb), 0.30); }
+  .bcol.done .bcard { border-color: rgba(var(--ok-soft-rgb), 0.22); }
+  .bcol.done .bcard .bt { color: rgba(var(--accent-rgb), 0.55); }
   .bcard {
     border: 1px solid rgba(var(--accent-rgb), 0.16); border-radius: 4px;
     padding: 7px 8px; margin-bottom: 7px;
@@ -702,20 +709,40 @@
     font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
     color: rgba(var(--accent-rgb), 0.7); flex-shrink: 0;
   }
-  /* active -- the one Jarvis is on right now. The pulsing dot is the point:
+  /* THE ROW CLASSES ARE THE BOARD'S COLUMN CLASSES -- doing / checking /
+     waiting / done, from BOARD_COLS. Serge: "it should be the same thing,
+     just a different view on it." They were `.active` and `.waiting` alone,
+     hand-written here, which is why review, test and done had no colour at
+     all in this list while they had one on the board two inches away. */
+  /* doing -- the one Jarvis is on right now. The pulsing dot is the point:
      Serge asked to "see a task running". */
-  #tasks .task.active { border-left-color: var(--ok); }
-  #tasks .task.active .dot {
+  #tasks .task.doing { border-left-color: var(--ok); }
+  #tasks .task.doing .dot {
     background: var(--ok); box-shadow: 0 0 7px var(--ok);
     animation: taskpulse 1.6s ease-in-out infinite;
   }
-  #tasks .task.active .title { color: var(--text-bright); font-weight: 600; }
-  #tasks .task.active .st { color: var(--ok); }
+  #tasks .task.doing .title { color: var(--text-bright); font-weight: 600; }
+  #tasks .task.doing .st { color: var(--ok); }
   /* waiting on Serge -- amber, the same "your move" colour as the alert theme */
   #tasks .task.waiting { border-left-color: var(--warn); }
   #tasks .task.waiting .dot { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
   #tasks .task.waiting .title { color: var(--text-bright); }
   #tasks .task.waiting .st { color: var(--warn); }
+  /* review and test -- in hand, but not on Serge and not being typed. The
+     brighter accent, exactly as the board's Review and Test columns wear it:
+     amber would say he is blocking, green would say it is being worked. */
+  #tasks .task.checking { border-left-color: rgba(var(--accent-rgb), 0.85); }
+  #tasks .task.checking .dot {
+    background: rgba(var(--accent-rgb), 0.85);
+    box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.6);
+  }
+  #tasks .task.checking .st { color: rgba(var(--accent-rgb), 0.9); }
+  /* done -- finished today, dimmed rather than removed, so it is visibly
+     spent instead of competing with live work for the eye. */
+  #tasks .task.done { border-left-color: rgba(var(--ok-soft-rgb), 0.30); }
+  #tasks .task.done .dot { background: rgba(var(--ok-soft-rgb), 0.40); }
+  #tasks .task.done .title { color: rgba(var(--accent-rgb), 0.45); }
+  #tasks .task.done .st { color: rgba(var(--ok-soft-rgb), 0.55); }
   @keyframes taskpulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.25; }
@@ -1846,9 +1873,11 @@ function renderTasks(tasks){
   card.style.display = tasks.length ? 'block' : 'none';
   for (const tk of tasks) {
     const div = document.createElement('div');
-    const waiting = tk.status === 'waiting-on-serge';
-    const active  = tk.status === 'active';
-    div.className = 'task' + (waiting ? ' waiting' : active ? ' active' : '');
+    // Was three hand-written states (active / waiting / everything else),
+    // which is why review, test and done had no colour and showed their raw
+    // status word. It now reads the SAME table the board does.
+    const col = colFor(tk.status);
+    div.className = 'task' + (col.cls ? ' ' + col.cls : '');
     const dot = document.createElement('span');
     dot.className = 'dot';
     const title = document.createElement('span');
@@ -1857,7 +1886,7 @@ function renderTasks(tasks){
     title.title = tk.note || tk.title;   // the detail lives in the tooltip now
     const st = document.createElement('span');
     st.className = 'st';
-    st.textContent = waiting ? 'you' : active ? 'working' : tk.status;
+    st.textContent = col.short;
     div.appendChild(dot);
     div.appendChild(title);
     div.appendChild(st);
@@ -1883,14 +1912,27 @@ function renderTasks(tasks){
 // Serge, 2026-08-06 ~6:44 AM: REVIEW and TEST joined the columns, and the
 // order is the order work actually flows in -- To Do, In Progress, Review,
 // Test, Waiting on You, Done.
+// ONE TABLE, TWO VIEWS. Serge, 2026-08-06: "you should be in sync all the
+// time. It should be the same thing, actually -- it's just a different view
+// on it." The board and the sidebar task list are one dataset rendered
+// twice, so the column, the row's colour and the row's word all come from
+// HERE. `short` is what a task row says about itself; `cls` is the colour,
+// and it is the same class the column wears. Adding a seventh status lights
+// up both views without anyone remembering to.
 const BOARD_COLS = [
-  {key: 'open',             label: 'To Do',        cls: ''},
-  {key: 'active',           label: 'In Progress',  cls: 'doing'},
-  {key: 'review',           label: 'Review',       cls: 'checking'},
-  {key: 'test',             label: 'Test',         cls: 'checking'},
-  {key: 'waiting-on-serge', label: 'Waiting on You', cls: 'waiting'},
-  {key: 'done',             label: 'Done',         cls: 'done'},
+  {key: 'open',             label: 'To Do',        cls: '',         short: 'open'},
+  {key: 'active',           label: 'In Progress',  cls: 'doing',    short: 'working'},
+  {key: 'review',           label: 'Review',       cls: 'checking', short: 'review'},
+  {key: 'test',             label: 'Test',         cls: 'checking', short: 'testing'},
+  {key: 'waiting-on-serge', label: 'Waiting on You', cls: 'waiting', short: 'you'},
+  {key: 'done',             label: 'Done',         cls: 'done',     short: 'done'},
 ];
+// A status the page has never heard of falls back to To Do, exactly as it
+// does on the board -- a task Serge cannot see is the worst outcome here,
+// and it is a silent one.
+function colFor(status){
+  return BOARD_COLS.find(c => c.key === status) || BOARD_COLS[0];
+}
 // The summary counts anything in review or test as CHECKING. Without it the
 // two new states would be INVISIBLE in the strip: a status with a column of
 // its own is excluded from the open/doing/you counts by construction, so a
