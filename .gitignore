@@ -40,6 +40,7 @@ references/
 voice-line/.sessions.jsonl
 voice-line/.session-mail.jsonl
 voice-line/.stack-events.jsonl
+voice-line/.board-guard.json
 voice-line/.usage.json
 voice-line/.voice_transcript
 
