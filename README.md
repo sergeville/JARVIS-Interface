@@ -7,6 +7,47 @@ that vault first. Local speech, loopback-only server, no cloud but the model.
 
 ---
 
+## Get the code
+
+With git — recommended, since you get the history and an honest error if
+anything is wrong:
+
+```sh
+git clone https://github.com/sergeville/JARVIS-Interface.git Jarvis && cd Jarvis
+```
+
+Without git, download the archive instead:
+
+```sh
+curl -fL https://github.com/sergeville/JARVIS-Interface/archive/refs/heads/main.zip -o jarvis.zip && unzip -q jarvis.zip && rm jarvis.zip && mv JARVIS-Interface-main Jarvis && cd Jarvis
+```
+
+**Both land you in a folder called `Jarvis`**, not one named after the GitHub
+project. The archive unpacks to `JARVIS-Interface-main` — named for the
+repository and the branch — so the `mv` renames it; `git clone` takes the
+destination directly. If the default branch is ever renamed, swap `main` for
+`master` in the URL and in the `mv`.
+
+Then, from inside that folder:
+
+```sh
+./install.sh
+```
+
+That is the whole setup — see [Install](#install) for what it does, and for
+doing it by hand.
+
+Two details in the `curl` line that are load-bearing rather than decorative.
+**`-f` makes curl fail on an HTTP error** instead of cheerfully saving the 404
+page as `jarvis.zip`, which then fails inside `unzip` with an error about a
+missing end-of-central-directory signature — a confusing message for a simple
+"that URL is not there". And **`&&` stops the chain at the first failure**, so a
+download that did not work never reaches the `rm` or the `cd`; you are left
+where you started with the evidence still on disk.
+
+---
+
+
 ## What this actually is
 
 A personal assistant built out of five small pieces that each do one thing:
@@ -71,7 +112,7 @@ Built and run on macOS (Apple silicon).
 
 ### The short way
 
-Get the code (step 0 below), then:
+Get the code (top of this file), then:
 
 ```sh
 ./install.sh
@@ -165,36 +206,6 @@ paths removed the reason any of it existed.
 The only mentions of a username left anywhere are seven **fictional** fixtures
 (`/Users/testuser/...`) in two test files, standing in for process command
 lines.
-
-**0. Get the code — one line**
-
-With git — recommended, since you get the history and an honest error if
-anything is wrong:
-
-```sh
-git clone https://github.com/sergeville/JARVIS-Interface.git Jarvis && cd Jarvis
-```
-
-Without git, download the archive instead:
-
-```sh
-curl -fL https://github.com/sergeville/JARVIS-Interface/archive/refs/heads/main.zip -o jarvis.zip && unzip -q jarvis.zip && rm jarvis.zip && mv JARVIS-Interface-main Jarvis && cd Jarvis
-```
-
-Two details that are load-bearing rather than decorative. **`-f` makes curl fail
-on an HTTP error** instead of cheerfully saving the 404 page as `jarvis.zip`,
-which then fails inside `unzip` with an error about a missing end-of-central
--directory signature — a confusing message for a simple "that URL is not
-there". And **`&&` stops the chain at the first failure**, so a download that
-did not work never reaches the `rm` or the `cd`; you are left standing where you
-started with the evidence still on disk.
-
-**Both land you in a folder called `Jarvis`**, not in one named after the
-GitHub project. GitHub's archive unpacks to `JARVIS-Interface-main` — named for
-the repository and the branch — so the `mv` renames it; `git clone` takes the
-destination directly. If the default branch is ever renamed, swap `main` for
-`master` in the URL and in the `mv`. Steps 1–6 below run from inside that
-folder.
 
 **1. Prerequisites**
 
