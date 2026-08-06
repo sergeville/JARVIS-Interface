@@ -139,5 +139,75 @@ test('the alert theme still overrides the frame tokens it is for', () => {
               'body.alert no longer overrides ' + name);
 });
 
+// ---- the alert theme's ambers, reconciled 2026-08-06 ----------------------
+// Serge chose UNIFORM in one word. Four near-identical ambers had been
+// hand-written into the alert theme and the approval popup -- 255,176,32 at
+// both 0.30 and 0.32, plus 255,190,80 and 255,180,60 -- differences that were
+// accidents of editing rather than decisions. A token is the instrument that
+// stops that, so these guard that it cannot happen again.
+
+test('--warn-rgb is exactly --warn, not a fifth shade of amber', () => {
+  const hex = (ROOT.match(/--warn:\s*#([0-9a-f]{6})/i) || [])[1];
+  const rgb = (ROOT.match(/--warn-rgb:\s*([0-9]+),\s*([0-9]+),\s*([0-9]+)/) || []).slice(1);
+  assert.ok(hex && rgb.length === 3, 'could not read --warn / --warn-rgb');
+  const fromHex = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16));
+  assert.deepStrictEqual(rgb.map(Number), fromHex,
+    '--warn-rgb (' + rgb + ') is not --warn (#' + hex + ') -- a token that lies is worse than a literal');
+});
+
+test('no raw amber literal survives in the approval popup or its pulse', () => {
+  // The block is #approve-lost, and its pulse keyframes follow it. Bounded by
+  // the keyframes' end rather than by a guessed next selector, so the region
+  // genuinely covers what the test claims to cover.
+  const from = STYLE.indexOf('#approve-lost {');
+  const to = STYLE.indexOf('@keyframes approve-pulse');
+  const end = STYLE.indexOf('}', STYLE.indexOf('50%', to));
+  const region = STYLE.slice(from, end);
+  assert.ok(from !== -1 && to > from && end > to,
+            'could not locate the approval popup block');
+  const raw = region.match(/rgba\(\s*2[0-9]{2}\s*,/g) || [];
+  assert.deepStrictEqual(raw, [],
+    'hand-written amber back in the popup: ' + raw.join(', '));
+});
+
+test('the waiting column and card read the SAME amber token', () => {
+  // NARROWED after a first version failed a CORRECT page: it demanded
+  // --warn-rgb on every waiting rule, which outlawed --warn-soft-rgb on the
+  // step line -- a different token in the same family, and the right one
+  // there. The property that matters is that NO waiting rule writes its own
+  // amber by hand, not that they all read one particular token.
+  const rules = STYLE.match(/\.bcol\.waiting[^\n]*rgba\([^)]*\)/g) || [];
+  assert.ok(rules.length >= 2, 'expected the waiting column head and card');
+  for (const r of rules)
+    assert.ok(/var\(--warn(-soft)?-rgb\)/.test(r),
+      'a waiting rule carries a literal amber: ' + r.trim());
+});
+
+test('the modal scrim is ONE token, repeated in every keyframe stop', () => {
+  // box-shadow animates as a whole, so the backdrop must appear in all three
+  // stops. Three hand-kept copies of one colour is what this token replaced --
+  // and dropping it from a single stop strobes the entire page.
+  const uses = STYLE.split('var(--scrim)').length - 1;
+  assert.strictEqual(uses, 3,
+    'the scrim appears ' + uses + ' times; it must be in the rule and both keyframe stops');
+  assert.ok(!/rgba\(\s*4\s*,\s*8\s*,\s*16\s*,/.test(STYLE.replace(/--scrim:[^;]+;/, '')),
+    'a hand-written scrim literal is back');
+});
+
+test('"off by choice" tan is one token, not three copies', () => {
+  const uses = STYLE.split('var(--off-soft)').length - 1;
+  assert.ok(uses >= 3, '--off-soft is used ' + uses + ' times; three rules should read it');
+  assert.ok(!/rgba\(\s*190\s*,\s*175\s*,\s*110/.test(STYLE.replace(/--off-soft:[^;]+;/, '')),
+    'a hand-written tan literal is back');
+});
+
+test('the new tokens are NOT redefined by the alert theme either', () => {
+  // Same doctrine as the status colours: the scrim behind a modal and the
+  // "deliberately off" tan mean the same thing in both moods.
+  for (const name of ['--warn-rgb', '--scrim', '--off-soft'])
+    assert.ok(!new RegExp('^\\s*' + name + ':', 'm').test(ALERT),
+      name + ' is overridden in body.alert');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

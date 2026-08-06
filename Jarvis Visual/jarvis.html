@@ -48,8 +48,18 @@
     --ok-soft:     #7ff0c8;
     --ok-soft-rgb: 127, 240, 200;
     --warn:        #ffb020;
+    --warn-rgb:    255, 176, 32;   /* --warn, as rgb, for the rgba() borders */
     --warn-soft:   #ffc75a;
     --warn-soft-rgb: 255, 199, 90;
+    /* The scrim behind a modal. Written three times by hand before 2026-08-06,
+       once per keyframe of the approval pulse -- box-shadow animates as a
+       whole, so the backdrop must repeat in every stop, and three hand-kept
+       copies of one colour is precisely what a token exists to prevent. */
+    --scrim:       rgba(4, 8, 16, 0.62);
+    --scrim-deep:  rgba(0, 0, 0, 0.65);
+    /* "off by choice" text -- the tan that STACK, ports and the bottom bar all
+       use for a component deliberately not running. Was three copies. */
+    --off-soft:    rgba(190, 175, 110, 0.85);
     --off:         #6b5a1f;
     --bad:         #ff5f57;
   }
@@ -256,7 +266,7 @@
   }
   .bcol-head .n { color: rgba(var(--accent-rgb), 0.85); font-size: 10px; }
   .bcol.doing   .bcol-head { border-bottom-color: rgba(0, 255, 168, 0.32); }
-  .bcol.waiting .bcol-head { border-bottom-color: rgba(255, 176, 32, 0.32); }
+  .bcol.waiting .bcol-head { border-bottom-color: rgba(var(--warn-rgb), 0.32); }
   /* Review and Test are work in flight that is not on Serge, so they take
      neither the green of doing nor the amber of waiting -- a brighter accent
      edge, which is the page's own "in hand" language and not a fourth hue. */
@@ -328,7 +338,7 @@
      looks live invites a second press on a card that is already moving. */
   .bcard .bv:disabled { opacity: 0.4; cursor: default; }
   .bcol.doing   .bcard { border-color: rgba(0, 255, 168, 0.30); }
-  .bcol.waiting .bcard { border-color: rgba(255, 176, 32, 0.30); }
+  .bcol.waiting .bcard { border-color: rgba(var(--warn-rgb), 0.30); }
   .bcol.checking .bcard { border-color: rgba(var(--accent-rgb), 0.34); }
   .bcol-empty {
     font-size: 9.5px; color: rgba(var(--accent-rgb), 0.3);
@@ -434,7 +444,7 @@
   /* "off" is a choice (the terminal line), "down" is a problem. Different
      colours on purpose -- Serge read a plain "not running" as a failure. */
   .st-row.off .dot { background: var(--off); }
-  .st-row.off .pid { color: rgba(190, 175, 110, 0.85); }
+  .st-row.off .pid { color: var(--off-soft); }
   .st-row.down .dot { background: var(--bad); box-shadow: 0 0 7px var(--bad); }
   .st-row.down .pid { color: #ffa39e; }
   /* Serge, 2026-08-04: start time + how long it has been up, under each row.
@@ -458,7 +468,7 @@
   #page-age { margin-top: 7px; }
   .ports-row b { font-weight: normal; color: rgba(var(--accent-rgb), 0.5); }
   .port.held { color: var(--ok-soft); }
-  .port.free { color: rgba(190, 175, 110, 0.85); }
+  .port.free { color: var(--off-soft); }
 
   /* left panel: stack events (Serge, 2026-08-05) -- the stack's history, read
      from a file that outlives the server, so a restart is visible after the
@@ -598,7 +608,7 @@
      terminal line at the bottom, the light should be amber." Dimming it to a
      grey dot said "nothing here" when the truth is "deliberately not running". */
   .bs.off .dot { background: var(--off); }
-  .bs.off .t   { color: rgba(190, 175, 110, 0.85); }
+  .bs.off .t   { color: var(--off-soft); }
 
   /* Jarvis needs Serge's sign-off. It used to sit above the AI CORE chip, at
      the bottom of the left column -- the worst place on the page for the one
@@ -635,9 +645,9 @@
     position: fixed; z-index: 200;
     top: 50%; left: 50%; transform: translate(-50%, -50%);
     width: min(520px, 72vw); padding: 18px 20px;
-    border: 1px solid rgba(255, 190, 80, 0.75); border-radius: 4px;
+    border: 1px solid rgba(var(--warn-soft-rgb), 0.75); border-radius: 4px;
     background: rgba(46, 31, 4, 0.96);
-    box-shadow: 0 0 0 100vmax rgba(4, 8, 16, 0.62),
+    box-shadow: 0 0 0 100vmax var(--scrim),
                 0 18px 60px rgba(0, 0, 0, 0.55);
     animation: approve-pulse 1.6s ease-in-out infinite;
   }
@@ -645,10 +655,10 @@
      every keyframe -- box-shadow animates as a whole, and dropping it from one
      stop would strobe the whole page. */
   @keyframes approve-pulse {
-    0%, 100% { box-shadow: 0 0 0 100vmax rgba(4, 8, 16, 0.62),
-                           0 0 10px rgba(255, 180, 60, 0.3); }
-    50%      { box-shadow: 0 0 0 100vmax rgba(4, 8, 16, 0.62),
-                           0 0 30px rgba(255, 180, 60, 0.65); }
+    0%, 100% { box-shadow: 0 0 0 100vmax var(--scrim),
+                           0 0 10px rgba(var(--warn-soft-rgb), 0.3); }
+    50%      { box-shadow: 0 0 0 100vmax var(--scrim),
+                           0 0 30px rgba(var(--warn-soft-rgb), 0.65); }
   }
   #approve-head {
     font-size: 12px; letter-spacing: 0.22em; color: #ffd27a;
@@ -887,9 +897,9 @@
        most of them, so a short exchange was half invisible. It now only
        softens the very top edge. */
     -webkit-mask-image: linear-gradient(to bottom,
-                        transparent 0%, rgba(0,0,0,0.65) 10%, #000 26%);
+                        transparent 0%, var(--scrim-deep) 10%, #000 26%);
             mask-image: linear-gradient(to bottom,
-                        transparent 0%, rgba(0,0,0,0.65) 10%, #000 26%);
+                        transparent 0%, var(--scrim-deep) 10%, #000 26%);
   }
   /* Nothing happening: get out of the way entirely. The overlay must never
      become permanent furniture over the avatar. */
