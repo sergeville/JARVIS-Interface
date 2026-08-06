@@ -93,6 +93,47 @@ class TestTheRouteIsWiredAndAdvertised(unittest.TestCase):
         # look exactly like the endless loop this fixes.
         self.assertIn('"approval_http": True', source())
 
+    def test_signals_carries_a_generation_marker(self):
+        """The centrepiece of the id-reuse fix, and it had NO server-side test.
+
+        Proven by injection: deleting the boot_id line left all 44 tests green
+        while the page's mismatch drop went permanently dead -- the guard
+        against answering a question Serge never read simply stopped existing,
+        silently. Same fault class the approval_http flag was already guarded
+        for; the newer flag was not.
+        """
+        self.assertIn('"boot_id": BOOT_ID', source())
+
+    def test_the_generation_marker_is_stable_and_process_specific(self):
+        import importlib.util as iu, re
+        # Stable within the process: read it twice from the loaded module.
+        spec = iu.spec_from_file_location("vws_boot", SERVER)
+        m = iu.module_from_spec(spec)
+        sys.modules["vws_boot"] = m
+        spec.loader.exec_module(m)
+        self.assertEqual(m.BOOT_ID, m.BOOT_ID)
+        self.assertTrue(m.BOOT_ID, "an empty marker disables the drop")
+        # Shaped pid-epoch, so two processes cannot collide except on a pid
+        # reused inside one second.
+        self.assertRegex(m.BOOT_ID, r"\A\d+-\d+\Z")
+        self.assertTrue(m.BOOT_ID.startswith(f"{os.getpid()}-"))
+
+    def test_the_marker_is_evaluated_once_at_module_scope(self):
+        # If it were computed per request it would differ between polls and
+        # drop every queued answer -- fail-closed turned into fail-always.
+        t = tree()
+        assigns = [n for n in ast.walk(t)
+                   if isinstance(n, ast.Assign)
+                   and any(isinstance(x, ast.Name) and x.id == "BOOT_ID"
+                           for x in n.targets)]
+        self.assertEqual(len(assigns), 1, "BOOT_ID must be assigned once")
+        module_level = [n for n in t.body
+                        if isinstance(n, ast.Assign)
+                        and any(isinstance(x, ast.Name) and x.id == "BOOT_ID"
+                                for x in n.targets)]
+        self.assertEqual(len(module_level), 1,
+                         "BOOT_ID must live at module scope, not per request")
+
     def test_the_handler_never_raises_at_the_caller(self):
         # A permission button that fails with a 500 is a button that fails
         # silently from where Serge is sitting.

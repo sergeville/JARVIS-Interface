@@ -2625,8 +2625,10 @@ function showApproval(a){
 //      discarded; there is no empty catch anywhere in this path.
 let approvalHttp = false;      // set from /signals; false until told otherwise
 let approvalSending = false;
+let approvalStale = false;     // a delivery superseded by a later click
 let approvalQueued = null;     // {id, allow, boot} kept when delivery failed
 let serverBoot = null;         // which server process asked the question
+const REPLY_TIMEOUT_MS = 8000; // a reply that never settles must not hang him
 const approveNote = document.getElementById('approve-note');
 
 function approvalStatus(text){
@@ -2639,7 +2641,12 @@ function retryWords(e){
   // nothing, the page stated the one thing that was not true. The server
   // writes an honest reason; this carries it rather than overwriting it.
   const why = (e && e.message) ? String(e.message) : '';
-  if (!why || /not connected|failed to fetch|network|closed/i.test(why))
+  // The browser-specific spellings are the point: Chrome says "Failed to
+  // fetch", Firefox "NetworkError", WebKit "Load failed", and an abort says
+  // "aborted"/"AbortError". The first version knew only Chrome's, so on
+  // Safari an unreachable server would have been reported as a refusal --
+  // finding 4's lie in the other direction.
+  if (!why || /not connected|failed to fetch|load failed|network|closed|abort|timed out/i.test(why))
     return 'not connected — will send when the link is back';
   return 'the server did not accept that: ' + why + ' — retrying';
 }
@@ -2649,11 +2656,24 @@ async function deliverApproval(id, allow){
   // which would look exactly like the loop being fixed. Fall back to the
   // socket, and only when it is genuinely open.
   if (approvalHttp) {
-    const r = await fetch('/approval-reply', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: id, allow: allow}),
-    });
+    // Bounded on purpose. Without it a POST that never settles -- this
+    // server's loop can be blocked by synchronous work -- pins
+    // approvalSending for its whole duration. That used to eat every click
+    // in the window silently; it no longer can (a click supersedes), but an
+    // unbounded wait would still leave him watching "sending…" forever.
+    const ctl = new AbortController();
+    const bell = setTimeout(() => ctl.abort(), REPLY_TIMEOUT_MS);
+    let r;
+    try {
+      r = await fetch('/approval-reply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: id, allow: allow}),
+        signal: ctl.signal,
+      });
+    } finally {
+      clearTimeout(bell);
+    }
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) throw new Error(d.error || 'server refused');
     return;
@@ -2666,14 +2686,39 @@ async function deliverApproval(id, allow){
 }
 
 async function answerApproval(allow){
-  if (approvalId === null || approvalSending) return;
+  if (approvalId === null) return;
   const id = approvalId;
+
+  // HIS CLICK IS NEVER DISCARDED. Two reviewers, run independently, found
+  // the same bug in the previous round: this used to early-return while a
+  // queued answer was being flushed, so a DENY landing in that window did
+  // NOTHING -- no send, no message -- and the ALLOW completed while the page
+  // printed "answered". He clicked NO, the tool ran, and the screen agreed
+  // with the tool. Replacing a race with a silence is not a fix; the silence
+  // is the whole family of bug this card exists to end.
+  //
+  // So a click arriving mid-flight SUPERSEDES: it becomes the queued answer,
+  // and the in-flight delivery is marked stale so its result cannot be
+  // reported as his. The next poll sends the verdict he actually chose.
+  if (approvalSending) {
+    approvalQueued = {id: id, allow: allow, boot: serverBoot};
+    approvalStale = true;
+    approvalStatus('changed to ' + (allow ? 'approve' : 'deny') + ' — sending');
+    return;
+  }
+
   approvalSending = true;
+  approvalStale = false;
   approvalStatus('sending…');
   try {
     await deliverApproval(id, allow);
-    approvalQueued = null;
-    approvalStatus('answered — waiting for Jarvis');
+    // If he changed his mind while this was in flight, the queue now holds
+    // the verdict he actually wants -- do not clear it, and do not tell him
+    // this one was the answer.
+    if (!approvalStale) {
+      approvalQueued = null;
+      approvalStatus('answered — waiting for Jarvis');
+    }
   } catch (e) {
     // Kept, not dropped: his click is his decision and it should survive a
     // socket that happened to be reconnecting.
@@ -2705,7 +2750,15 @@ function approvalPoll(d){
   //   2. the SERVER has restarted -- ids restart at #1, so the same number
   //      is a different question.
   if (!d.approval) approvalQueued = null;
-  if (approvalQueued && boot && approvalQueued.boot && boot !== approvalQueued.boot)
+  // FAIL CLOSED. This used to require BOTH sides to be stamped, so a queue
+  // formed against a server that sends no boot_id was exempt from the drop
+  // entirely -- and that is every click made against the server running
+  // before this shipped. Proven, not argued: a probe delivered a stale
+  // {"id":1,"allow":true} across exactly that upgrade. Now a server that
+  // NAMES a generation is enough: if the queue cannot prove it belongs to
+  // this one, it goes. The cost of being wrong is one re-click; the cost of
+  // the other direction is an answer he never gave.
+  if (approvalQueued && boot && boot !== approvalQueued.boot)
     approvalQueued = null;
   serverBoot = boot;
 
@@ -2725,10 +2778,13 @@ async function flushApproval(){
   if (!approvalQueued || approvalSending) return;
   const q = approvalQueued;
   approvalSending = true;
+  approvalStale = false;
   try {
     await deliverApproval(q.id, q.allow);
-    approvalQueued = null;
-    approvalStatus('answered — waiting for Jarvis');
+    if (!approvalStale) {
+      approvalQueued = null;
+      approvalStatus('answered — waiting for Jarvis');
+    }
   } catch (e) {
     // Not empty, and not silent: it stays queued, and the reason is shown.
     // An empty catch here was the third one on this page in a day, shipped
@@ -3154,7 +3210,7 @@ async function poll(){
       for (const e of d.transcript)
         if (!shownLines.has(e.who + '|' + e.text)) showLine(e.who, e.text);
     }
-    // (the approval block moved into approvalPoll(d), below)
+    // (the whole approval block now lives in its own function, below)
     waitingQ = (d.question || '').trim();
     renderTasks(d.tasks || []);
     renderBoard(d.tasks || []);

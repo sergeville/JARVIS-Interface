@@ -53,6 +53,8 @@ global.document = {
     contains: c => classes.has(c) } },
 };
 global.WebSocket = { OPEN: 1, CLOSED: 3, CONNECTING: 0 };
+global.AbortController = class { constructor(){ this.signal = {aborted:false}; } abort(){ this.signal.aborted = true; } };
+const REPLY_TIMEOUT_MS = 8000;
 
 // The page declares these at module scope, outside the functions grabbed
 // below, so the harness has to stand them up itself.
@@ -61,6 +63,7 @@ const approveNote = note;
 let approvalId = null;
 let approvalHttp = false;
 let approvalSending = false;
+let approvalStale = false;
 let approvalQueued = null;
 let serverBoot = null;
 let ws = null;
@@ -126,7 +129,7 @@ function test(name, fn) { queue.push([name, fn]); }
 async function runAll() {
   for (const [name, fn] of queue) {
     approvalId = null; approvalQueued = null; approvalSending = false;
-    approvalHttp = false; serverBoot = null;
+    approvalHttp = false; serverBoot = null; approvalStale = false;
     posted = []; sent = []; connectCalls = 0;
     note.textContent = ''; box.style.display = 'none'; classes.clear();
     try { await fn(); passed++; console.log('ok   ' + name); }
@@ -311,19 +314,143 @@ test('the SAME request across polls keeps its queued answer', async () => {
 
 // ---- a later DENY must not lose to an earlier queued ALLOW ---------------
 
-test('a flush in flight blocks a second send', async () => {
+test('a DENY during a flush SUPERSEDES the in-flight ALLOW', async () => {
+  // TWO reviewers found the same bug here independently, and the old test
+  // could not see it: it asserted `calls === 1` and never asked WHICH
+  // verdict was sent. It would have passed just as happily with the
+  // behaviour inverted. Counting calls cannot tell "correctly suppressed a
+  // duplicate" from "discarded his decision".
   approvalHttp = true; showing(1);
-  let calls = 0;
-  fetchImpl = async () => {
-    calls++;
+  const seen = [];
+  fetchImpl = async (url, opt) => {
+    seen.push(JSON.parse(opt.body));
     await new Promise(r => setTimeout(r, 20));
     return {ok: true, json: async () => ({ok: true})};
   };
   approvalQueued = {id: 1, allow: true, boot: null};
   const f = flushApproval();
-  await answerApproval(false);      // his change of mind, mid-flush
+  await answerApproval(false);            // his change of mind, mid-flight
   await f;
-  assert.strictEqual(calls, 1, 'an ALLOW and a DENY were both sent');
+  assert.ok(approvalQueued, 'his DENY was thrown away');
+  assert.strictEqual(approvalQueued.allow, false, 'the DENY did not win');
+  approvalSending = false;
+  await flushApproval();
+  const last = seen[seen.length - 1];
+  assert.strictEqual(last.allow, false,
+    'the last verdict on the wire was not the one he clicked');
+});
+
+test('a superseded delivery must not report itself as the answer', async () => {
+  // The page used to print "answered — waiting for Jarvis" after his DENY
+  // had been discarded: the screen agreed with the tool, not with him.
+  approvalHttp = true; showing(1);
+  fetchImpl = async () => {
+    await new Promise(r => setTimeout(r, 20));
+    return {ok: true, json: async () => ({ok: true})};
+  };
+  approvalQueued = {id: 1, allow: true, boot: null};
+  const f = flushApproval();
+  await answerApproval(false);
+  await f;
+  assert.ok(!/^answered/.test(note.textContent),
+    'it claimed the superseded ALLOW was the answer: ' + note.textContent);
+});
+
+test('a mid-flight click is acknowledged, never silent', async () => {
+  approvalHttp = true; showing(1);
+  fetchImpl = async () => { await new Promise(r => setTimeout(r, 20));
+    return {ok: true, json: async () => ({ok: true})}; };
+  approvalQueued = {id: 1, allow: true, boot: null};
+  const f = flushApproval();
+  await answerApproval(false);
+  assert.ok(/deny/i.test(note.textContent),
+    'his click produced no message at all: ' + note.textContent);
+  await f;
+});
+
+// ---- the generation drop FAILS CLOSED ------------------------------------
+
+test('an UNSTAMPED queue is dropped when the server names a generation', async () => {
+  // Proven by probe before it was fixed: a click made against a server that
+  // sends no boot_id -- i.e. the one running before this shipped -- survived
+  // a restart and delivered {"id":1,"allow":true} against a NEW question.
+  // That is the exact upgrade path Serge takes tonight.
+  approvalHttp = true; deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'old'}, approval_http: true});
+  await answerApproval(true);
+  assert.ok(approvalQueued, 'setup');
+  assert.strictEqual(approvalQueued.boot, null, 'setup: the queue is unstamped');
+  okServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'a NEW question'},
+                approval_http: true, boot_id: 'b2'});
+  await new Promise(r => setTimeout(r, 5));
+  assert.strictEqual(approvalQueued, null,
+    'an unstamped verdict survived into a new server generation');
+  assert.strictEqual(posted.length, 0, 'and it was delivered');
+});
+
+test('a stamped queue still survives its OWN generation', async () => {
+  // Fail-closed must not mean fail-always: a genuine retry has to work.
+  approvalHttp = true; deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'x'},
+                approval_http: true, boot_id: 'b1'});
+  await answerApproval(true);
+  deadServer();
+  approvalPoll({approval: {id: 1, tool: 'Bash', detail: 'x'},
+                approval_http: true, boot_id: 'b1'});
+  await new Promise(r => setTimeout(r, 5));
+  assert.ok(approvalQueued, 'a valid queued answer was dropped');
+});
+
+// ---- the wiring the last two rounds kept missing --------------------------
+
+function stripComments(js) {
+  // Text assertions match commented-out code and punish the prose that
+  // explains a decision -- it is on this project's record four times, and
+  // this test hit it AGAIN: a comment inside poll() spelled the very call
+  // it describes, so deleting the real call left the assertion green.
+  return js.replace(/\/\*[^]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+}
+
+test('poll() actually calls approvalPoll', () => {
+  // Injection (ii): deleting this ONE line left all 33 tests green while the
+  // capability read, both drops, showApproval and the retry stopped running
+  // -- the endless loop back, with a green suite. Three loose lines became
+  // one loose line; this reads the seam itself.
+  const poll = stripComments(grab('poll'));
+  assert.ok(/approvalPoll\s*\(\s*d\s*\)\s*;/.test(poll),
+    'poll() no longer calls approvalPoll -- nothing else would notice');
+  // And the call must be a STATEMENT, not a mention: prove the stripper
+  // is doing the work by checking the raw body still contains prose.
+  assert.ok(grab('poll').length > poll.length, 'comment stripper did nothing');
+});
+
+test('the reply request is bounded -- the signal actually REACHES fetch', async () => {
+  // BEHAVIOURAL, and the first version was not: it grepped for
+  // AbortController and the constant, both of which survive when the one
+  // line that PASSES the signal is deleted. Injection (viii) stayed green.
+  // Third time this round that a guard read the parts and not the wiring,
+  // so this one reads what fetch is actually handed.
+  approvalHttp = true; showing(1);
+  let sawSignal = null;
+  fetchImpl = async (url, opt) => {
+    sawSignal = opt.signal;
+    return {ok: true, json: async () => ({ok: true})};
+  };
+  await answerApproval(true);
+  assert.ok(sawSignal, 'fetch was called with no abort signal -- unbounded');
+  assert.ok(REPLY_TIMEOUT_MS > 0 && REPLY_TIMEOUT_MS <= 30000);
+});
+
+test('an aborted or WebKit-shaped failure reads as a link problem', () => {
+  // The regex knew only Chrome's wording, so on Safari an unreachable
+  // server would have been reported as a server refusal.
+  for (const w of ['Failed to fetch', 'Load failed', 'NetworkError when...',
+                   'The operation was aborted.', 'AbortError']) {
+    assert.ok(/not connected/i.test(retryWords(new Error(w))),
+      w + ' was misread as a server refusal');
+  }
+  assert.ok(/already answered/.test(retryWords(new Error('already answered'))));
 });
 
 // ---- the refusal message tells the truth ---------------------------------
@@ -437,7 +564,13 @@ test('a null socket does not throw an unhandled error', async () => {
 
 // ---- the double-click guard -----------------------------------------------
 
-test('a second click while one is in flight is ignored', async () => {
+test('a second click while one is in flight does not RACE it (but is kept)', async () => {
+  // RENAMED AND RE-AIMED, not deleted. It used to be called "...is ignored",
+  // which was the old doctrine and the actual bug: ignoring his click is
+  // what threw his DENY away. What still holds is that it must not race --
+  // two verdicts on the wire at once lets the server pick. That it is KEPT
+  // is asserted by the supersession tests above.
+
   approvalHttp = true; showing(1);
   let calls = 0;
   fetchImpl = async () => {
