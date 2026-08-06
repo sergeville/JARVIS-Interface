@@ -78,17 +78,88 @@ const cellOf = (row, cls) => row.children.find(c => c.className === cls);
 
 // ---- one table, two views -------------------------------------------------
 
-test('EVERY status the board knows gets a row class and a word', () => {
-  renderTasks(COLS.map(c => T('task ' + c.key, c.key)));
+// INVERTED 2026-08-06, not deleted. The old assertion was that EVERY status
+// the board knows draws a row -- which described precisely the behaviour Serge
+// asked to remove ("just one line saying done, five... if I go to the board
+// then I could see the done"). The property that still matters is unchanged
+// and is asserted here: every status that is still LIVE gets its column's
+// class and its column's word. `done` is covered by its own tests below.
+const LIVE = COLS.filter(c => c.key !== 'done');
+
+test('EVERY live status gets its column class and its column word', () => {
+  renderTasks(LIVE.map(c => T('task ' + c.key, c.key)));
   const got = rows();
-  assert.strictEqual(got.length, COLS.length, 'a status produced no row');
-  COLS.forEach((c, i) => {
+  assert.strictEqual(got.length, LIVE.length, 'a live status produced no row');
+  LIVE.forEach((c, i) => {
     const want = 'task' + (c.cls ? ' ' + c.cls : '');
     assert.strictEqual(got[i].className, want,
       c.key + ' row is "' + got[i].className + '" -- it will not match its column');
     assert.strictEqual(cellOf(got[i], 'st').textContent, c.short,
       c.key + ' row says the wrong word');
   });
+});
+
+// ---- done sinks out of the card and leaves a count ------------------------
+// Serge, 2026-08-06 ~5:40 PM. Before this the list had NO sort at all: it drew
+// the note's file order, so finished items sat scattered ABOVE live work and
+// the card read backwards. These guard both halves -- the order, and the count.
+
+const doneLine = () => body.children.find(c => c.className === 'task-done-line');
+
+test('a done task draws NO row in this card', () => {
+  renderTasks([T('finished', 'done')]);
+  assert.strictEqual(rows().filter(r => r.className.includes('task ')).length, 0,
+    'a done task still drew a row -- the board is where those live now');
+});
+
+test('the done COUNT is drawn, and it counts them all', () => {
+  renderTasks([T('a', 'done'), T('b', 'done'), T('c', 'done'), T('d', 'active')]);
+  const line = doneLine();
+  assert.ok(line, 'no done count line');
+  assert.strictEqual(line.textContent, 'done \u00b7 3');
+});
+
+test('no done line at all when nothing finished', () => {
+  // "DONE 0" is noise on a quiet day; this card already hides itself rather
+  // than draw a blank box, and the line follows the same rule.
+  renderTasks([T('a', 'active')]);
+  assert.strictEqual(doneLine(), undefined, 'an empty done line was drawn');
+});
+
+test('the count line is LAST -- it is the floor of the card, not a row in it', () => {
+  renderTasks([T('a', 'done'), T('b', 'active'), T('c', 'open')]);
+  const kids = body.children;
+  assert.strictEqual(kids[kids.length - 1].className, 'task-done-line',
+    'the done count is not at the bottom');
+});
+
+test('live rows are ordered by the BOARD table, not by the note file order', () => {
+  // Handed in deliberately backwards. If this ever draws them in the order
+  // received, the card is reading the note instead of the shared table.
+  const backwards = ['waiting-on-serge', 'test', 'review', 'active', 'open'];
+  renderTasks(backwards.map(k => T('task ' + k, k)));
+  const words = rows().map(r => cellOf(r, 'st').textContent);
+  const want = COLS.filter(c => backwards.includes(c.key)).map(c => c.short);
+  assert.deepStrictEqual(words, want,
+    'rows are out of board order: ' + words.join(', '));
+});
+
+test('an unknown status sorts with To Do rather than sinking or vanishing', () => {
+  // colFor() already resolves an unheard-of status to To Do; the sort must
+  // agree with it, or a task could sort below the done line and be lost.
+  renderTasks([T('weird', 'no-such-status'), T('a', 'active')]);
+  const titles = rows().map(r => cellOf(r, 'title').textContent);
+  assert.ok(titles[0].includes('weird'),
+    'an unknown status did not sort with To Do: ' + titles.join(', '));
+  assert.strictEqual(rows().length, 2, 'the unknown status vanished');
+});
+
+test('the done count line carries no border -- a border says pressable', () => {
+  // This page's own rule. The line is a fact, and the board is the control.
+  const block = src.slice(src.indexOf('#tasks .task-done-line {'));
+  const rule = block.slice(0, block.indexOf('}'));
+  assert.ok(!/(^|[^-])border:/.test(rule),
+    'the done count line has a border -- it will read as a button');
 });
 
 test('the row class is the COLUMN class, not a second vocabulary', () => {

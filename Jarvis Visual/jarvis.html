@@ -803,11 +803,25 @@
   }
   #tasks .task.checking .st { color: rgba(var(--accent-rgb), 0.9); }
   /* done -- finished today, dimmed rather than removed, so it is visibly
-     spent instead of competing with live work for the eye. */
+     spent instead of competing with live work for the eye.
+     KEPT, though no done task is drawn in this card any more (2026-08-06):
+     the BOARD's Done column still uses this vocabulary, and a future card
+     that shows one would otherwise silently lose its styling. */
   #tasks .task.done { border-left-color: rgba(var(--ok-soft-rgb), 0.30); }
   #tasks .task.done .dot { background: rgba(var(--ok-soft-rgb), 0.40); }
   #tasks .task.done .title { color: rgba(var(--accent-rgb), 0.45); }
   #tasks .task.done .st { color: rgba(var(--ok-soft-rgb), 0.55); }
+  /* Serge, 2026-08-06 ~5:40 PM: "just one line saying done, five, 20, whatever
+     the count is, and if I go to the board then I could see the done." So the
+     finished work leaves this card entirely and leaves a COUNT behind. It is a
+     fact, not a control -- no border, no hover, nothing to press, because a
+     border says pressable on this page and the board is where you go to look. */
+  #tasks .task-done-line {
+    margin-top: 6px; padding: 3px 2px 0 8px;
+    border-top: 1px solid rgba(var(--accent-rgb), 0.14);
+    font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: rgba(var(--ok-soft-rgb), 0.55);
+  }
   @keyframes taskpulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.25; }
@@ -1964,7 +1978,21 @@ function renderTasks(tasks){
   const body = document.getElementById('tasks-body');
   body.innerHTML = '';
   card.style.display = tasks.length ? 'block' : 'none';
-  for (const tk of tasks) {
+  // Serge, 2026-08-06: done work sinks out of this card and leaves a count.
+  // Until now the list had NO sort at all -- it drew the note's file order, so
+  // finished items sat scattered above live ones and the card read backwards.
+  // The order is BOARD_COLS' own, so the card and the board cannot disagree
+  // about what comes first: "it should be the same thing, just a different
+  // view on it." A status the table has never heard of sorts with To Do
+  // rather than vanishing, exactly as colFor() already resolves it.
+  const rank = (tk) => {
+    const i = BOARD_COLS.findIndex(c => c.key === tk.status);
+    return i < 0 ? 0 : i;
+  };
+  const live = tasks.filter(tk => tk.status !== 'done')
+                    .sort((a, b) => rank(a) - rank(b));
+  const doneCount = tasks.length - live.length;
+  for (const tk of live) {
     const div = document.createElement('div');
     // Was three hand-written states (active / waiting / everything else),
     // which is why review, test and done had no colour and showed their raw
@@ -1984,6 +2012,14 @@ function renderTasks(tasks){
     div.appendChild(title);
     div.appendChild(st);
     body.appendChild(div);
+  }
+  // No line at all when nothing finished -- an empty "DONE · 0" is noise on a
+  // quiet day, and this card already hides itself rather than draw a blank box.
+  if (doneCount) {
+    const d = document.createElement('div');
+    d.className = 'task-done-line';
+    d.textContent = 'done · ' + doneCount;
+    body.appendChild(d);
   }
 }
 
