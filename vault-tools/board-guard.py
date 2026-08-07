@@ -60,10 +60,21 @@ Six rules hold that shut, and every one is tested.
    TITLE is never printed -- it is vault text, and there is no reason
    worth the channel.
 
-2. THE PAYLOAD IS READ FOR TWO FACTS AND NOTHING ELSE: the tool's name,
-   matched against a closed set, and whether a command string contains
-   one hardcoded literal. Both collapse to a BOOLEAN before anything
-   else happens. Past that point the payload does not exist.
+2. THE PAYLOAD IS READ FOR FOUR FACTS AND NOTHING ELSE: the tool's name,
+   matched against a closed set; whether a command string contains one
+   hardcoded literal; whether a path lies under the project and under the
+   vault; and the session id. The first three collapse to BOOLEANS or to
+   a word chosen from a literal tuple in this file. Past that point the
+   payload does not exist.
+
+   THE SESSION ID IS THE ONE FIELD THAT TRAVELS (added 2026-08-07 for the
+   activity line -- see vault-tools/activity.py). It is an id, not prose:
+   its charset is revalidated against `^[0-9a-fA-F-]{8,64}$` before it is
+   written, exactly as the session bus does, so it can no more form a
+   sentence than a pid can. It is never printed into the model's
+   attention by this hook -- it goes to a state file outside the vault.
+   Stated here rather than left implied, because "the payload does not
+   exist past this point" was the old absolute and it is now narrower.
 
 3. THE PATH IS HARDCODED, resolved relative to this file. Not argv, not
    environ, not the payload.
@@ -109,6 +120,12 @@ TESTING = "test"
 # Rule 2: the closed set of tools that count as "work on the code".
 EDIT_TOOLS = ("Edit", "Write", "NotebookEdit")
 RUN_TOOLS = ("Bash",)
+
+# Reading is work too -- Serge's own rule says thinking counts, and reading
+# around a problem is the visible half of thinking. Named as a closed set for
+# the same reason as the other two: the word comes from this file, never from
+# the payload.
+READ_TOOLS = ("Read", "Grep", "Glob", "NotebookRead", "WebFetch", "WebSearch")
 
 # A code file, as opposed to a vault note. Editing the vault is not the
 # thing being guarded -- writing notes IS the record-keeping.
@@ -163,11 +180,72 @@ def statuses(path: str) -> dict:
     return out
 
 
+def activity_word(tool, inp) -> str:
+    """The payload, reduced to ONE WORD FROM A CLOSED SET, or "".
+
+    Serge, 2026-08-07: "I like to be in sync all the time... we see what's
+    happening live." This is the whole of what this hook contributes to
+    that -- see vault-tools/activity.py for why the vocabulary is closed.
+
+    Rule 2 still holds and is the reason this returns a word rather than a
+    description: the word is CHOSEN here from a literal tuple, never taken
+    from the payload. A path is tested, never echoed; a command is matched
+    against one pattern, never quoted. Nothing a tool call contains can
+    reach the value returned.
+    """
+    if tool in EDIT_TOOLS:
+        p = inp.get("file_path")
+        if not isinstance(p, str):
+            return ""
+        rp = os.path.realpath(p)
+        if not rp.startswith(_ROOT + os.sep):
+            return ""              # outside the project: not our business
+        if rp.startswith(os.path.join(_ROOT, "Jarvis-brain") + os.sep):
+            return "writing the vault"
+        if p.lower().endswith(CODE_EXT):
+            return "editing code"
+        return ""
+    if tool in RUN_TOOLS:
+        c = inp.get("command")
+        if isinstance(c, str) and TEST_MARKER.search(c):
+            return "running the suite"
+        return "running a command"
+    if tool in READ_TOOLS:
+        return "reading"
+    return ""
+
+
+def record_activity(data) -> None:
+    """Write this session's current word. Never raises, never blocks.
+
+    Keyed by the session id from the payload -- an id, not prose, and its
+    shape is revalidated by activity.valid_sid before anything is written.
+    It is the ONE payload field other than the tool name that this hook
+    passes on, and it can no more form a sentence than a pid can.
+    """
+    try:
+        sid = data.get("session_id")
+        word = activity_word(data.get("tool_name"),
+                             data.get("tool_input")
+                             if isinstance(data.get("tool_input"), dict) else {})
+        if not word:
+            return
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import activity
+        activity.write(sid, word, os.getppid())
+    except Exception:
+        return          # rule 4: a hook never costs Serge his session
+
+
 def read_payload() -> tuple:
     """Rule 2: reduce the payload to (is_edit, is_test_run) and drop it.
 
     Everything after this function sees two booleans. There is no code
     path by which a byte of tool input reaches the output.
+
+    The activity word is taken here too, on the way past, for the same
+    reason the booleans are: this is the one place the payload exists, and
+    it must not exist anywhere after it.
     """
     raw = sys.stdin.read(MAX_STDIN) if not sys.stdin.isatty() else ""
     if not raw:
@@ -175,6 +253,7 @@ def read_payload() -> tuple:
     data = json.loads(raw)
     if not isinstance(data, dict):
         return (False, False)
+    record_activity(data)
     tool = data.get("tool_name")
     inp = data.get("tool_input")
     inp = inp if isinstance(inp, dict) else {}

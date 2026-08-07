@@ -900,6 +900,30 @@
     font-size: 9.5px; letter-spacing: 0.06em;
     color: rgba(var(--accent-rgb), 0.7); flex-shrink: 0;
   }
+  /* WHAT THE SESSION IS DOING. A fact, not a control and not a status:
+     no border (a border says pressable, this page's own rule) and no
+     status colour of its own, because green/amber/red already mean up,
+     waiting and broken here -- and "editing code" is none of those. It
+     takes the accent at low weight so it reads as a subtitle to the name
+     it sits beside, and it yields its width first when the row is tight:
+     the WHO is the thing that must never be lost. */
+  #sessions .sess .sess-doing {
+    font-size: 9.5px; letter-spacing: 0.05em;
+    color: rgba(var(--accent-rgb), 0.55);
+    font-style: italic;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0; flex-shrink: 1;
+  }
+  /* On a session that is mid-turn the word is the live one, so it brightens
+     with the row rather than staying quiet -- same green as the pulse, but
+     never the pulse itself: one thing on a row may animate. */
+  /* --ok-SOFT-rgb, not --ok-rgb: the latter does not exist. Written wrong
+     first and caught by reading the token table instead of assuming it --
+     an undefined custom property in an rgba() makes the whole declaration
+     invalid, so the word would simply have had no colour, and nothing
+     would have said so. Silent CSS is the failure mode with no exception
+     and no log. */
+  #sessions .sess.busy .sess-doing { color: rgba(var(--ok-soft-rgb), 0.85); }
   #sessions .sess.busy { border-left-color: var(--ok); }
   #sessions .sess.busy .dot {
     background: var(--ok); box-shadow: 0 0 7px var(--ok);
@@ -2539,8 +2563,13 @@ function sessSig(list){
   // Deliberately NOT the whole payload. `age` and `last_activity` change on
   // every poll and this runs at 15 Hz, so the signature carries identity
   // plus drawn state only; the clocks are moved by tickSessions instead.
+  // `doing` IS part of the signature -- it is drawn state, and a word that
+  // changed without a redraw would make the card a slower lie than the board
+  // it exists to check. `doing_at` is deliberately NOT: it moves every poll
+  // and tickSessions draws it, exactly like the other clocks here.
   return list.map(s => [s.pid, s.session_id, s.channel, s.model,
                         s.unregistered ? 1 : 0,
+                        s.doing || '',
                         sessBusy(s) ? 1 : 0].join(':')).join('|');
 }
 function renderSessions(list){
@@ -2587,11 +2616,35 @@ function renderSessions(list){
       'cwd      ' + (s.cwd || '?'),
       s.transcript_path ? 'log      ' + s.transcript_path : ''
     ].filter(Boolean).join('\n');
+    // WHAT IT IS DOING, from the server's closed vocabulary.
+    //
+    // Serge, 2026-08-07: "I like to be in sync all the time... we see what's
+    // happening live." This is the line that answers it. It is drawn ONLY
+    // when the server sent one -- an absent word stays absent rather than
+    // becoming "idle" or "unknown", because the page cannot tell a quiet
+    // session from a server too old to send the field, and inventing the
+    // difference is how a panel starts under-reporting.
+    //
+    // textContent, never innerHTML: the value is a literal from a closed set
+    // today, and this line is the one place it reaches the DOM. Writing it
+    // safely costs nothing and survives a future where the set is wrong.
+    let doing = null;
+    if (s.doing) {
+      doing = document.createElement('span');
+      doing.className = 'sess-doing';
+      doing.textContent = s.doing;
+      if (s.doing_at) doing.setAttribute('data-doing-at', s.doing_at);
+      doing.title = 'what this session was doing at its last tool call — '
+                  + 'written by the board guard from a fixed set of words, '
+                  + 'never quoted from a file or a command';
+    }
     const meta = document.createElement('span');
     meta.className = 'sess-meta';
     if (s.started_at)    meta.setAttribute('data-since', s.started_at);
     if (s.last_activity) meta.setAttribute('data-act', s.last_activity);
-    div.appendChild(dot); div.appendChild(who); div.appendChild(meta);
+    div.appendChild(dot); div.appendChild(who);
+    if (doing) div.appendChild(doing);
+    div.appendChild(meta);
     body.appendChild(div);
   }
   tickSessions();                      // draw the clocks once, now

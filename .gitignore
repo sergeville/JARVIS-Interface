@@ -53,6 +53,9 @@ voice-line/.stack-events.jsonl
 voice-line/.board-guard.json
 voice-line/.usage.json
 voice-line/.voice_transcript
+# What each session is doing right now. Live state AND it carries session
+# ids and pids -- this repo is public, so it is excluded for both reasons.
+voice-line/.activity.json
 
 # ---- Large, and reproducible from the README rather than from git ---------
 # whisper GGML weights ~465 MB (install step 3); kokoro-fastapi ~1.5 GB

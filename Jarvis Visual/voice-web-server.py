@@ -50,6 +50,8 @@ from brain import Brain, WARMUP_PROMPT          # noqa: E402
 # writer, this reader and `jarvis.sh sessions` can never disagree about the
 # record's shape. Liveness is decided there, from the process table.
 import session_registry                        # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "vault-tools"))
+import activity                                # noqa: E402
 # The session notice bus, same folder and same reason. Read-only here: this
 # server never POSTS a notice, it only shows them, so nothing on the page can
 # become a way for one session to speak to another.
@@ -503,6 +505,26 @@ def read_sessions() -> list[dict]:
     except Exception as e:
         print(f"session registry read failed: {e}", flush=True)
         rows = []
+
+    # WHAT EACH SESSION IS DOING, joined on here rather than stored in the
+    # registry. Serge, 2026-08-07: "I like to be in sync all the time... we
+    # see what's happening live." The registry answers WHO is alive from the
+    # process table; this adds WHAT, from the closed vocabulary that
+    # vault-tools/activity.py will accept and nothing else.
+    #
+    # A session with no activity row gets no word at all, never a guessed
+    # one -- the same rule as the owner stamp: a wrong value reads as fact
+    # while a missing one reads as unknown.
+    try:
+        acts = activity.read()
+        for r in rows:
+            a = acts.get(r.get("session_id") or "")
+            if a and a.get("pid") == r.get("pid"):
+                r["doing"] = a["word"]
+                r["doing_at"] = a["ts"]
+    except Exception as e:
+        print(f"activity read failed: {e}", flush=True)
+
     _SESSION_CACHE.update(at=now, rows=rows)
     return rows
 
