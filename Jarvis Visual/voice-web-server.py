@@ -256,7 +256,8 @@ def read_ideas() -> list[dict]:
         if not started:
             continue
         if line.startswith("### "):
-            cur = {"title": line[4:].strip(), "raised": "", "gist": ""}
+            cur = {"title": line[4:].strip(), "raised": "", "gist": "",
+                   "body": []}
             ideas.append(cur)
             continue
         if cur is None:
@@ -266,6 +267,23 @@ def read_ideas() -> list[dict]:
             # Same treatment as a task's fields: brackets are vault syntax,
             # not something to read on a panel.
             cur[m.group(1)] = m.group(2).replace("[[", "").replace("]]", "")
+            continue
+        # EVERYTHING ELSE IS THE THINKING (Serge, 2026-08-07 ~6:00 PM: he asked
+        # to see the whole argument, not the one-line gist). Carried as a list
+        # of paragraphs so the page never has to guess where one ends.
+        #
+        # The vault's own emphasis markers are stripped rather than rendered:
+        # this text goes into innerHTML on the page, and the smallest amount of
+        # markup understood is the smallest amount that can be abused. A note
+        # is hand-editable, so its contents are treated as data, never markup.
+        stripped = line.strip()
+        if not stripped:
+            continue
+        for mark in ("**", "*", "`", "[[", "]]", "> "):
+            stripped = stripped.replace(mark, "")
+        if stripped.startswith("- "):
+            stripped = stripped[2:]
+        cur["body"].append(stripped)
     _IDEA_CACHE.update({"mtime": mtime, "ideas": ideas})
     return ideas
 

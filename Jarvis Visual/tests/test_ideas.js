@@ -89,6 +89,80 @@ test('an idea with no gist still draws, without an empty box', () => {
   assert.ok(!list().includes('raised'), 'an empty raised row was drawn');
 });
 
+// ---- the thinking, folded (Serge, 2026-08-07 ~6:00 PM) ---------------------
+// "Is it possible to have everything that was spoken so I could see what's on
+// file now?" The gist is one line; the argument is the point. It is FOLDED
+// rather than always-open because five unrolled ideas would bury the list --
+// his own EVENTS rule: fold, never truncate.
+
+test('an idea with thinking carries every paragraph of it', () => {
+  renderIdeas([{ title: 'T', raised: '', gist: '',
+                 body: ['first thought', 'second thought'] }]);
+  assert.ok(list().includes('first thought'), 'the thinking was dropped');
+  assert.ok(list().includes('second thought'), 'only the first paragraph survived');
+});
+
+test('the thinking is marked foldable and says how much there is', () => {
+  renderIdeas([{ title: 'T', raised: '', gist: '', body: ['a', 'b', 'c'] }]);
+  assert.ok(/class="icard has-more"/.test(list()), 'the card is not foldable');
+  // Read the VISIBLE label, not the whole HTML. The count also lives in the
+  // element's data-shut attribute (the folded caption, kept there so the
+  // render owns it and the click handler does not recompute it) -- and a
+  // first version of this assertion matched THAT, so deleting the visible
+  // count passed. Same trap as the two-identical-selectors miss: a guard that
+  // matches the wrong occurrence guards nothing.
+  const shown = list().match(/<div class="imore"[^>]*>([^<]*)<\/div>/);
+  assert.ok(shown, 'the fold hint is gone');
+  assert.ok(/3 more/.test(shown[1]),
+    'the fold does not say how much is hidden: ' + shown[1]);
+});
+
+test('an idea with NO thinking is not dressed up as foldable', () => {
+  // A card that invites a click and then does nothing is worse than a plain
+  // one. Most of the panel will be these.
+  renderIdeas([{ title: 'T', raised: '', gist: 'g', body: [] }]);
+  assert.ok(!/has-more/.test(list()), 'a bodyless idea claims to have more');
+  assert.ok(!/imore/.test(list()), 'a bodyless idea draws a fold hint');
+  assert.ok(!/tabindex/.test(list()), 'a bodyless idea is focusable for nothing');
+});
+
+test('an OLD server with no body field does not break the panel', () => {
+  // The page reloads on its own; the server needs Serge to restart it. So the
+  // page WILL run against a server that knows nothing about bodies, and it has
+  // to render the old shape rather than throw.
+  assert.doesNotThrow(() => renderIdeas([{ title: 'T', raised: '', gist: 'g' }]));
+  assert.ok(list().includes('T'));
+  assert.ok(!/has-more/.test(list()));
+});
+
+test('THE THINKING IS ESCAPED -- the note is hand-editable and this reaches the DOM', () => {
+  renderIdeas([{ title: 'T', raised: '', gist: '',
+                 body: ['<img src=x onerror=alert(1)>'] }]);
+  assert.ok(!/<img/.test(list()), 'markup from the vault reached the DOM');
+  assert.ok(/&lt;img/.test(list()), 'the paragraph was dropped instead of escaped');
+});
+
+test('the fold is a fold -- nothing on an idea can start, open or change anything', () => {
+  // The panel is read-only BY CONSTRUCTION; that is the whole reason ideas
+  // live apart from the board. A click handler is the obvious place for that
+  // to erode, so the handler is read here.
+  const h = src.match(/function wireIdeaFold\(\)\{[\s\S]*?\n\}\)\(\);/);
+  assert.ok(h, 'the fold wiring is gone');
+  for (const forbidden of ['fetch(', 'move_task', 'task_move', 'ws.send',
+                           'location', 'window.open']) {
+    assert.ok(!h[0].includes(forbidden),
+      'the ideas panel reaches out via ' + forbidden + ' -- it is read-only');
+  }
+});
+
+test('the fold is delegated to the list, not bound per card', () => {
+  // renderIdeas rebuilds the list HTML on every change, so per-card handlers
+  // would be thrown away with it and the fold would go dead after a poll.
+  const h = src.match(/function wireIdeaFold\(\)\{[\s\S]*?\n\}\)\(\);/)[0];
+  assert.ok(/list\.addEventListener\('click'/.test(h),
+    'the click is not delegated to the list');
+});
+
 test('an empty queue HIDES the panel rather than drawing a heading over nothing', () => {
   renderIdeas([I('x')]);
   assert.strictEqual(nodes['ideas-sec'].style.display, '');

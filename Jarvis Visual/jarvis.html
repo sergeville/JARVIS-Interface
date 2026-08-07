@@ -273,6 +273,19 @@
     color: rgba(var(--accent-rgb), 0.75); margin-bottom: 10px;
   }
   #ideas-list { overflow-y: auto; min-height: 0; }
+  /* Folded by default; .open unrolls it. max-height rather than display so
+     the unfold is a movement he can follow rather than a jump. */
+  .icard .ib { max-height: 0; overflow: hidden; transition: max-height 300ms ease; }
+  .icard.open .ib { max-height: 1400px; }
+  .icard .ib p {
+    margin: 7px 0 0; font-size: 10px; line-height: 1.5;
+    letter-spacing: 0.02em; text-transform: none; color: var(--text-soft);
+  }
+  .icard.has-more { cursor: pointer; }
+  .icard .imore {
+    margin-top: 6px; font-size: 8.5px; letter-spacing: 0.1em;
+    color: rgba(var(--accent-rgb), 0.5);
+  }
   .icard {
     border: 1px solid rgba(var(--accent-rgb), 0.16);
     border-radius: 4px; padding: 9px 11px; margin-bottom: 8px;
@@ -2360,13 +2373,59 @@ function renderIdeas(ideas){
     return;
   }
   sec.style.display = '';
-  list.innerHTML = ideas.map(i =>
-      '<div class="icard">'
+  // THE THINKING IS ON THE CARD, FOLDED (Serge, 2026-08-07 ~6:00 PM: he asked
+  // to see the whole argument, not the one-line gist). Folded rather than
+  // always-open because an idea's reasoning runs to paragraphs and five of
+  // them unrolled would bury the list -- this is his own EVENTS rule: fold,
+  // never truncate. A line you cannot read is a line never said.
+  //
+  // Every paragraph goes through esc(). The vault note is hand-editable and
+  // this text reaches the DOM, so it is treated as data, never markup.
+  list.innerHTML = ideas.map((i, n) =>
+      '<div class="icard' + ((i.body && i.body.length) ? ' has-more' : '') + '"'
+    + ((i.body && i.body.length) ? ' data-idea="' + n + '" tabindex="0"' : '') + '>'
     + '<div class="it">' + esc(i.title || '') + '</div>'
     + (i.gist ? '<div class="ig">' + esc(i.gist) + '</div>' : '')
     + (i.raised ? '<div class="ir">raised ' + esc(i.raised) + '</div>' : '')
+    + ((i.body && i.body.length)
+        ? '<div class="ib">'
+            + i.body.map(par => '<p>' + esc(par) + '</p>').join('')
+          + '</div>'
+          + '<div class="imore" data-shut="' + i.body.length
+            + ' more &middot; click to read">'
+            + i.body.length + ' more &middot; click to read</div>'
+        : '')
     + '</div>').join('');
 }
+
+// Click anywhere on an idea to unfold its thinking. Delegated to the list
+// rather than bound per card, because renderIdeas rebuilds the HTML on every
+// change and per-card handlers would be thrown away with it.
+//
+// It stays a fold, never a navigation: nothing here opens, starts or changes
+// anything -- the panel is read-only by construction and this must not become
+// the exception.
+(function wireIdeaFold(){
+  const list = document.getElementById('ideas-list');
+  if (!list) return;
+  const toggle = (card) => {
+    if (!card || !card.classList.contains('has-more')) return;
+    const open = card.classList.toggle('open');
+    // The shut label is carried on the element rather than rebuilt here: the
+    // count belongs to the render, and recomputing it in two places is how the
+    // two come to disagree.
+    const more = card.querySelector('.imore');
+    if (more) more.textContent = open ? 'click to fold'
+                                      : (more.getAttribute('data-shut') || '');
+  };
+  list.addEventListener('click', (e) => toggle(e.target.closest('.icard')));
+  list.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggle(e.target.closest('.icard'));
+    }
+  });
+})();
 
 // The header is two bars now and either can change height -- the usage strip
 // wraps, a longer label reflows. So the sheets are positioned from a MEASURED

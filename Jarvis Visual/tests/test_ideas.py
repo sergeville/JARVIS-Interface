@@ -45,7 +45,53 @@ class TheMirrorShowsWhatIsThere(Base):
             "- raised: 2026-08-07\n- gist: catch mice, but nicer.\n")
         self.assertEqual(got, [{"title": "A better mousetrap",
                                 "raised": "2026-08-07",
-                                "gist": "catch mice, but nicer."}])
+                                "gist": "catch mice, but nicer.",
+                                "body": []}])
+
+    # ---- the thinking (Serge, 2026-08-07 ~6:00 PM) ------------------------
+    # He asked to see the whole argument behind an idea, not the one-line
+    # gist. The prose under the fields IS that argument, so the parser has to
+    # carry it rather than drop it on the floor.
+
+    def test_the_prose_under_the_fields_is_carried_as_the_body(self):
+        got = self.parse(
+            "## Open ideas\n### A better mousetrap\n"
+            "- raised: 2026-08-07\n- gist: catch mice.\n\n"
+            "The old one is cruel.\n\nAnd it never worked.\n")
+        self.assertEqual(got[0]["body"],
+                         ["The old one is cruel.", "And it never worked."])
+
+    def test_blank_lines_do_not_become_empty_paragraphs(self):
+        got = self.parse("## Open ideas\n### T\n\n\nonly this\n\n\n")
+        self.assertEqual(got[0]["body"], ["only this"])
+
+    def test_the_fields_do_not_leak_into_the_body(self):
+        # raised/gist are rendered in their own slots; repeating them in the
+        # unfolded thinking would read as the panel stuttering.
+        got = self.parse("## Open ideas\n### T\n- raised: 2026-08-07\n"
+                         "- gist: g\nreal prose\n")
+        self.assertEqual(got[0]["body"], ["real prose"])
+
+    def test_vault_markup_is_STRIPPED_not_passed_through(self):
+        # This text reaches the page's innerHTML. The note is hand-editable,
+        # so its contents are data, never markup -- the less syntax understood,
+        # the less there is to abuse.
+        got = self.parse("## Open ideas\n### T\n"
+                         "**bold** and *stars* and `code` and [[a link]]\n")
+        self.assertEqual(got[0]["body"], ["bold and stars and code and a link"])
+
+    def test_a_bullet_keeps_its_text_and_loses_its_dash(self):
+        got = self.parse("## Open ideas\n### T\n- not a field, just a point\n")
+        self.assertEqual(got[0]["body"], ["not a field, just a point"])
+
+    def test_a_fenced_block_inside_an_idea_stays_out_of_the_body(self):
+        # An idea ABOUT this system will contain a code sample, and a fence's
+        # contents are not prose. Same trap that once let task.py parse the
+        # legend's worked example as a live card.
+        got = self.parse("## Open ideas\n### T\nbefore\n"
+                         "```\n- gist: not a real field\n```\nafter\n")
+        self.assertEqual(got[0]["body"], ["before", "after"])
+        self.assertEqual(got[0]["gist"], "")
 
     def test_several_ideas_keep_the_notes_own_order(self):
         got = self.parse("## Open ideas\n### One\n- raised: 2026-01-01\n"
