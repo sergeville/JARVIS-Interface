@@ -24,6 +24,12 @@
        yes/no regardless of the theme, so they stay literal on purpose.
      Rule going forward: use a token, never a literal. */
   :root {
+    /* Where the roll-down sheets start: the bottom of the header, whatever the
+       header currently is. It was a hardcoded 74px until the instrument row
+       landed on 2026-08-07 and made that number wrong -- the sheets would have
+       opened UNDERNEATH the new row. Measured at load and on resize by
+       measureHeader(); this value is only the pre-measurement default. */
+    --header-h: 74px;
     --accent-rgb: 0, 150, 255;   /* every rgba() border and glow keys off this */
     --bg-deep:     #050a14;
     --bg-panel:    rgba(2, 12, 26, 0.85);
@@ -110,6 +116,16 @@
     background: var(--bg-bar); color: var(--text-soft);
   }
   #topbar .mid { opacity: 0.7; font-size: 11px; letter-spacing: 0.35em; }
+  /* The instrument row. Deliberately QUIETER than the bar above it: smaller
+     type, a softer rule beneath, no background of its own. It is a shelf under
+     the header, not a second header competing with the first. */
+  #instrbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 20px; font-size: 11px;
+    border-bottom: 1px solid rgba(var(--accent-rgb), 0.16);
+    background: var(--bg-bar);
+  }
+  #instr-left, #instr-right { display: flex; align-items: center; gap: 16px; }
   #clock {
     font-family: "Menlo", monospace; font-size: 11px;
     letter-spacing: 0.1em; color: var(--text-soft);
@@ -234,7 +250,7 @@
     background: rgba(var(--accent-rgb), 0.10);
   }
   #ideas {
-    position: fixed; left: 12px; right: 12px; top: 74px; z-index: 60;
+    position: fixed; left: 12px; right: 12px; top: var(--header-h); z-index: 60;
     transform: translate(26px, -14px);
     opacity: 0; pointer-events: none; visibility: hidden;
     transition: opacity 520ms ease, transform 520ms cubic-bezier(.2,.8,.3,1),
@@ -278,7 +294,7 @@
     opacity: 0.42; text-transform: uppercase;
   }
   #board {
-    position: fixed; right: 12px; top: 74px;
+    position: fixed; right: 12px; top: var(--header-h);
     transform: translate(26px, -14px);
     width: min(1060px, calc(100vw - 262px)); z-index: 60;
     opacity: 0; pointer-events: none; visibility: hidden;
@@ -1198,16 +1214,31 @@
     </div>
   </div>
   <div id="topbar-right">
+    <div id="clock">--:--:--</div>
+  </div>
+</div>
+
+<!-- THE INSTRUMENT ROW (Serge, 2026-08-07 ~5:40 PM). The top bar had become
+     identity and instruments in one line -- MARK III, the title, the clock,
+     three usage percentages and three controls. His fix: "I would put a second
+     header underneath with all this."
+     Split left and right on his "you decide": READINGS on the left (what is
+     true, nothing to press) and CONTROLS on the right (what he can change).
+     They are different kinds of thing and mixing them is what made the row
+     read as clutter. The clock stays upstairs -- it is identity, not an
+     instrument. -->
+<div id="instrbar">
+  <div id="instr-left">
     <div id="topbar-usage" title=""></div>
+  </div>
+  <div id="instr-right">
     <button id="usage-toggle" class="paused" title="Polling costs tokens -- each poll asks Claude Code directly">PAUSED</button>
-    <!-- Ships OFF. Nothing on this page makes a sound Serge did not ask for. -->
     <!-- Silences the SPEAKERS only: Jarvis keeps going and the text keeps
          writing, so nothing is lost while someone is talking to Serge. -->
     <button id="mute-toggle" class="on" title="Silence Jarvis. He keeps talking and the text keeps writing -- you just stop hearing it.">VOICE ON</button>
+    <!-- Ships OFF. Nothing on this page makes a sound Serge did not ask for. -->
     <button id="music-toggle" class="off" title="Soft ambient bed while Jarvis is working. Silent while your mic is open.">MUSIC OFF</button>
     <input id="music-vol" type="range" min="0" max="0.45" step="0.01" title="Music volume">
-
-    <div id="clock">--:--:--</div>
   </div>
 </div>
 
@@ -2336,6 +2367,27 @@ function renderIdeas(ideas){
     + (i.raised ? '<div class="ir">raised ' + esc(i.raised) + '</div>' : '')
     + '</div>').join('');
 }
+
+// The header is two bars now and either can change height -- the usage strip
+// wraps, a longer label reflows. So the sheets are positioned from a MEASURED
+// header rather than a constant. This is the same lesson as boardOpen()
+// measuring the tasks heading instead of assuming 96px: a magic number is
+// correct on a quiet day and wrong on exactly the busy one.
+function measureHeader(){
+  const bar = document.getElementById('instrbar');
+  if (!bar) return;
+  const b = bar.getBoundingClientRect();
+  // A zero or negative measurement means the bar is not laid out yet. Acting
+  // on it would slam the sheets to the top of the window, which is worse than
+  // the default -- so ignore it and keep whatever is already set.
+  if (b.bottom > 0) {
+    document.documentElement.style.setProperty('--header-h',
+      Math.round(b.bottom + 8) + 'px');
+  }
+}
+measureHeader();
+addEventListener('resize', measureHeader);
+addEventListener('load', measureHeader);
 
 function ideasOpen(open){
   if (open) {

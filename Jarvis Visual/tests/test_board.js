@@ -691,8 +691,79 @@ test('an unlaid-out strip does not slam the sheet to the top of the page', () =>
 });
 
 test('the CSS still carries a resting top, so a measure-less open is not broken', () => {
-  assert.ok(/top: \d+px/.test(rule('#board')),
-    '#board has no fallback top -- it would sit at the viewport edge');
+  // The resting top was a literal 74px until the instrument row landed
+  // (2026-08-07) and made that number wrong -- the sheets would have opened
+  // UNDERNEATH the new second header. It is now var(--header-h), measured.
+  //
+  // The PROPERTY this guards has not changed and must not: an open that never
+  // measures still has to land below the header rather than at the viewport
+  // edge. So this follows the fallback to where it lives instead of pinning
+  // the old spelling -- and it checks the whole chain, because a var() whose
+  // default is missing is exactly the failure the literal used to prevent.
+  const top = rule('#board').match(/top:\s*([^;]+);/);
+  assert.ok(top, '#board has no resting top at all');
+  const val = top[1].trim();
+  // A LITERAL IS NO LONGER ACCEPTABLE, and that is the point. The first
+  // version of this test allowed one -- and an injection reverting to the old
+  // `top: 74px` passed it, while opening the sheet UNDERNEATH the instrument
+  // row. A constant cannot be right here: the header is two bars and either
+  // can reflow. The variable is the fix, so the variable is what is required.
+  const m = val.match(/^var\((--[\w-]+)\)$/);
+  assert.ok(m, '#board top is neither a px value nor a single var(): ' + val);
+  const root = rule(':root');
+  const def = root.match(new RegExp(m[1] + ':\\s*(\\d+)px'));
+  assert.ok(def, m[1] + ' has no px default in :root -- a measure-less open '
+                      + 'would sit at the viewport edge');
+  assert.ok(parseInt(def[1], 10) > 0, m[1] + ' defaults to zero');
+});
+
+test('BOTH roll-down sheets rest below the header, not just the board', () => {
+  // The ideas sheet was pinned at the same hardcoded 74px and had no
+  // measurement of its own, so the instrument row would have opened it under
+  // the new bar. Same fallback, same variable, asserted separately -- fixing
+  // one and forgetting the other is the shape this catches.
+  for (const sel of ['#board', '#ideas']) {
+    const m = rule(sel).match(/top:\s*([^;]+);/);
+    assert.ok(m, sel + ' has no resting top');
+    assert.strictEqual(m[1].trim(), 'var(--header-h)',
+      sel + ' is back on a hardcoded top -- it will open under the header');
+  }
+});
+
+test('the header height is MEASURED, never a constant', () => {
+  // Same lesson as boardOpen measuring the tasks heading rather than assuming
+  // 96px: the header is two bars now and either can reflow, so a number that
+  // is right today is wrong on the day the usage strip wraps.
+  // RUN IT, do not read it. The first version of this test matched
+  // getBoundingClientRect in the source -- and an injection that put a bare
+  // `return;` at the top of the function passed, because the code it checks
+  // for was still there, just unreachable. That is this project's oldest
+  // failure: a guard that proves a line EXISTS, never that it RUNS.
+  const fn = src.match(/function measureHeader\(\)\{[\s\S]*?\n\}/);
+  assert.ok(fn, 'measureHeader is gone -- the sheets are back on a constant');
+
+  let setProps = {};
+  const stub = {
+    getElementById: (id) => (id === 'instrbar'
+      ? { getBoundingClientRect: () => stub._rect } : null),
+    documentElement: { style: { setProperty: (k, v) => { setProps[k] = v; } } },
+    _rect: { bottom: 120 },
+  };
+  const measureHeader = new Function('document', fn[0] + '; return measureHeader;')(stub);
+
+  measureHeader();
+  assert.strictEqual(setProps['--header-h'], '128px',
+    'the header height is not measured from the real bar');
+
+  // A zero measurement means the bar is not laid out yet. Acting on it would
+  // slam both sheets to the top of the window -- worse than the default.
+  setProps = {}; stub._rect = { bottom: 0 };
+  measureHeader();
+  assert.deepStrictEqual(setProps, {},
+    'a zero measurement was trusted -- the sheets will cover the header');
+
+  assert.ok(/addEventListener\('resize', measureHeader\)/.test(src),
+    'the header is not re-measured on resize');
 });
 
 // ---- the step line: what is happening INSIDE the card ----------------------

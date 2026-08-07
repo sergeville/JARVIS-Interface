@@ -314,6 +314,75 @@ test('the speaker is prefixed onto the text, not left implicit', () => {
   assert.strictEqual(linesEl.children[0].textContent, 'you: hello');
 });
 
+// ---- the instrument row (Serge, 2026-08-07 ~5:40 PM) -----------------------
+// "I would put a second header underneath with all this." The top bar had
+// become identity and instruments on one line. These guard the split, because
+// the failure mode is silent: a control drifting back up top looks fine and
+// slowly rebuilds the crowding he asked to be rid of.
+
+function bar(id) {
+  const i = src.indexOf('id="' + id + '"');
+  assert.ok(i > 0, '#' + id + ' is gone from the page');
+  // Slice to the matching close by counting divs from the opening tag.
+  let j = src.indexOf('>', i) + 1, depth = 1;
+  while (depth > 0) {
+    const open = src.indexOf('<div', j), close = src.indexOf('</div>', j);
+    if (close < 0) break;
+    if (open > -1 && open < close) { depth++; j = open + 4; }
+    else { depth--; j = close + 6; }
+  }
+  return src.slice(i, j);
+}
+
+test('the readings and the controls live on the instrument row, not the top bar', () => {
+  const instr = bar('instrbar');
+  for (const id of ['topbar-usage', 'usage-toggle', 'mute-toggle',
+                    'music-toggle', 'music-vol']) {
+    assert.ok(instr.includes('id="' + id + '"'),
+      '#' + id + ' drifted back off the instrument row');
+  }
+});
+
+test('the top bar keeps identity only -- the clock stays, the controls do not', () => {
+  const top = bar('topbar-right');
+  assert.ok(top.includes('id="clock"'), 'the clock left the top bar');
+  for (const id of ['usage-toggle', 'mute-toggle', 'music-toggle', 'music-vol']) {
+    assert.ok(!top.includes('id="' + id + '"'),
+      '#' + id + ' is back in the top bar -- the split has eroded');
+  }
+});
+
+test('readings sit LEFT and controls RIGHT, which is the whole point of the split', () => {
+  // Serge left the arrangement to me; the reasoning is that "what is true" and
+  // "what I can change" are different kinds of thing. Grouping them again
+  // would be the crowding he asked to be fixed, one row lower.
+  const instr = bar('instrbar');
+  const left  = instr.indexOf('id="instr-left"');
+  const right = instr.indexOf('id="instr-right"');
+  assert.ok(left > -1 && right > -1, 'the row is no longer split');
+  assert.ok(left < right, 'the readings are no longer the left-hand group');
+  assert.ok(instr.indexOf('id="topbar-usage"') > left
+         && instr.indexOf('id="topbar-usage"') < right,
+    'the usage readings are not in the left-hand group');
+  for (const id of ['usage-toggle', 'mute-toggle', 'music-toggle']) {
+    assert.ok(instr.indexOf('id="' + id + '"') > right,
+      '#' + id + ' is not in the right-hand group');
+  }
+});
+
+test('the instrument row is quieter than the header above it', () => {
+  // A second bar as loud as the first reads as two headers arguing. It is a
+  // shelf under the header, and its rule beneath must be fainter than the
+  // top bar's or the two look like equals.
+  const m = src.match(/#instrbar \{([^}]*)\}/);
+  assert.ok(m, 'the instrument row has no styling');
+  const topRule = src.match(/#topbar \{([^}]*)\}/)[1];
+  const a = parseFloat((m[1].match(/border-bottom:[^;]*?,\s*([\d.]+)\)/) || [])[1]);
+  const b = parseFloat((topRule.match(/border-bottom:[^;]*?,\s*([\d.]+)\)/) || [])[1]);
+  assert.ok(a && b, 'one of the two bars has no border to compare');
+  assert.ok(a < b, 'the instrument row is drawn as loud as the header above it');
+});
+
 // ---- the overlay NEVER fades ------------------------------------------------
 // Serge, 2026-08-07 ~4:35 PM: "maybe no fading at all would be alright for me
 // too." These assertions are the INVERSION of the ones they replace, not an
