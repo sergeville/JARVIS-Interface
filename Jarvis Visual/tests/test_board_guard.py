@@ -118,8 +118,72 @@ try:
     for t in vws.read_tasks():
         real[t.get("status", "open")] = real.get(t.get("status", "open"), 0) + 1
     mine = bg.statuses(f"{ROOT}/Jarvis-brain/Active Priorities.md")
+
+    # DONE IS COMPARED SEPARATELY, AND ON PURPOSE. (Serge, 2026-08-07 ~2:55 PM,
+    # "fix everything" -- after this exact check went red at 7:35 AM and closed
+    # the whole gate.)
+    #
+    # The two parsers have deliberately DIFFERENT lifetimes for a finished
+    # card: the server's _expire_done() drops it at the next day's rollover so
+    # DONE never becomes an archive, and the guard's statuses() counts every
+    # status line in the file. So the morning after any day with finished work
+    # they disagree, every time, correctly -- and a red suite is a closed gate.
+    #
+    # The fix is HERE rather than in either parser. Teaching statuses() the
+    # same date arithmetic would duplicate a second thing between two files
+    # that already duplicate one on purpose, and every duplicated line is new
+    # surface for them to drift on. The guard does not decide anything from
+    # `done` -- it fires on active and test -- so agreement on `done` was
+    # never the property worth having.
+    #
+    # What IS still asserted: exact agreement on every status the guard acts
+    # on, and for done, that the guard sees AT LEAST as many as the server.
+    # That direction is true by construction (the guard sees all of them, the
+    # server only today's), so it still catches a real parsing drift -- a
+    # guard that stopped seeing done cards at all fails this -- while the
+    # rollover, which is correct behaviour, does not fail it.
+    live = {k: v for k, v in mine.items() if v}
     check("the guard's parser agrees with the server's read_tasks()",
-          {k: v for k, v in mine.items() if v}, real)
+          {k: v for k, v in live.items() if k != "done"},
+          {k: v for k, v in real.items() if k != "done"})
+    check("the guard sees at least the done cards the server serves",
+          live.get("done", 0) >= real.get("done", 0), True)
+
+    # THE ROLLOVER ITSELF, PROVEN -- not waited for.
+    #
+    # The comparison above passes today because today HAS finished cards.
+    # That says nothing about tomorrow morning, which is precisely when this
+    # broke. So: point both parsers at a fixture whose done card is stamped
+    # LAST YEAR, which is exactly the state the note is in at 00:00, and
+    # check they still agree. Under the old whole-dict comparison this fails
+    # -- the guard counts the stale done card, the server expires it -- so
+    # this test genuinely distinguishes the fix from its absence.
+    import pathlib
+    rolled = os.path.join(tmp, "rolled.md")
+    Path(rolled).write_text(
+        "### Open Tasks\n\n"
+        "- [ ] **Live work** (x)\n  - status: active\n"
+        "  - updated: 2026-08-07 09:00\n  - note: n\n\n"
+        "- [x] **Closed long ago** (x)\n  - status: done\n"
+        "  - updated: 2025-01-01 09:00\n  - note: n\n")
+    saved, vws.PRIORITIES_FILE = vws.PRIORITIES_FILE, pathlib.Path(rolled)
+    vws._TASK_CACHE["mtime"] = None
+    try:
+        r2 = {}
+        for t in vws.read_tasks():
+            r2[t.get("status", "open")] = r2.get(t.get("status", "open"), 0) + 1
+        m2 = {k: v for k, v in bg.statuses(rolled).items() if v}
+        check("after a rollover the two still agree on what the guard acts on",
+              {k: v for k, v in m2.items() if k != "done"},
+              {k: v for k, v in r2.items() if k != "done"})
+        # And the disagreement that USED to close the gate is real, and is
+        # exactly the one now held outside the comparison -- asserted, so
+        # nobody later "simplifies" this back into one whole-dict check.
+        check("the stale done card is counted by one parser and not the other",
+              (m2.get("done", 0), r2.get("done", 0)), (1, 0))
+    finally:
+        vws.PRIORITIES_FILE = saved
+        vws._TASK_CACHE["mtime"] = None
 except Exception as e:                      # aiohttp missing -> skip, don't fail
     print(f"  (skipped read_tasks cross-check: {type(e).__name__})")
 
