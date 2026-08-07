@@ -676,14 +676,14 @@
      kind of thing -- a tap Serge holds -- and it sits beside the poller rather
      than down in the status bar, because the bottom bar was cleared of anything
      that reads as pressable (2026-08-05). Controls live up here now. */
-  #usage-toggle, #music-toggle {
+  #usage-toggle, #music-toggle, #mute-toggle {
     font-family: inherit; font-size: 9px; letter-spacing: 0.16em;
     padding: 2px 7px; border-radius: 2px; cursor: pointer;
     background: transparent; transition: opacity 0.2s ease;
   }
-  #usage-toggle:hover, #music-toggle:hover { opacity: 0.75; }
-  #usage-toggle.paused, #music-toggle.off { color: var(--warn-soft); border: 1px solid rgba(var(--warn-soft-rgb), 0.5); }
-  #usage-toggle.live, #music-toggle.on    { color: var(--ok-soft); border: 1px solid rgba(var(--ok-soft-rgb), 0.5); }
+  #usage-toggle:hover, #music-toggle:hover, #mute-toggle:hover { opacity: 0.75; }
+  #usage-toggle.paused, #music-toggle.off, #mute-toggle.off { color: var(--warn-soft); border: 1px solid rgba(var(--warn-soft-rgb), 0.5); }
+  #usage-toggle.live, #music-toggle.on, #mute-toggle.on { color: var(--ok-soft); border: 1px solid rgba(var(--ok-soft-rgb), 0.5); }
   /* The music volume slider. Deliberately small and quiet: it is a trim, not a
      transport control, and it sits beside the toggle it belongs to. */
   #music-vol {
@@ -1201,6 +1201,9 @@
     <div id="topbar-usage" title=""></div>
     <button id="usage-toggle" class="paused" title="Polling costs tokens -- each poll asks Claude Code directly">PAUSED</button>
     <!-- Ships OFF. Nothing on this page makes a sound Serge did not ask for. -->
+    <!-- Silences the SPEAKERS only: Jarvis keeps going and the text keeps
+         writing, so nothing is lost while someone is talking to Serge. -->
+    <button id="mute-toggle" class="on" title="Silence Jarvis. He keeps talking and the text keeps writing -- you just stop hearing it.">VOICE ON</button>
     <button id="music-toggle" class="off" title="Soft ambient bed while Jarvis is working. Silent while your mic is open.">MUSIC OFF</button>
     <input id="music-vol" type="range" min="0" max="0.45" step="0.01" title="Music volume">
 
@@ -1538,13 +1541,38 @@ function connect(){
 connect();
 
 // ---- playback (Jarvis's browser mouth) ------------------------------
-let outCtx = null, analyser = null, curSource = null;
+let outCtx = null, analyser = null, curSource = null, voiceGain = null;
+
+// MUTE (Serge, 2026-08-07 ~5:27 PM): "sometimes people come in and talk to me,
+// and you're talking." A gain node between the analyser and the speakers, so
+// muting is a VOLUME change and nothing else.
+//
+// He first asked for pause and we chose mute together once the difference was
+// clear. Pause would mean suspending the audio context -- and five other
+// places on this page already resume it on their own, so a pause would be
+// silently undone by the next thing that made a sound. Mute has no such
+// entanglement: nothing else on the page touches this gain.
+//
+// TWO PROPERTIES ARE LOAD-BEARING, both for the same reason -- muting must
+// cost him nothing but the sound:
+//   1. The RING still moves. The analyser sits BEFORE the gain, so it reads
+//      the real waveform while the speakers get silence. A frozen ring would
+//      say "Jarvis stopped talking", which is a lie about what is happening.
+//   2. The TEXT still writes. showLine is nowhere near this graph, so the
+//      transcript keeps filling and he can read what he missed -- which is
+//      the whole point of the overlay no longer fading.
+let muted = false;
+try { muted = localStorage.getItem('jarvisMute') === '1'; } catch(e){}
+
 function ensureOut(){
   if (outCtx) return;
   outCtx = new AudioContext();
   analyser = outCtx.createAnalyser();
   analyser.fftSize = 256;
-  analyser.connect(outCtx.destination);
+  voiceGain = outCtx.createGain();
+  voiceGain.gain.value = muted ? 0 : 1;
+  analyser.connect(voiceGain);
+  voiceGain.connect(outCtx.destination);
 }
 function b64buf(b64){
   const bin = atob(b64);
@@ -1809,6 +1837,29 @@ function tickAmbient(){
   } catch(e) { /* audio is a nicety; it must never break the page */ }
 }
 setInterval(tickAmbient, 50);
+
+function renderMute(m){
+  const b = document.getElementById('mute-toggle');
+  if (!b) return;
+  b.className = m ? 'off' : 'on';
+  // MUTED, not "VOICE OFF": the voice is not off, it is still being produced
+  // and still being written to the screen. Only the speakers are silent, and
+  // the label should not claim more than that.
+  b.textContent = m ? 'MUTED' : 'VOICE ON';
+}
+function applyMute(){
+  // Guarded because the graph is built lazily on the first sound: he can mute
+  // before Jarvis has ever spoken, and ensureOut() reads `muted` when it does
+  // build, so the setting survives that gap.
+  if (voiceGain) voiceGain.gain.value = muted ? 0 : 1;
+}
+document.getElementById('mute-toggle').addEventListener('click', () => {
+  muted = !muted;
+  try { localStorage.setItem('jarvisMute', muted ? '1' : '0'); } catch(e){}
+  applyMute();
+  renderMute(muted);
+});
+renderMute(muted);
 
 function renderMusic(on){
   const b = document.getElementById('music-toggle');
