@@ -217,6 +217,66 @@
      rather than off the page title -- a sheet that still dropped from the
      middle would have no visible parent. It keeps rolling over the stage, so
      nothing was given up by moving it. */
+  /* ---- IDEAS: the other queue ------------------------------------------
+     Deliberately quieter than every work panel on this page. Nothing here
+     is in flight, nobody owns it, and it must not compete for the eye with
+     things that are actually happening. */
+  #ideas-head { cursor: pointer; display: flex; align-items: center; }
+  #ideas-head .caret {
+    margin-left: auto; font-size: 8px; opacity: 0.55;
+    transition: transform 200ms ease;
+  }
+  body.ideas-open #ideas-head .caret { transform: rotate(180deg); }
+  /* NO BORDER on the heading. This page's own rule -- a border says
+     pressable -- and this is a heading that reacts to an approach, not a
+     control. The fill is the whole affordance. */
+  #ideas-head:hover, body.ideas-open #ideas-head {
+    background: rgba(var(--accent-rgb), 0.10);
+  }
+  #ideas {
+    position: fixed; left: 12px; right: 12px; top: 74px; z-index: 60;
+    transform: translate(26px, -14px);
+    opacity: 0; pointer-events: none; visibility: hidden;
+    transition: opacity 520ms ease, transform 520ms cubic-bezier(.2,.8,.3,1),
+                visibility 0s linear 520ms;
+    background: var(--bg-panel);
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    border-radius: 6px;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.66);
+    backdrop-filter: blur(7px);
+    padding: 15px 15px 13px;
+    display: flex; flex-direction: column;
+    max-height: 80vh; box-sizing: border-box;
+  }
+  body.ideas-open #ideas {
+    opacity: 1; transform: translate(0, 0); pointer-events: auto;
+    visibility: visible; transition-delay: 0s;
+  }
+  .isheet-title {
+    font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase;
+    color: rgba(var(--accent-rgb), 0.75); margin-bottom: 10px;
+  }
+  #ideas-list { overflow-y: auto; min-height: 0; }
+  .icard {
+    border: 1px solid rgba(var(--accent-rgb), 0.16);
+    border-radius: 4px; padding: 9px 11px; margin-bottom: 8px;
+    background: rgba(var(--accent-rgb), 0.03);
+  }
+  .icard .it {
+    font-size: 12px; letter-spacing: 0.04em; color: var(--text-val);
+    margin-bottom: 4px;
+  }
+  .icard .ig { font-size: 11px; line-height: 1.5; opacity: 0.78; }
+  /* The date it was RAISED, and nothing else. No elapsed time, no age, no
+     count -- see read_ideas() in voice-web-server.py for why that is a
+     hard line and not a nicety. */
+  .icard .ir {
+    font-size: 9px; letter-spacing: 0.10em; opacity: 0.45; margin-top: 6px;
+  }
+  .isheet-foot {
+    margin-top: 10px; font-size: 9px; letter-spacing: 0.10em;
+    opacity: 0.42; text-transform: uppercase;
+  }
   #board {
     position: fixed; right: 12px; top: 74px;
     transform: translate(26px, -14px);
@@ -1078,6 +1138,17 @@
          row; see #tasks-head below. -->
   </div>
   <!-- Rolls down over the stage on approach. Read-only in this pass. -->
+  <!-- The IDEAS sheet. Same roll-down motion as the board, because it is
+       the same gesture and Serge already knows it. What it is NOT is a
+       board: nothing here has a column, an owner or a status, and nothing
+       can be started from it. It is a place to see what we have not decided
+       yet. -->
+  <div id="ideas" aria-hidden="true">
+    <div class="isheet-title">Ideas &middot; not decided, not started</div>
+    <div id="ideas-list"></div>
+    <div class="isheet-foot">read-only &middot; the thinking lives in the
+      vault note &middot; an idea becomes work only when Serge says so</div>
+  </div>
   <div id="board">
     <div id="board-cols"></div>
     <div id="board-foot">
@@ -1173,6 +1244,17 @@
     <!-- Every Jarvis alive right now, resolved server-side from the process
          table (session_registry.read_sessions) -- not from anything a
          session remembers to write about itself. -->
+    <!-- IDEAS -- the other queue, and the only panel on this page that is
+         NOT about work. Serge, 2026-08-07 ~4:00 PM: "a header just on top of
+         sessions... it would look the same, but a dot sessions, it would say
+         instead a dot ideas. I'll click on that and boom, we have a brand
+         new page that goes to the vault."
+         It sits ABOVE Sessions by his placement. Hidden until the note has
+         something in it -- an empty panel is chrome, not information. -->
+    <div id="ideas-sec" style="display:none">
+      <div class="sec-title" id="ideas-head">Ideas<span class="caret"
+           id="ideas-caret">&#9660;</span></div>
+    </div>
     <div id="sessions" style="display:none">
       <div class="sec-title">Sessions<span id="sessions-skew"
            style="display:none"> &middot; partial</span></div>
@@ -2094,6 +2176,78 @@ addEventListener('drop', (e) => {
 
 // ---- task card: mirrors Active Priorities via /signals ---------------
 let lastTasksJson = '';
+
+// ---- IDEAS panel: the other queue -------------------------------------
+// Serge, 2026-08-07. This mirrors Jarvis-brain/Ideas.md the same way the
+// board mirrors Active Priorities -- one source, never a second copy here.
+//
+// WHAT THIS PANEL MUST NEVER GROW: a count of days, an age, a "sitting
+// since", or any other measure of how long an idea has waited. The date it
+// was RAISED is a fact and is welcome; anything that counts turns this into
+// a machine that nags, and a page that nags is one Serge stops saying
+// half-formed things to. The board is the half that is allowed to nag.
+let ideasLatched = false;
+let lastIdeasJson = '';
+
+function renderIdeas(ideas){
+  const json = JSON.stringify(ideas || []);
+  if (json === lastIdeasJson) return;   // rebuild only on change
+  lastIdeasJson = json;
+  const sec = document.getElementById('ideas-sec');
+  const list = document.getElementById('ideas-list');
+  if (!sec || !list) return;
+  // An empty panel is chrome, not information -- the card hides itself
+  // rather than draw a heading over nothing, exactly like TASKS does.
+  if (!ideas || !ideas.length) {
+    sec.style.display = 'none';
+    ideasOpen(false);
+    list.innerHTML = '';
+    return;
+  }
+  sec.style.display = '';
+  list.innerHTML = ideas.map(i =>
+      '<div class="icard">'
+    + '<div class="it">' + esc(i.title || '') + '</div>'
+    + (i.gist ? '<div class="ig">' + esc(i.gist) + '</div>' : '')
+    + (i.raised ? '<div class="ir">raised ' + esc(i.raised) + '</div>' : '')
+    + '</div>').join('');
+}
+
+function ideasOpen(open){
+  if (open) {
+    // The two sheets are the same gesture in the same place, so they must
+    // never be open together -- one would sit invisibly under the other.
+    if (typeof boardOpen === 'function') boardOpen(false);
+    document.body.classList.add('ideas-open');
+  } else {
+    document.body.classList.remove('ideas-open');
+    ideasLatched = false;
+  }
+}
+
+(function wireIdeas(){
+  const head = document.getElementById('ideas-head');
+  if (!head) return;
+  // A CLICK, not an approach. The board opens on hover because it is the
+  // thing Serge watches; this one he goes to on purpose, and a sheet that
+  // sprang open while his cursor crossed the sidebar would cover the panels
+  // he was actually reading.
+  head.addEventListener('click', () => {
+    ideasLatched = !document.body.classList.contains('ideas-open');
+    ideasOpen(ideasLatched);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') ideasOpen(false);
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (!document.body.classList.contains('ideas-open')) return;
+    const sheet = document.getElementById('ideas');
+    if (sheet && !sheet.contains(e.target) && !head.contains(e.target)) {
+      ideasOpen(false);
+    }
+  });
+})();
+
 function renderTasks(tasks){
   const json = JSON.stringify(tasks);
   if (json === lastTasksJson) return;   // rebuild DOM only on change
@@ -3402,6 +3556,7 @@ async function poll(){
     // (the whole approval block now lives in its own function, below)
     waitingQ = (d.question || '').trim();
     renderTasks(d.tasks || []);
+    renderIdeas(d.ideas || []);
     renderBoard(d.tasks || []);
     renderSessions(d.sessions || []);
     renderStats(d.stats);

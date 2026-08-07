@@ -100,6 +100,13 @@ UPLOADS_DIR = HERE / "uploads"      # images pasted/dropped on the page
 
 _TASK_CACHE: dict = {"mtime": None, "tasks": []}
 
+# THE OTHER QUEUE. Active Priorities holds what Serge has agreed to do; this
+# holds what he has not decided yet, and the only thing between them is his
+# yes. Read the same way and cached the same way, because it is the same kind
+# of thing: one vault note, mirrored, never authored here.
+IDEAS_FILE = Path(JARVIS_ROOT) / "Jarvis-brain" / "Ideas.md"
+_IDEA_CACHE: dict = {"mtime": None, "ideas": []}
+
 
 def read_tasks() -> list[dict]:
     """Open tasks from Active Priorities, for the page's task card.
@@ -201,6 +208,66 @@ VAULT_DIR = Path(JARVIS_ROOT) / "Jarvis-brain"
 _GRAPH_CACHE: dict = {"ts": 0.0, "data": {"nodes": [], "edges": []}}
 GRAPH_RESCAN_S = 10.0
 _WIKILINK_RE = re.compile(r"\[\[([^\]\[]+)\]\]")
+
+
+def read_ideas() -> list[dict]:
+    """The open ideas from Ideas.md, for the HUD's IDEAS panel.
+
+    Serge, 2026-08-07 ~4:00 PM: "a header just on top of sessions... I'll
+    click on that and boom, we have a brand new page that goes to the vault."
+
+    THE ONE FIELD THAT IS NOT HERE IS THE POINT. There is a `raised` date --
+    a fact about when it was said -- and there is deliberately NO elapsed
+    time, no age, no count of any kind, and none may be added. The moment
+    this panel measures how long an idea has sat, it becomes a machine that
+    nags, and a page that nags is one Serge stops saying half-formed things
+    to. That is where the good ideas start. The nagging half of this system
+    is the board, and it is supposed to be the only half that nags.
+
+    Only the section under "## Open ideas" is read. Everything above it is
+    the note explaining itself -- including a FENCED EXAMPLE of this very
+    block, which is why fences are skipped: the same trap that once made
+    task.py insert new cards inside the legend's code fence, where the
+    server could not see them.
+    """
+    try:
+        mtime = IDEAS_FILE.stat().st_mtime
+        if mtime == _IDEA_CACHE["mtime"]:
+            return _IDEA_CACHE["ideas"]
+        text = IDEAS_FILE.read_text()
+    except OSError:
+        return []
+
+    ideas: list[dict] = []
+    started = False
+    fenced = False
+    cur: dict | None = None
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        if line.startswith("## "):
+            # A later `##` ends the section; nothing after it is an idea.
+            started = line.strip().lower().startswith("## open ideas")
+            cur = None
+            continue
+        if not started:
+            continue
+        if line.startswith("### "):
+            cur = {"title": line[4:].strip(), "raised": "", "gist": ""}
+            ideas.append(cur)
+            continue
+        if cur is None:
+            continue
+        m = re.match(r"\s*-\s*(raised|gist):\s*(.+?)\s*$", line)
+        if m:
+            # Same treatment as a task's fields: brackets are vault syntax,
+            # not something to read on a panel.
+            cur[m.group(1)] = m.group(2).replace("[[", "").replace("]]", "")
+    _IDEA_CACHE.update({"mtime": mtime, "ideas": ideas})
+    return ideas
 
 
 def scan_vault_graph() -> dict:
@@ -1540,6 +1607,7 @@ async def signals(request: web.Request) -> web.Response:
         {"state": state, "waveform": waveform, "now": time.time(),
          "line_alive": line_alive, "transcript": transcript,
          "question": question, "tasks": read_tasks(),
+         "ideas": read_ideas(),
          "page_version": page_version,
          "approval": next(
              ({"id": a["id"], "tool": a["tool"], "detail": a["detail"]}
