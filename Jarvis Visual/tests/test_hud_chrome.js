@@ -76,13 +76,13 @@ function num(name) {
 }
 
 const linesEl = nodes['lines'];
-// Turn state the real page holds. tickLogIdle reads these: the overlay must
-// not fade while Jarvis is mid-turn or still speaking.
+// Turn state the real page holds. These used to feed the fade's busy-check;
+// the fade is gone (2026-08-07), and they stay because the tests below prove
+// the overlay survives every one of these states.
 let turnOpen = false, thinking = false, playQueue = [];
 let usageSig = '', usageWrittenAt = null, usageResets = [], logLastAt = 0;
 const shownLines = new Set();
 const LOG_KEEP = num('LOG_KEEP');
-const LOG_IDLE_AFTER = num('LOG_IDLE_AFTER');
 
 // fitLog joined the eval 2026-08-07: showLine now calls it, so leaving it
 // out made every showLine test die on `fitLog is not defined` -- the tests
@@ -314,87 +314,86 @@ test('the speaker is prefixed onto the text, not left implicit', () => {
   assert.strictEqual(linesEl.children[0].textContent, 'you: hello');
 });
 
-test('a new line wakes the overlay out of idle', () => {
+// ---- the overlay NEVER fades ------------------------------------------------
+// Serge, 2026-08-07 ~4:35 PM: "maybe no fading at all would be alright for me
+// too." These assertions are the INVERSION of the ones they replace, not an
+// extension of them -- "it fades after 90 s of silence" and "it never fades"
+// cannot both guard this file. The old ones are preserved in git.
+//
+// Why invert rather than delete: with nothing setting the class, a test of the
+// old shape would pass for the wrong reason forever. What is worth guarding
+// now is that no code path can put the class back.
+
+test('a new line leaves the overlay visible', () => {
   nodes['log'].classList.add('idle');
   showLine('jarvis', 'something happened');
   assert.ok(!nodes['log'].classList.contains('idle'), 'stayed faded while talking');
 });
 
-test('silence past the threshold fades the overlay away', () => {
-  // Without this it becomes permanent furniture over the avatar, which is the
-  // thing moving it off the right column was meant to avoid.
+test('silence past the OLD threshold no longer fades it -- the inversion', () => {
+  // 90 s was the old lifetime. Being distracted lasts longer than that, which
+  // is the exact case he reads it for -- so the fade cleared the stage
+  // precisely when he needed it. This assertion must fail if it comes back.
   showLine('jarvis', 'a line');
-  logLastAt = NOW() - (LOG_IDLE_AFTER + 1);
-  tickLogIdle();
-  assert.ok(nodes['log'].classList.contains('idle'));
-});
-
-test('a recent line keeps it visible', () => {
-  showLine('jarvis', 'a line');
-  logLastAt = NOW() - 1;
-  tickLogIdle();
-  assert.ok(!nodes['log'].classList.contains('idle'));
-});
-
-test('a page that has never had a line starts faded, not blank-but-present', () => {
-  tickLogIdle();
-  assert.ok(nodes['log'].classList.contains('idle'));
-});
-
-// The regression Serge caught live on 2026-08-05: the overlay counted its
-// silence from when a line was ADDED, so a long spoken reply outlived its own
-// transcript and the stage went blank while Jarvis was still talking.
-
-test('it does not fade mid-turn, however long the turn runs', () => {
-  showLine('jarvis', 'a long answer');
-  logLastAt = NOW() - (LOG_IDLE_AFTER + 500);   // ancient by the old rule
-  turnOpen = true;
-  tickLogIdle();
-  assert.ok(!nodes['log'].classList.contains('idle'), 'faded during a turn');
-});
-
-test('it does not fade while there is still audio to play', () => {
-  // Speech outlasts the text that produced it. This is the exact case.
-  showLine('jarvis', 'still speaking');
-  logLastAt = NOW() - (LOG_IDLE_AFTER + 500);
-  playQueue = ['wav'];
-  tickLogIdle();
-  assert.ok(!nodes['log'].classList.contains('idle'), 'faded mid-speech');
-});
-
-test('it does not fade while thinking', () => {
-  showLine('you', 'a question');
-  logLastAt = NOW() - (LOG_IDLE_AFTER + 500);
-  thinking = true;
-  tickLogIdle();
-  assert.ok(!nodes['log'].classList.contains('idle'));
-});
-
-test('being busy restarts the silence clock, so it lingers after speech ends', () => {
-  // Otherwise the transcript would vanish the instant the last word played.
-  showLine('jarvis', 'done talking');
-  logLastAt = NOW() - (LOG_IDLE_AFTER + 500);
-  playQueue = ['wav'];
-  tickLogIdle();                       // busy: clock reset
-  playQueue = [];
-  tickLogIdle();                       // now idle-eligible, but freshly reset
-  assert.ok(!nodes['log'].classList.contains('idle'),
-            'cleared the stage the moment the audio stopped');
-});
-
-test('once genuinely silent past the threshold it still fades', () => {
-  showLine('jarvis', 'done');
   turnOpen = false; thinking = false; playQueue = [];
-  logLastAt = NOW() - (LOG_IDLE_AFTER + 1);
+  logLastAt = NOW() - 100000;          // ancient by any threshold
   tickLogIdle();
-  assert.ok(nodes['log'].classList.contains('idle'));
+  assert.ok(!nodes['log'].classList.contains('idle'), 'the fade is back');
 });
 
-test('the silence threshold is long enough to outlast a spoken reply', () => {
-  // A guard on the number itself: 25 s was shorter than Jarvis speaks for,
-  // which is what made the bug. Anything under a minute reintroduces it.
-  assert.ok(LOG_IDLE_AFTER >= 60,
-            'LOG_IDLE_AFTER is ' + LOG_IDLE_AFTER + 's -- too short again');
+test('an hour of silence and twenty ticks do not fade it -- no threshold survives', () => {
+  showLine('jarvis', 'a line');
+  logLastAt = NOW() - 3600;
+  for (let i = 0; i < 20; i++) tickLogIdle();
+  assert.ok(!nodes['log'].classList.contains('idle'));
+});
+
+test('a page that has never had a line is visible, not pre-faded', () => {
+  // The markup used to ship class="idle" so the stage started clean. That
+  // class was removed along with the toggle; this guards the MARKUP half,
+  // which no amount of driving tickLogIdle can see.
+  tickLogIdle();
+  assert.ok(!nodes['log'].classList.contains('idle'));
+  const markup = src.match(/<div id="log"[^>]*>/)[0];
+  assert.ok(!markup.includes('idle'), 'the markup ships the box pre-faded: ' + markup);
+});
+
+test('tickLogIdle CLEARS the class rather than merely not setting it', () => {
+  // Something else could add it -- a future edit, a half-applied revert. The
+  // function is the one place that guarantees the text comes back.
+  nodes['log'].classList.add('idle');
+  tickLogIdle();
+  assert.ok(!nodes['log'].classList.contains('idle'));
+});
+
+test('no code path anywhere on the page adds the idle class back', () => {
+  // The tests above only drive tickLogIdle. This one covers the whole file: a
+  // helpful little fade added in some other function would pass every one of
+  // them and still take his transcript away.
+  const adds = src.match(/classList\s*\.\s*(add|toggle)\s*\(\s*['"]idle['"]/g) || [];
+  assert.strictEqual(adds.length, 0,
+    'something sets the idle class again: ' + adds.join(', '));
+});
+
+test('the CSS rule that hid the overlay is gone with it', () => {
+  // The other half. If the rule returns, any stray class makes it invisible
+  // again -- and an invisible overlay reads as "nothing was said".
+  assert.ok(!/#log\.idle\s*\{/.test(src), '#log.idle is back in the CSS');
+});
+
+test('it stays visible mid-turn, while thinking, and while audio plays', () => {
+  // Three separate guards against the 2026-08-05 regression, where a spoken
+  // reply outlived its own transcript. They still matter; they are just no
+  // longer the only thing keeping the text on screen.
+  showLine('jarvis', 'a long answer');
+  logLastAt = NOW() - 100000;
+  for (const st of ['turn', 'think', 'audio']) {
+    turnOpen  = st === 'turn';
+    thinking  = st === 'think';
+    playQueue = st === 'audio' ? ['wav'] : [];
+    tickLogIdle();
+    assert.ok(!nodes['log'].classList.contains('idle'), 'faded during ' + st);
+  }
 });
 
 test('showLine records the line so the terminal mirror will not double it', () => {

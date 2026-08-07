@@ -1064,9 +1064,13 @@
             mask-image: linear-gradient(to bottom,
                         transparent 0%, var(--scrim-deep) 10%, #000 26%);
   }
-  /* Nothing happening: get out of the way entirely. The overlay must never
-     become permanent furniture over the avatar. */
-  #log.idle   { opacity: 0; }
+  /* The `idle` fade is GONE -- Serge, 2026-08-07 ~4:35 PM: "maybe no fading at
+     all would be alright for me too." The overlay used to disappear after 90 s
+     of silence so it never became furniture over the avatar. But he reads it to
+     catch up when he was distracted, and being distracted lasts longer than 90
+     seconds -- so it faded out in exactly the case it exists for. He chose the
+     text over the avatar. Nothing sets `idle` any more; restoring the fade means
+     restoring the toggle in tickLogIdle AND this rule AND the markup's class. */
   #log.hidden { display: none; }
   #lines {
     overflow: hidden;
@@ -1239,7 +1243,7 @@
       <div id="waiting-head">Waiting for your answer</div>
       <div id="waiting-q"></div>
     </div>
-    <div id="log" class="idle"><div id="lines"></div></div>
+    <div id="log"><div id="lines"></div></div>
     <div id="label">J A R V I S</div>
     <div id="graph-hint">Drag to spin &nbsp;&middot;&nbsp; scroll to zoom</div>
     <button id="viewbtn">Vault Graph</button>
@@ -3342,24 +3346,31 @@ function tickAges(){
   tickSessions();     // session up/idle clocks, same second (hoisted)
 }
 
-// The overlay fades out when the conversation goes quiet. Without this it
-// becomes permanent furniture over the avatar, which is the thing the move
-// off the right column was meant to avoid.
-// 25 s until 2026-08-05, and it was wrong: the clock started when a line was
-// ADDED, but a spoken reply plays for longer than that, so the transcript
-// disappeared while Jarvis was still talking. Serge: "we're talking all this
-// and never saw anything written on the screen anymore." Two rules now --
-// never fade during a turn or while audio is still playing, and give real
-// silence a minute and a half before clearing the stage.
-const LOG_IDLE_AFTER = 90;   // seconds of true silence before it fades
+// THE OVERLAY NEVER FADES. Serge, 2026-08-07 ~4:35 PM: "even if fading, I
+// wonder if it's good... maybe no fading at all would be alright for me too."
+//
+// The history, because it is the argument for keeping it gone. It faded after
+// 25 s until 2026-08-05, and the clock started when a line was ADDED -- so a
+// long spoken reply outlived its own transcript and the stage went blank while
+// Jarvis was still talking ("we're talking all this and never saw anything
+// written on the screen anymore"). That bought two rules and 90 seconds. Then
+// on 2026-08-07 he said why he reads it at all: "sometimes I'm distracted. So
+// if I miss something that you said, I could have read it at least." BEING
+// DISTRACTED LASTS LONGER THAN 90 SECONDS -- so it cleared itself in precisely
+// the case it exists for, every time.
+//
+// The one thing given up is real and he chose it with the screenshot in front
+// of him: the text now sits over the avatar permanently. THE HONEST FIX FOR
+// THAT IS SHORTER ANSWERS, NOT A SHORTER LIFETIME.
+//
+// This function stays because it is where the decision is recorded and where a
+// future fade would go. It has one job now: make sure nothing has left the box
+// faded. Restoring the fade means restoring the toggle here AND the `#log.idle`
+// CSS rule AND the class on the markup -- all three were removed together.
 function tickLogIdle(){
   const box = document.getElementById('log');
   if (!box) return;
-  const busy = turnOpen || thinking
-            || (typeof playQueue !== 'undefined' && playQueue.length > 0);
-  if (busy) { logLastAt = Date.now() / 1000; box.classList.remove('idle'); return; }
-  const quiet = !logLastAt || (Date.now() / 1000 - logLastAt) > LOG_IDLE_AFTER;
-  box.classList.toggle('idle', quiet);
+  box.classList.remove('idle');
 }
 setInterval(tickAges, 1000);
 

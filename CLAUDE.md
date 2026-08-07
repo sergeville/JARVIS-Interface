@@ -18,6 +18,7 @@ At the start of every session:
 1. Read `VAULT-INDEX.md` at the vault root — the profile, the rules, the system map.
 2. Check yesterday's daily note in `01 - Daily Notes/`; backfill it if you have context it's missing.
 3. Scan `Active Priorities.md` for what's currently open, so nothing queued slips.
+4. **Read the TAIL of today's voice transcript** — `tail -40 "Jarvis Visual/transcripts/YYYY-MM-DD.md"` (yesterday's if today's does not exist yet). Serge's own idea, 2026-08-07 ~4:21 PM: *"you don't need the whole file, you just need maybe 10 lines, 15 lines... from that, you could always extrapolate what we were doing."* **Why the tail and not the vault:** the file is append-only, so the end of it IS the live state — the last thing said, in his exact words, including **the question of yours he never got to answer.** The vault records what was decided; a restart kills what was still open, and that is the one thing it cannot hold. Do not read the whole file — a day of raw conversation does not fit, and the vault is already its digested form. Reach deeper into it only to answer a specific question, never to browse: it is a verbatim recording of him, gitignored for that reason.
 
 **Re-read after compaction.** This file survives compaction; VAULT-INDEX.md does not. If context was compacted mid-session, re-read VAULT-INDEX.md before continuing.
 
