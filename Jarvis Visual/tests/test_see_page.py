@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
-"""Tests for vault-tools/see-page.py -- round three, after the adversary won.
+"""Tests for vault-tools/see-page.py -- ROUND FOUR, after the adversary won
+three times running.
 
 Round one guarded the consent boundary with TEXT SEARCHES. Round two replaced
-them with AST guards on the CALL SITE -- and the adversary broke that too, in
-three lines placed INSIDE the call helper, appending a .click() to the
-expression on its way to the wire while all 37 tests stayed green. `#approve-yes`
-is a real element on the HUD, so that hole could have answered a permission
-request on Serge's behalf.
+them with AST guards on the CALL SITE -- broken in three lines placed INSIDE
+the call helper, appending a .click() to the expression on its way to the wire
+while all 37 tests stayed green. Round three added a runtime check in
+build_payload() but still PROVED it by reading source -- broken again, twice,
+by rebinding the validated name and by an aliased second door onto the wire.
+`#approve-yes` is a real element on the HUD, so every one of those holes could
+have answered a permission request on Serge's behalf.
 
-The lesson those two rounds share, and the shape of this file:
+THE SHAPE OF ROUND FOUR, and it is the adversary's prescription rather than
+mine: drive the real _session() against a websocket that RECORDS EVERY FRAME,
+and assert what actually left the process. Checking the bytes cannot be
+re-spelled around the way checking the source can. It needs no browser, no
+network and no server, so it runs everywhere, every time.
+
+HONEST LIMITS, named because the reviewer narrowed this claim and was right:
+the recording gate is a FIXED-POINT check, not an identity one -- it rebuilds
+from the frame's own fields, so a rewrite of a param build_payload does not
+validate would rebuild to itself. And the gate drives _session() only, so the
+one-door guarantee for _drive() still rests on a source test. Round four
+DEMOTED source-reading; it did not retire it.
+
+The lesson the first three rounds share, and the shape of the rest of it:
 
   * A GUARD THAT ONLY READS THE CALL SITE CANNOT SEE THE JOURNEY. So the real
     boundary now lives at run time in build_payload(), and is tested by CALLING
@@ -29,11 +45,19 @@ tests prove the code, only running it proves the installation.
 """
 
 import ast
+import asyncio
+import base64
+import contextlib
+import copy
 import glob
 import hashlib
 import importlib.util
+import io
+import json
 import os
+import shutil
 import socket
+import sys
 import tempfile
 import unittest
 
@@ -115,6 +139,210 @@ def server_up(host="127.0.0.1", port=8765):
         return s.connect_ex((host, port)) == 0
 
 
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"pixels"
+
+
+class _FakeJSON:
+    """Stands in for urlopen() so Chrome's /json/list can be faked."""
+
+    def __init__(self, payload):
+        self._blob = json.dumps(payload).encode()
+
+    def read(self):
+        return self._blob
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class RecordingWS:
+    """A websocket that answers like Chrome and REMEMBERS EVERY FRAME SENT.
+
+    This is the whole point of round four. Rounds one to three asked the
+    source "could a breach be written here?" and the adversary kept answering
+    in a syntax the question had not anticipated. This asks the only question
+    that matters -- what actually left the process -- and the answer is a list
+    of bytes that no amount of clever spelling can hide from.
+
+    It records sends through EVERY door (send_json, send_str, send_bytes),
+    not just the one the code is supposed to use, because an aliased
+    `snd = ws.send_str` was one of the winning attacks.
+    """
+
+    def __init__(self):
+        self.frames = []        # (door, decoded frame)
+        self._replies = []
+
+    def _record(self, door, frame):
+        self.frames.append((door, copy.deepcopy(frame)))
+        res = ({"data": base64.b64encode(PNG_BYTES).decode()}
+               if frame.get("method") == "Page.captureScreenshot" else {})
+        self._replies.append(json.dumps({"id": frame.get("id"), "result": res}))
+
+    async def send_json(self, payload):
+        self._record("send_json", payload)
+
+    async def send_str(self, text):
+        self._record("send_str", json.loads(text))
+
+    async def send_bytes(self, blob):
+        self._record("send_bytes", json.loads(blob.decode()))
+
+    async def receive_str(self):
+        if not self._replies:
+            raise AssertionError("the driver read more replies than it sent")
+        return self._replies.pop(0)
+
+
+def run_session(m, open_board, out_name):
+    """Drive the real _session() against a recording socket. No browser, no
+    network, no server -- so this gate runs everywhere, every time."""
+    m.SETTLE_MS = 0
+    m.BOARD_SLIDE_MS = 0
+    m.target_url = lambda port, target_id, **kw: "http://127.0.0.1:8765/"
+    ws = RecordingWS()
+    out = m.shot_path(out_name)
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            asyncio.run(m._session(ws, m.PAGE_URL, out, open_board,
+                                   9222, "TARGET-1"))
+    finally:
+        if os.path.exists(out):
+            os.remove(out)
+    return ws, buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# THE GATE: WHAT ACTUALLY WENT OVER THE WIRE
+# ---------------------------------------------------------------------------
+
+class TestEveryFrameOnTheWireWasValidated(unittest.TestCase):
+    """The adversary's own prescription, and it is right: until the SENT BYTES
+    are checked rather than the call site, this boundary is decoration.
+
+    Its three winning edits all die here. A rebind of `payload` after
+    build_payload ships a frame build_payload never returned. An aliased
+    send_str is a frame that arrived through the wrong door. An appended
+    ;click() is a frame build_payload would refuse outright."""
+
+    def setUp(self):
+        self.m = load()
+
+    def _frames(self, open_board, name):
+        ws, out = run_session(self.m, open_board, name)
+        self.assertTrue(ws.frames, "_session sent nothing at all")
+        return ws, out
+
+    def test_every_frame_sent_is_identically_a_build_payload_return(self):
+        for open_board, name in ((False, "gate-plain.png"),
+                                 (True, "gate-board.png")):
+            ws, _ = self._frames(open_board, name)
+            for door, frame in ws.frames:
+                try:
+                    rebuilt = self.m.build_payload(
+                        frame["id"], frame["method"], frame["params"])
+                except Exception as e:      # noqa: BLE001
+                    self.fail(f"a frame went out that build_payload refuses: "
+                              f"{frame['method']!r} -- {e}")
+                self.assertEqual(
+                    frame, rebuilt,
+                    "a frame reached the wire that build_payload did not "
+                    "produce -- something rewrote it in flight")
+
+    def test_every_frame_left_through_the_one_door(self):
+        # H2: `snd = ws.send_str` then a hand-rolled frame. Source counting
+        # could not see it; the socket can.
+        for open_board, name in ((False, "gate-door.png"),
+                                 (True, "gate-door-board.png")):
+            ws, _ = self._frames(open_board, name)
+            doors = {door for door, _ in ws.frames}
+            self.assertEqual(doors, {"send_json"},
+                             f"frames left through {doors} -- there is a "
+                             "second path onto the wire")
+
+    def test_the_only_expression_ever_evaluated_is_the_board_unfold(self):
+        ws, _ = self._frames(True, "gate-expr.png")
+        exprs = [f["params"].get("expression") for _, f in ws.frames
+                 if f["method"] == "Runtime.evaluate"]
+        self.assertEqual(exprs, [self.m.BOARD_OPEN_JS])
+
+    def test_nothing_is_evaluated_at_all_without_the_board_flag(self):
+        ws, _ = self._frames(False, "gate-noexpr.png")
+        self.assertEqual(
+            [f["method"] for _, f in ws.frames
+             if f["method"] == "Runtime.evaluate"], [])
+
+    def test_no_method_outside_the_allowlist_ever_reaches_the_wire(self):
+        ws, _ = self._frames(True, "gate-methods.png")
+        for _, frame in ws.frames:
+            self.assertIn(frame["method"], self.m.ALLOWED_CDP)
+
+    def test_the_render_prints_nothing_of_its_own_to_stdout(self):
+        # H7: page-derived bytes printed onto the channel Jarvis reads the
+        # file path from. `print(res["data"][:200])` passed every source test.
+        for open_board, name in ((False, "gate-out.png"),
+                                 (True, "gate-out-board.png")):
+            _, out = self._frames(open_board, name)
+            self.assertEqual(out, "",
+                             "_session wrote to stdout -- that channel carries "
+                             "the screenshot path and nothing else")
+
+    def test_the_session_writes_the_pixels_it_was_handed(self):
+        # The gate must drive a REAL capture, or it proves nothing about the
+        # real path. Assert the file genuinely lands with the bytes.
+        m = load()
+        m.SETTLE_MS = 0
+        m.BOARD_SLIDE_MS = 0
+        m.target_url = lambda port, target_id, **kw: "http://127.0.0.1:8765/"
+        out = m.shot_path("gate-write.png")
+        try:
+            asyncio.run(m._session(RecordingWS(), m.PAGE_URL, out,
+                                   False, 9222, "TARGET-1"))
+            with open(out, "rb") as f:
+                self.assertEqual(f.read(), PNG_BYTES)
+        finally:
+            if os.path.exists(out):
+                os.remove(out)
+
+    def test_the_session_still_refuses_a_destination_outside_the_scratch_dir(self):
+        m = load()
+        m.SETTLE_MS = 0
+        m.BOARD_SLIDE_MS = 0
+        m.target_url = lambda port, target_id, **kw: "http://127.0.0.1:8765/"
+        hostile = os.path.join(m.REPO_ROOT, "leak.png")
+        with self.assertRaises(ValueError):
+            asyncio.run(m._session(RecordingWS(), m.PAGE_URL, hostile,
+                                   False, 9222, "TARGET-1"))
+        self.assertFalse(os.path.exists(hostile))
+
+    def test_a_landing_off_loopback_stops_the_render(self):
+        # Behavioural end of the redirect guard: _session must refuse before
+        # it captures, not merely own a correct pure function.
+        m = load()
+        m.SETTLE_MS = 0
+        m.BOARD_SLIDE_MS = 0
+        m.target_url = lambda port, target_id, **kw: "http://evil.test/x"
+        out = m.shot_path("gate-redirect.png")
+        ws = RecordingWS()
+        try:
+            with self.assertRaises(RuntimeError):
+                asyncio.run(m._session(ws, m.PAGE_URL, out, True,
+                                       9222, "TARGET-1"))
+            self.assertFalse(os.path.exists(out),
+                             "a render off loopback still wrote a file")
+            self.assertEqual(
+                [f["method"] for _, f in ws.frames
+                 if f["method"] == "Page.captureScreenshot"], [],
+                "it captured anyway after landing off loopback")
+        finally:
+            if os.path.exists(out):
+                os.remove(out)
+
+
 # ---------------------------------------------------------------------------
 # THE BOUNDARY, TESTED BY CALLING IT
 # ---------------------------------------------------------------------------
@@ -175,6 +403,16 @@ class TestTheBoundaryTravelsWithTheMessage(unittest.TestCase):
         params["expression"] = "evil()"
         self.assertEqual(payload["params"]["expression"], self.m.BOARD_OPEN_JS)
 
+    def test_a_nested_param_is_frozen_too_not_just_the_top_level(self):
+        # The reviewer's catch: the docstring promised "a later mutation
+        # cannot ride" over a SHALLOW dict() copy, so a nested dict would
+        # have ridden through. Not reachable at today's call sites -- which
+        # is exactly why nothing would have noticed when it became reachable.
+        params = {"clip": {"x": 0, "y": 0}}
+        payload = self.m.build_payload(1, "Page.captureScreenshot", params)
+        params["clip"]["x"] = 999
+        self.assertEqual(payload["params"]["clip"]["x"], 0)
+
     def test_the_allowlist_is_exactly_this_and_nothing_more(self):
         self.assertEqual(tuple(self.m.ALLOWED_CDP), EXPECTED_CDP)
 
@@ -185,7 +423,10 @@ class TestTheSourceCannotRouteAroundIt(unittest.TestCase):
     def setUp(self):
         self.m = load()
         self.tree = tree()
-        self.drive = func_def(self.tree, "_drive")
+        # The protocol half moved into _session() so a stub websocket can drive
+        # it. These source checks follow it -- they are the SECOND line now,
+        # behind the recording gate below.
+        self.drive = func_def(self.tree, "_session")
         self.call = func_def(self.drive, "call")
 
     def test_nothing_mutates_the_payload_between_building_and_sending(self):
@@ -272,8 +513,9 @@ class TestTheSourceCannotRouteAroundIt(unittest.TestCase):
                     and arg.func.id == "target_url",
                     "check_landed must be fed the browser's real URL")
                 wired = True
-        self.assertTrue(wired,
-                        "_drive must call check_landed(target_url(port))")
+        self.assertTrue(
+            wired,
+            "_session must call check_landed(target_url(port, target_id))")
 
     def test_the_navigation_result_is_actually_checked(self):
         # The same trap one door along: check_navigation proven pure and
@@ -306,7 +548,19 @@ class TestTheSourceCannotRouteAroundIt(unittest.TestCase):
     def test_no_dynamic_lookup_can_reintroduce_the_environment(self):
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Attribute):
-                self.assertNotIn(node.attr, ("environ", "getenv", "stdin"))
+                # stdout and __stdout__ join the list because H7 was
+                # re-spelled through both: redirect_stdout rebinds sys.stdout
+                # only, so sys.__stdout__.write() and os.write(1, ...) each
+                # put page bytes on Jarvis's channel with the suite green.
+                self.assertNotIn(node.attr,
+                                 ("environ", "getenv", "stdin",
+                                  "stdout", "__stdout__"))
+                # os.write(1, ...) goes straight to the descriptor. Banned by
+                # RECEIVER, not by name: the file writes the PNG with
+                # f.write(), which is exactly what it is for.
+                if isinstance(node.value, ast.Name) and node.value.id == "os":
+                    self.assertNotEqual(node.attr, "write",
+                                        "os.write bypasses every stdout guard")
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 self.assertNotIn(
                     node.func.id,
@@ -370,6 +624,44 @@ class TestOutputStaysOutOfTheRepo(unittest.TestCase):
                   and n.func.id == "check_out_path"]
         self.assertEqual(len(writes), 1, "exactly one write may exist")
         self.assertGreaterEqual(len(guards), 1)
+
+    def test_capture_actually_calls_the_scratch_dir_guard(self):
+        # THE REVIEWER'S CATCH, and it predicted this would be green: delete
+        # check_shot_dir() from capture() and all 69 tests passed. The guard
+        # was proven correct as a function and never asserted to be CALLED --
+        # the exact trap this file names for check_landed and check_navigation,
+        # and check_shot_dir was the one member of the family left unwired.
+        #
+        # Behavioural, not structural: point the scratch dir inside the repo
+        # and the capture must refuse. CHROME is neutered first so a broken
+        # guard cannot spend a browser proving itself wrong.
+        # The directory is cleaned BEFORE and AFTER, and that is not tidiness:
+        # the first version asserted on a path a FAULTED run had already
+        # created, so it failed against a correct file purely because of what
+        # ran before it. A gate whose verdict depends on debris is not a gate
+        # -- the same lesson as the flaky HUD clock test of 2026-08-05.
+        m = load()
+        m.CHROME = NO_CHROME
+        m.SHOT_DIR = os.path.join(m.REPO_ROOT, "shots-guard-probe")
+        shutil.rmtree(m.SHOT_DIR, ignore_errors=True)
+        try:
+            with self.assertRaises(ValueError) as cm:
+                m.capture()
+            self.assertIn("inside the repo", str(cm.exception))
+            self.assertFalse(
+                os.path.exists(m.SHOT_DIR),
+                "the capture created the scratch dir before refusing it")
+        finally:
+            shutil.rmtree(m.SHOT_DIR, ignore_errors=True)
+
+    def test_the_scratch_dir_guard_is_wired_into_capture_in_the_source_too(self):
+        # Second line behind the behavioural one: the call must exist and must
+        # sit BEFORE the browser is launched, or the refusal costs a Chrome.
+        cap = func_def(tree(), "capture")
+        names = [n.func.id for n in ast.walk(cap)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+        self.assertIn("check_shot_dir", names,
+                      "capture() must call check_shot_dir()")
 
     def test_no_file_appears_under_the_repo_when_a_capture_runs(self):
         # Behavioural, per the adversary: run it and look at the tree.
@@ -465,6 +757,36 @@ class TestTheTargetIsPinned(unittest.TestCase):
     def test_landing_on_loopback_passes(self):
         self.assertTrue(self.m.check_landed("http://127.0.0.1:8765/"))
         self.assertTrue(self.m.check_landed("http://localhost:8765/"))
+
+    def test_target_url_reads_the_tab_this_socket_drove(self):
+        # The reviewer's second overclaim: it returned the FIRST page target
+        # and the landed-check trusted it. With two tabs open, the guard read
+        # one and the socket drove the other -- true by luck in single-tab
+        # headless, and never asserted.
+        listing = [{"id": "OTHER", "type": "page", "url": "http://evil.test/"},
+                   {"id": "MINE", "type": "page", "url": "http://127.0.0.1:8765/"}]
+        real = self.m.urllib.request.urlopen
+        self.m.urllib.request.urlopen = lambda *a, **k: _FakeJSON(listing)
+        try:
+            self.assertEqual(self.m.target_url(9222, "MINE"),
+                             "http://127.0.0.1:8765/")
+            self.assertEqual(self.m.target_url(9222, "OTHER"),
+                             "http://evil.test/")
+        finally:
+            self.m.urllib.request.urlopen = real
+
+    def test_target_url_raises_when_our_tab_is_gone_rather_than_substituting(self):
+        # Falling back to a neighbouring tab is how the guard came to read
+        # something it never drove. Absence must be an error, not a default.
+        listing = [{"id": "SOMEONE-ELSE", "type": "page",
+                    "url": "http://127.0.0.1:8765/"}]
+        real = self.m.urllib.request.urlopen
+        self.m.urllib.request.urlopen = lambda *a, **k: _FakeJSON(listing)
+        try:
+            with self.assertRaises(RuntimeError):
+                self.m.target_url(9222, "MINE")
+        finally:
+            self.m.urllib.request.urlopen = real
 
 
 # ---------------------------------------------------------------------------
@@ -604,6 +926,81 @@ class TestCleanupAndArgs(unittest.TestCase):
         finally:
             m.importlib.util.spec_from_file_location = real
 
+    def test_the_dock_cleaner_loaded_is_pinned_to_the_one_real_file(self):
+        # H4: the path was built inline, so repointing it at a file that does
+        # not exist left the suite green and the Dock silently uncleaned --
+        # the very regression the previous round claimed to have closed,
+        # reopened through a different edit. This is also the widest
+        # primitive in the file: it executes a module off disk.
+        self.assertEqual(
+            self.m.DOCK_CLEAN,
+            os.path.join(self.m.REPO_ROOT, "vault-tools", "dock-clean.py"))
+        self.assertTrue(os.path.exists(self.m.DOCK_CLEAN),
+                        "see-page loads a dock cleaner that is not there")
+
+    def test_clean_dock_loads_that_path_and_actually_calls_clean(self):
+        # Behavioural, not structural: nothing proved clean() was ever
+        # reached. The real dock-clean is NOT executed here -- this must not
+        # touch Serge's Dock to prove a wiring point.
+        m = load()
+        seen = {}
+
+        class _Mod:
+            def clean(self):
+                seen["called"] = True
+
+        class _Spec:
+            class loader:
+                @staticmethod
+                def exec_module(mod):
+                    seen["executed"] = True
+
+        real_spec = m.importlib.util.spec_from_file_location
+        real_from = m.importlib.util.module_from_spec
+        m.importlib.util.spec_from_file_location = (
+            lambda name, path: (seen.__setitem__("path", path), _Spec())[1])
+        m.importlib.util.module_from_spec = lambda spec: _Mod()
+        try:
+            m._clean_dock()
+        finally:
+            m.importlib.util.spec_from_file_location = real_spec
+            m.importlib.util.module_from_spec = real_from
+        self.assertEqual(seen.get("path"), m.DOCK_CLEAN)
+        self.assertTrue(seen.get("called"),
+                        "_clean_dock never called clean() on what it loaded")
+
+    def test_the_only_module_loaded_from_disk_is_the_dock_cleaner(self):
+        # exec_module is an arbitrary-code door and the no-dynamic-lookup
+        # test cannot see it: it is an ast.Attribute call, not eval/exec.
+        loads = [n for n in ast.walk(tree())
+                 if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "spec_from_file_location"]
+        self.assertEqual(len(loads), 1,
+                         "exactly one module may be loaded from disk")
+        path_arg = loads[0].args[1] if len(loads[0].args) > 1 else None
+        self.assertIsInstance(
+            path_arg, ast.Name,
+            "the loaded path must be the DOCK_CLEAN constant, not an "
+            "expression built at the call site")
+        self.assertEqual(path_arg.id, "DOCK_CLEAN")
+
+    def test_wait_for_devtools_hands_back_the_target_id_as_well(self):
+        # The landed-check needs the id of the tab we opened, so this must
+        # return a pair. Returning the url alone is how it read a neighbour.
+        m = load()
+        listing = [{"id": "T-9", "type": "page",
+                    "webSocketDebuggerUrl": "ws://127.0.0.1:9222/x",
+                    "url": "about:blank"}]
+        real = m.urllib.request.urlopen
+        m.urllib.request.urlopen = lambda *a, **k: _FakeJSON(listing)
+        try:
+            ws_url, target_id = m._wait_for_devtools(9222, m.time.time() + 2)
+        finally:
+            m.urllib.request.urlopen = real
+        self.assertEqual(ws_url, "ws://127.0.0.1:9222/x")
+        self.assertEqual(target_id, "T-9")
+
     def test_free_port_returns_a_usable_port(self):
         p = self.m.free_port()
         self.assertTrue(1024 < p < 65536)
@@ -612,6 +1009,273 @@ class TestCleanupAndArgs(unittest.TestCase):
         # The adversary proved a 200 ms settle still yields a 663 KB PNG, so
         # no size threshold can prove the data arrived. Pin the floor instead.
         self.assertGreaterEqual(self.m.SETTLE_MS, 1500)
+
+
+class _FakeWSCtx:
+    def __init__(self, ws):
+        self._ws = ws
+
+    async def __aenter__(self):
+        return self._ws
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeSession:
+    def __init__(self, ws):
+        self._ws = ws
+
+    def ws_connect(self, *a, **k):
+        return _FakeWSCtx(self._ws)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def fake_aiohttp(ws):
+    """A stand-in aiohttp so _drive() ITSELF can be driven with no network.
+
+    THE ADVERSARY'S ROUND-FOUR WIN: the recording gate drove _session() and
+    nothing drove _drive(), so an aliased `_d = ws.send_json` placed in the
+    outer function never reached the stub and was invisible to the AST
+    send-counter too. Round three's attack survived, one function up. The
+    only cure is to record the socket from the moment it exists.
+    """
+    import types
+    mod = types.ModuleType("aiohttp")
+    mod.ClientSession = lambda *a, **k: _FakeSession(ws)
+    return mod
+
+
+# ---------------------------------------------------------------------------
+# THE OUTER DOOR, AND THE FULL SCRIPT
+# ---------------------------------------------------------------------------
+
+class TestNothingSlipsPastTheRecorder(unittest.TestCase):
+    """Everything the adversary got through round four."""
+
+    def setUp(self):
+        self.m = load()
+        self.m.SETTLE_MS = 0
+        self.m.BOARD_SLIDE_MS = 0
+        self.m.target_url = lambda port, target_id, **kw: "http://127.0.0.1:8765/"
+
+    def _drive_all(self, open_board, name):
+        """Drive _drive() -- the OUTER function -- against the recorder."""
+        import sys as _sys
+        ws = RecordingWS()
+        out = self.m.shot_path(name)
+        real = _sys.modules.get("aiohttp")
+        _sys.modules["aiohttp"] = fake_aiohttp(ws)
+        try:
+            asyncio.run(self.m._drive("ws://stub", self.m.PAGE_URL, out,
+                                      open_board, 9222, "TARGET-1"))
+        finally:
+            if real is None:
+                _sys.modules.pop("aiohttp", None)
+            else:
+                _sys.modules["aiohttp"] = real
+            if os.path.exists(out):
+                os.remove(out)
+        return ws
+
+    def test_the_outer_drive_sends_nothing_of_its_own(self):
+        # `_d = ws.send_json` inside _drive shipped green in round four.
+        for open_board, name in ((False, "outer-plain.png"),
+                                 (True, "outer-board.png")):
+            ws = self._drive_all(open_board, name)
+            for door, frame in ws.frames:
+                self.assertEqual(door, "send_json")
+                self.assertEqual(
+                    frame,
+                    self.m.build_payload(frame["id"], frame["method"],
+                                         frame["params"]),
+                    "a frame reached the wire that build_payload never made")
+
+    def test_the_whole_script_is_pinned_by_equality_not_by_properties(self):
+        # A FIXED-POINT check cannot catch a param nobody validates -- the
+        # adversary's second navigate rebuilt to itself and passed. A pinned
+        # script can: this is the entire conversation, in order, by equality.
+        w, h = self.m.VIEWPORT
+        head = [("Emulation.setDeviceMetricsOverride",
+                 {"width": w, "height": h,
+                  "deviceScaleFactor": 1, "mobile": False}),
+                ("Page.enable", {}),
+                ("Page.navigate", {"url": self.m.PAGE_URL})]
+        shot = [("Page.captureScreenshot", {"format": "png"})]
+        unfold = [("Runtime.evaluate", {"expression": self.m.BOARD_OPEN_JS})]
+        for open_board, name, expected in (
+                (False, "script-plain.png", head + shot),
+                (True, "script-board.png", head + unfold + shot)):
+            ws = self._drive_all(open_board, name)
+            got = [(f["method"], f["params"]) for _, f in ws.frames]
+            self.assertEqual(got, expected)
+
+    def test_exactly_one_navigation_happens_and_it_is_the_hud(self):
+        for open_board, name in ((False, "nav-plain.png"),
+                                 (True, "nav-board.png")):
+            ws = self._drive_all(open_board, name)
+            navs = [f for _, f in ws.frames if f["method"] == "Page.navigate"]
+            self.assertEqual(len(navs), 1)
+            self.assertEqual(navs[0]["params"]["url"], self.m.PAGE_URL)
+
+    def test_no_navigation_happens_after_the_landed_check(self):
+        # check_landed runs ONCE, before the unfold and the capture, so a
+        # navigate written after it was never re-checked.
+        marks = {}
+        ws = RecordingWS()
+        out = self.m.shot_path("nav-order.png")
+
+        def marking_target_url(port, target_id, **kw):
+            marks["at"] = len(ws.frames)
+            return "http://127.0.0.1:8765/"
+
+        self.m.target_url = marking_target_url
+        import sys as _sys
+        real = _sys.modules.get("aiohttp")
+        _sys.modules["aiohttp"] = fake_aiohttp(ws)
+        try:
+            asyncio.run(self.m._drive("ws://stub", self.m.PAGE_URL, out,
+                                      True, 9222, "TARGET-1"))
+        finally:
+            if real is None:
+                _sys.modules.pop("aiohttp", None)
+            else:
+                _sys.modules["aiohttp"] = real
+            if os.path.exists(out):
+                os.remove(out)
+        after = [f["method"] for _, f in ws.frames[marks["at"]:]]
+        self.assertNotIn("Page.navigate", after,
+                         "a navigation happened after the landed check")
+
+    def test_the_viewport_is_pinned_without_needing_the_hud(self):
+        # A viewport quietly rewritten to 1x1 was caught by the LIVE render
+        # alone -- so with the server down it shipped green and every render
+        # became a one-pixel image reported as success.
+        ws = self._drive_all(False, "viewport.png")
+        metrics = [f for _, f in ws.frames
+                   if f["method"] == "Emulation.setDeviceMetricsOverride"][0]
+        self.assertEqual((metrics["params"]["width"],
+                          metrics["params"]["height"]), self.m.VIEWPORT)
+        self.assertGreaterEqual(self.m.VIEWPORT[0], 1024)
+        self.assertGreaterEqual(self.m.VIEWPORT[1], 768)
+
+
+class TestTheOtherDoorsOntoTheBrowser(unittest.TestCase):
+    """The websocket is not the only way to reach Chrome."""
+
+    def setUp(self):
+        self.m = load()
+
+    def test_a_navigate_url_is_refused_at_the_boundary(self):
+        # THE WORST HOLE OF ROUND FOUR. Page.navigate is on the allowlist and
+        # its url was validated by nothing at all.
+        for hostile in ("javascript:void(0)", "data:text/html,<b>x</b>",
+                        "file:///etc/passwd", "chrome://settings",
+                        "http://evil.test/x", "https://example.com/",
+                        "http://10.0.0.5:8765/"):
+            with self.assertRaises(ValueError, msg=f"accepted {hostile!r}"):
+                self.m.build_payload(1, "Page.navigate", {"url": hostile})
+
+    def test_the_hud_itself_is_still_accepted(self):
+        p = self.m.build_payload(1, "Page.navigate", {"url": self.m.PAGE_URL})
+        self.assertEqual(p["params"]["url"], self.m.PAGE_URL)
+
+    def test_a_send_method_may_not_even_be_BOUND_to_a_name(self):
+        # The old door test counted ast.Call. `_d = ws.send_json` is an
+        # ATTRIBUTE LOAD, so it counted as zero sends and shipped green.
+        t = tree()
+        sends = [n for n in ast.walk(t)
+                 if isinstance(n, ast.Attribute) and n.attr.startswith("send")]
+        self.assertEqual(
+            len(sends), 1,
+            f"a send method appears {len(sends)} times -- exactly one may "
+            "exist, and it may not be aliased to a name")
+
+    def test_chromes_http_control_plane_is_bounded_to_reading_the_tab_list(self):
+        # /json/new?url=... opens a tab at any URL with no DevTools frame
+        # involved. Nothing counted or path-checked urlopen.
+        t = tree()
+        calls = [n for n in ast.walk(t)
+                 if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "urlopen"]
+        self.assertEqual(len(calls), 2,
+                         "exactly two reads of Chrome's HTTP endpoint")
+        for c in calls:
+            arg = c.args[0]
+            self.assertIsInstance(arg, ast.JoinedStr,
+                                  "the endpoint must be a literal f-string")
+            tail = arg.values[-1]
+            self.assertIsInstance(tail, ast.Constant)
+            self.assertTrue(tail.value.endswith("/json/list"),
+                            f"urlopen may only read /json/list, not {tail.value!r}")
+
+    def test_the_browser_is_launched_headless_and_at_a_blank_page(self):
+        # Neither was asserted anywhere: dropping --headless put a real
+        # window on Serge's screen, and replacing about:blank made Chrome
+        # navigate before a single guard ran. Both shipped green.
+        m = load()
+        seen = {}
+
+        # Only the FIRST launch is recorded, and the patch is restored: this
+        # replaces Popen on the SHARED subprocess module, so the Dock cleaner
+        # in capture()'s finally runs through the same stub. The first version
+        # of this test let dock-clean's own `defaults export` overwrite the
+        # record and then failed against a correct file -- second time tonight
+        # a test of mine measured the wrong thing.
+        real_popen = m.subprocess.Popen
+
+        def fake_popen(argv, *a, **k):
+            seen.setdefault("argv", argv)
+            raise RuntimeError("stop here -- the launch is all we wanted")
+
+        m.subprocess.Popen = fake_popen
+        try:
+            with self.assertRaises(RuntimeError):
+                m.capture()
+        finally:
+            m.subprocess.Popen = real_popen
+        argv = seen.get("argv")
+        self.assertIsNotNone(argv, "capture() never launched anything")
+        self.assertIn("--headless", argv)
+        self.assertEqual(argv[-1], "about:blank",
+                         "Chrome must start at a blank page, not at a URL")
+        self.assertEqual(argv[0], m.CHROME)
+
+    def test_stdout_is_clean_at_the_FILE_DESCRIPTOR_not_just_the_object(self):
+        # redirect_stdout rebinds sys.stdout only, so sys.__stdout__.write()
+        # and os.write(1, ...) both shipped green. Run it in a subprocess and
+        # read fd 1 for real.
+        import subprocess as sp
+        script = (
+            "import asyncio,base64,json,sys\n"
+            "import importlib.util as iu\n"
+            f"s=iu.spec_from_file_location('sp',{TOOL!r})\n"
+            "m=iu.module_from_spec(s); s.loader.exec_module(m)\n"
+            "m.SETTLE_MS=0; m.BOARD_SLIDE_MS=0\n"
+            "m.target_url=lambda p,t,**k:'http://127.0.0.1:8765/'\n"
+            "PNG=b'\\x89PNG\\r\\n\\x1a\\n'+b'pixels'\n"
+            "class W:\n"
+            "    def __init__(s): s.r=[]\n"
+            "    def _rec(s,f):\n"
+            "        d={'data':base64.b64encode(PNG).decode()} if f.get('method')=='Page.captureScreenshot' else {}\n"
+            "        s.r.append(json.dumps({'id':f.get('id'),'result':d}))\n"
+            "    async def send_json(s,p): s._rec(p)\n"
+            "    async def receive_str(s): return s.r.pop(0)\n"
+            "out=m.shot_path('fd-probe.png')\n"
+            "asyncio.run(m._session(W(),m.PAGE_URL,out,True,9222,'T'))\n"
+            "import os; os.remove(out)\n"
+        )
+        p = sp.run([sys.executable, "-c", script], capture_output=True)
+        self.assertEqual(p.returncode, 0, p.stderr.decode()[-800:])
+        self.assertEqual(p.stdout, b"",
+                         "the render wrote to fd 1 -- that channel carries "
+                         "the screenshot path and nothing else")
 
 
 @unittest.skipUnless(server_up(), "the HUD is not running on 8765")

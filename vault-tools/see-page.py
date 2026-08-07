@@ -17,14 +17,35 @@ WHAT THIS DOES NOT DO, deliberately.
     Driving his interface for real is a separate capability and a separate
     decision, and it is his to open.
 
-    THAT PROMISE IS ENFORCED AT RUN TIME, in build_payload(), and this is the
-    second attempt. The first round guarded it with tests that read the CALL
-    SITE -- and the test-adversary broke it in three lines placed INSIDE the
-    call helper, appending a .click() to the expression on its way to the wire
-    while the whole suite stayed green. `#approve-yes` is a real element on
-    the HUD: that hole could have answered a permission request on Serge's
-    behalf. A guard that only reads where a value came from cannot see what
-    happens to it afterwards, so the check now travels with the message.
+    THAT PROMISE IS ENFORCED AT RUN TIME, in build_payload(), and the gate
+    that proves it is BEHAVIOURAL. THIS IS THE FOURTH ATTEMPT AND THE FIRST
+    THREE WERE ALL DEFEATED THE SAME WAY. Round one guarded it with text
+    searches; round two with syntax-tree guards on the CALL SITE; round three
+    added build_payload() but still proved it by reading source. Each time the
+    adversary walked through in a spelling the guard had not been written
+    against: three lines inside the call helper, then a rebind of the
+    validated name, then an aliased second door onto the wire. `#approve-yes`
+    is a real element on the HUD, so every one of those holes could have
+    answered a permission request on Serge's behalf.
+
+    THE LESSON, AND WHY THIS ROUND IS DIFFERENT: a guard that reads the source
+    is guessing at the last attack's syntax. So the gate now RUNS the driver
+    against a recording websocket and asserts that every frame which actually
+    left the process is identically a build_payload() return. That checks the
+    bytes on the wire rather than the shape of the code that wrote them.
+    _session() IS SPLIT OUT OF _drive() for exactly that reason -- the
+    protocol half takes its socket as an argument, so it can be driven with no
+    browser and no network at all.
+
+    WHAT ROUND FOUR DOES NOT CLAIM, because the reviewer was right to narrow
+    it. Source-reading was DEMOTED, not retired, and two edges still rest on
+    it alone: a send performed inside _drive() would never be recorded (the
+    one-door test is a source test), and the recording gate is a FIXED-POINT
+    check rather than an identity one -- it rebuilds from the frame's own
+    fields, so a rewrite of a param build_payload does not validate, such as
+    Page.navigate's url, rebuilds to itself and passes. That particular case
+    is closed by check_landed() at run time and by an AST test; it is named
+    here so nobody reads the recording gate as covering more than it does.
 
 SECURITY SHAPE, in brief-check's doctrine.
     - The URL is a HARDCODED CONSTANT. It is not read from argv, env or stdin,
@@ -56,6 +77,7 @@ Usage:
 
 import asyncio
 import base64
+import copy
 import importlib.util
 import json
 import os
@@ -84,6 +106,12 @@ SHOT_DIR = os.path.join(tempfile.gettempdir(), "jarvis-page")
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+# The ONE module this file may load from disk, named as a constant so a test
+# can pin it. It used to be built inline inside _clean_dock(), and the
+# adversary repointed it at a file that does not exist with the suite green --
+# so the Dock silently stopped being cleaned and nothing said a word.
+DOCK_CLEAN = os.path.join(REPO_ROOT, "vault-tools", "dock-clean.py")
 
 # The one thing this may ask the page to do, written once so a test can pin it.
 BOARD_OPEN_JS = "boardOpen(true)"
@@ -140,23 +168,31 @@ def check_url(url=PAGE_URL):
     return True
 
 
-def target_url(port, timeout=2.0):
-    """Where the page actually IS, from Chrome's own HTTP endpoint.
+def target_url(port, target_id, timeout=2.0):
+    """Where the tab we actually drove IS, from Chrome's own HTTP endpoint.
 
     Deliberately NOT a DevTools call: Page.getNavigationHistory is refused by
     this Chrome (protocol error -32000, found by running it), and adding an
     execution-capable method to the allowlist to answer a read-only question
     would be the wrong trade anyway. /json/list is the same endpoint
     _wait_for_devtools already reads.
+
+    `target_id` IS THE CORRECTION. This used to return the first target of
+    type "page" and the landed-check trusted it -- which happens to be the
+    driven tab in single-tab headless and was never asserted to be. So the
+    guard read one tab's URL while the socket drove another, and the reviewer
+    was right that the claim was stronger than the code. Now the id from the
+    socket we opened is the id we look up, and a target that has vanished
+    raises instead of falling back to a neighbour.
     """
     with urllib.request.urlopen(
         f"http://127.0.0.1:{port}/json/list", timeout=timeout
     ) as r:
         targets = json.load(r)
     for t in targets:
-        if t.get("type") == "page":
+        if t.get("id") == target_id:
             return t.get("url") or ""
-    raise RuntimeError("Chrome reports no page target")
+    raise RuntimeError("the tab this socket drove is no longer listed")
 
 
 def check_landed(url):
@@ -215,8 +251,12 @@ def build_payload(msg_id, method, params):
 
     Three refusals: a method outside ALLOWED_CDP, an `expression` that is not
     exactly the board unfold, and any param that carries code or replaces the
-    document. The params dict is COPIED into the payload, so a later mutation
-    of the caller's dict cannot reach the browser.
+    document. The params are DEEP-copied into the payload, so no later mutation
+    of the caller's dict can reach the browser. The previous version said the
+    same sentence over a shallow dict() copy, which was true only at the top
+    level -- a nested param would have ridden through. Not exploitable at
+    today's call sites, and corrected anyway: a docstring that overstates the
+    code is how the next reader builds on a guarantee that is not there.
     """
     if method not in ALLOWED_CDP:
         raise ValueError(
@@ -228,7 +268,18 @@ def build_payload(msg_id, method, params):
     for banned in CODE_BEARING_PARAMS:
         if banned in params:
             raise ValueError(f"refusing a code-bearing param: {banned!r}")
-    return {"id": msg_id, "method": method, "params": dict(params)}
+    if "url" in params:
+        # THE ADVERSARY'S ROUND-FOUR WIN, and it was the worst hole in the
+        # file: Page.navigate is on the allowlist and its url was validated by
+        # NOTHING. check_url only ever guarded the module constant, and
+        # check_landed runs once, before the unfold and the capture, so any
+        # later navigate went unchecked. build_payload accepted
+        # javascript:void(0), data:text/html,..., file:///etc/passwd and
+        # chrome://settings -- arbitrary navigation through a frame this
+        # boundary called valid. Every url on the wire now goes through the
+        # same loopback gate as the target.
+        check_url(params["url"])
+    return {"id": msg_id, "method": method, "params": copy.deepcopy(params)}
 
 
 def check_response(method, data):
@@ -292,7 +343,12 @@ def shot_path(name="page.png"):
 
 
 def _wait_for_devtools(port, deadline):
-    """Poll Chrome's own /json/version until it answers, then take a target."""
+    """Poll Chrome's own endpoint until it answers, then take a target.
+
+    Returns (websocket url, target id) -- BOTH, because the landed-check has
+    to look up the very tab this socket drove rather than whichever page
+    target happens to be listed first.
+    """
     last = None
     while time.time() < deadline:
         try:
@@ -302,60 +358,71 @@ def _wait_for_devtools(port, deadline):
                 targets = json.load(r)
             for t in targets:
                 if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
-                    return t["webSocketDebuggerUrl"]
+                    return t["webSocketDebuggerUrl"], t.get("id")
         except Exception as e:      # noqa: BLE001 -- Chrome is simply not up yet
             last = e
         time.sleep(0.15)
     raise RuntimeError(f"Chrome devtools never came up on {port} ({last})")
 
 
-async def _drive(ws_url, url, out, open_board, port):
-    """Navigate, settle, optionally unfold the board, capture. Pixels only."""
-    import aiohttp
+async def _session(ws, url, out, open_board, port, target_id):
+    """The whole conversation with the browser. Pixels only.
 
+    SPLIT OUT OF _drive() DELIBERATELY, and the split is the gate rather than
+    tidiness: everything that speaks to the browser lives here and takes `ws`
+    as an argument, so a test can hand it a recording stub and assert that
+    every frame which actually left this function is identically a
+    build_payload() return. Three rounds of source-reading guards were walked
+    past; checking the bytes is what cannot be re-spelled around.
+    """
     msg_id = 0
 
-    async with aiohttp.ClientSession() as sess:
-        async with sess.ws_connect(ws_url, max_msg_size=0) as ws:
+    async def call(method, **params):
+        nonlocal msg_id
+        msg_id += 1
+        # Built and validated in one step, then sent unmodified. No statement
+        # may sit between these two lines mutating it -- that is exactly the
+        # breach the adversary demonstrated, twice, in two different syntaxes.
+        payload = build_payload(msg_id, method, params)
+        await ws.send_json(payload)
+        while True:
+            raw = await asyncio.wait_for(ws.receive_str(),
+                                         timeout=CALL_TIMEOUT_S)
+            data = json.loads(raw)
+            if data.get("id") == payload["id"]:
+                return check_response(method, data)
 
-            async def call(method, **params):
-                nonlocal msg_id
-                msg_id += 1
-                # Built and validated in one step, then sent unmodified. No
-                # statement may sit between these two lines mutating it --
-                # that is exactly the breach the adversary demonstrated, and
-                # a test walks this function body to keep it true.
-                payload = build_payload(msg_id, method, params)
-                await ws.send_json(payload)
-                while True:
-                    raw = await asyncio.wait_for(ws.receive_str(),
-                                                 timeout=CALL_TIMEOUT_S)
-                    data = json.loads(raw)
-                    if data.get("id") == payload["id"]:
-                        return check_response(method, data)
+    w, h = VIEWPORT
+    await call("Emulation.setDeviceMetricsOverride",
+               width=w, height=h, deviceScaleFactor=1, mobile=False)
+    await call("Page.enable")
+    check_navigation(await call("Page.navigate", url=url))
+    await asyncio.sleep(SETTLE_MS / 1000)
+    check_landed(target_url(port, target_id))
 
-            w, h = VIEWPORT
-            await call("Emulation.setDeviceMetricsOverride",
-                       width=w, height=h, deviceScaleFactor=1, mobile=False)
-            await call("Page.enable")
-            check_navigation(await call("Page.navigate", url=url))
-            await asyncio.sleep(SETTLE_MS / 1000)
-            check_landed(target_url(port))
+    if open_board:
+        # The page is collapsed until a cursor approaches its heading, so a
+        # plain screenshot photographs a folded board. This calls the page's
+        # own function rather than faking a hover, because a synthetic mouse
+        # move is an action and this is a view control.
+        await call("Runtime.evaluate", expression=BOARD_OPEN_JS)
+        await asyncio.sleep(BOARD_SLIDE_MS / 1000)
 
-            if open_board:
-                # The page is collapsed until a cursor approaches its heading,
-                # so a plain screenshot photographs a folded board. This calls
-                # the page's own function rather than faking a hover, because a
-                # synthetic mouse move is an action and this is a view control.
-                await call("Runtime.evaluate", expression=BOARD_OPEN_JS)
-                await asyncio.sleep(BOARD_SLIDE_MS / 1000)
-
-            res = await call("Page.captureScreenshot", format="png")
+    res = await call("Page.captureScreenshot", format="png")
 
     check_out_path(out)
     with open(out, "wb") as f:
         f.write(base64.b64decode(res["data"]))
     return out
+
+
+async def _drive(ws_url, url, out, open_board, port, target_id):
+    """Open the socket and hand it to _session(). Connection only, no protocol."""
+    import aiohttp
+
+    async with aiohttp.ClientSession() as sess:
+        async with sess.ws_connect(ws_url, max_msg_size=0) as ws:
+            return await _session(ws, url, out, open_board, port, target_id)
 
 
 def capture(out=None, open_board=False, url=PAGE_URL):
@@ -395,8 +462,10 @@ def capture(out=None, open_board=False, url=PAGE_URL):
              f"--window-size={VIEWPORT[0]},{VIEWPORT[1]}", "about:blank"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        ws_url = _wait_for_devtools(port, time.time() + LAUNCH_TIMEOUT_S)
-        return asyncio.run(_drive(ws_url, url, out, open_board, port))
+        ws_url, target_id = _wait_for_devtools(port,
+                                               time.time() + LAUNCH_TIMEOUT_S)
+        return asyncio.run(
+            _drive(ws_url, url, out, open_board, port, target_id))
     finally:
         if proc is not None:
             proc.terminate()
@@ -419,10 +488,15 @@ def _clean_dock():
     NEVER RAISES. Tidying up is not worth losing a screenshot over, and this
     sits in the same finally as the browser teardown -- an exception here
     would mask the real error the caller is trying to report.
+
+    THE PATH IS THE CONSTANT DOCK_CLEAN, not an expression built here. This
+    function loads and executes a file from disk, which makes it the widest
+    primitive in the file; the adversary repointed it at a nonexistent name
+    with the suite green, so the Dock silently stopped being cleaned. A test
+    now pins both the path and that clean() is actually reached.
     """
     try:
-        spec = importlib.util.spec_from_file_location(
-            "dock_clean", os.path.join(REPO_ROOT, "vault-tools", "dock-clean.py"))
+        spec = importlib.util.spec_from_file_location("dock_clean", DOCK_CLEAN)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         mod.clean()
