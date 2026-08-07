@@ -149,13 +149,9 @@ function test(name, fn) {
 // INVERTED 2026-08-06, not extended: "the four columns are ..." and "the six
 // columns are ..." cannot both guard this table. Serge added Review and Test
 // (~6:44 AM), and the order is the order work flows in.
-test('the SEVEN columns are Planning, To Do, In Progress, Review, Test, Waiting on You, Done', () => {
-  // Inverted, not extended, 2026-08-07: "the six columns are..." and "the
-  // seven columns are..." cannot both guard this table. Same discipline as
-  // when Review and Test arrived.
+test('the six columns are To Do, In Progress, Review, Test, Waiting on You, Done', () => {
   assert.deepStrictEqual(COLS.map(c => c.key),
-    ['planning', 'open', 'active', 'review', 'test', 'waiting-on-serge',
-     'done']);
+    ['open', 'active', 'review', 'test', 'waiting-on-serge', 'done']);
 });
 
 test('the grid draws as many columns as the table declares', () => {
@@ -1540,71 +1536,6 @@ test('the buttons are slim -- height is the label plus a hair', () => {
     fontSize + 'px label -- that is the slab Serge asked to lose');
   assert.ok(height > fontSize,
     'the button is shorter than its own text (' + height.toFixed(1) + 'px)');
-});
-
-// ---- PLANNING: the column for work nobody has committed to ---------------
-// Serge, 2026-08-07 ~2:52 PM. He found the gap: all six other columns are
-// work in flight and To Do already means committed, so a brainstorm was
-// being filed as a promise. Appended above the exit deliberately.
-
-test('PLANNING is the FIRST column, before To Do', () => {
-  // Order is the whole meaning. Planning after To Do would read as a stage
-  // work passes through; before it, it reads as "not yet committed".
-  assert.equal(COLS[0].key, 'planning',
-    'planning is not first: ' + COLS.map(c => c.key).join(' '));
-  assert.equal(COLS[1].key, 'open', 'To Do no longer follows planning');
-});
-
-test('planning wears NO status colour', () => {
-  // Green says being worked, amber says Serge is blocking, the checking
-  // accent says in flight. All three are lies about a plan nobody started.
-  const src = fs.readFileSync(HTML, 'utf8');
-  const rules = [...src.matchAll(/\.bcol\.planning[^{]*\{([^}]*)\}/g)]
-                  .map(m => m[1]).join(' ');
-  assert.ok(rules.trim(), 'the .bcol.planning rules are gone');
-  for (const tok of ['--ok', '--warn', '--bad']) {
-    assert.ok(!rules.includes(tok),
-      'planning is painted with ' + tok + ' -- it claims a state it is not in');
-  }
-});
-
-test('a planning card gets NO verdict buttons and no walk button', () => {
-  // THE RULE THE COLUMN CARRIES: nothing leaves Planning without Serge.
-  // A verdict button on a plan would let a session approve its own idea
-  // into existence, which is the exact thing the column exists to stop.
-  const html = verdictButtons('planning', 'Some plan', {status: 'planning'});
-  assert.equal(html, '',
-    'a planning card offers a control that could promote it: ' + html);
-});
-
-test('a parked plan is NOT counted as open work', () => {
-  // The failure this prevents: a plan silently inflating the "open" count
-  // would make the heading claim queued work that nobody agreed to.
-  reset();
-  renderBoard([T('A plan', 'planning'), T('Real work', 'open')]);
-  const s = strip();
-  assert.ok(/1<\/b> open/.test(s), 'the open count is wrong: ' + s);
-  assert.ok(/1<\/b> planning/.test(s), 'planning is invisible in the heading');
-});
-
-test('the planning count HIDES at zero, like every other count', () => {
-  reset();
-  renderBoard([T('w', 'open')]);
-  assert.ok(!/planning/.test(strip()),
-    'a zero planning count is drawn -- the heading got noisier for nothing');
-});
-
-test('the sheet spans the full window width', () => {
-  // His answer to the seventh column's cost: use the room over the left
-  // panel. Pinned because a future restyle that re-anchors the sheet to
-  // the right would silently squeeze seven columns into six columns' room.
-  const src = fs.readFileSync(HTML, 'utf8');
-  const m = src.match(/#board \{([^}]*)\}/);
-  assert.ok(m, 'the #board rule is gone');
-  assert.ok(/left:\s*12px/.test(m[1]) && /right:\s*12px/.test(m[1]),
-    'the sheet is no longer pinned to both edges: ' + m[1].trim());
-  assert.ok(!/width:\s*min\(/.test(m[1]),
-    'the old capped width is back -- seven columns in six columns of room');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

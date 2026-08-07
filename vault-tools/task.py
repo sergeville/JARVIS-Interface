@@ -63,16 +63,11 @@ _ROOT = os.path.realpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 NOTE = os.path.join(_ROOT, "Jarvis-brain", "Active Priorities.md")
 
-# The SEVEN board columns, and nothing else. A status the board has never
+# The six board columns, and nothing else. A status the board has never
 # heard of lands in To Do, so a typo here would silently park a task in
 # the wrong column rather than fail -- which is why this is a closed set
 # checked up front.
-#
-# `planning` joined 2026-08-07 on Serge's word. It is first because it is
-# BEFORE commitment: To Do already means a session may pick this up, and a
-# brainstorm is not that. Nothing leaves Planning without him.
-STATUSES = ("planning", "open", "active", "review", "test",
-            "waiting-on-serge", "done")
+STATUSES = ("open", "active", "review", "test", "waiting-on-serge", "done")
 
 TASK_RE = re.compile(r"^- \[([ x])\] \*\*(.+?)\*\*")
 

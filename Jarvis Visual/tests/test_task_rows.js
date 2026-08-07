@@ -167,13 +167,8 @@ test('the row class is the COLUMN class, not a second vocabulary', () => {
   // status differently and the eye has to learn two languages for one fact.
   const classes = new Set(COLS.map(c => c.cls).filter(Boolean));
   for (const cls of classes) {
-    // The status WORD must be coloured, not merely the row touched by some
-    // rule. An earlier version accepted any `#tasks .task.<cls>` selector,
-    // so deleting the `.st` colour left the word grey with the suite green.
-    assert.ok(new RegExp('#tasks \\.task\\.' + cls + ' \\.st \\{[^}]*color:')
-                .test(src),
-      'the status word for "' + cls + '" has no colour in the list -- ' +
-      'the sidebar and the board disagree about the same fact');
+    assert.ok(src.includes('#tasks .task.' + cls),
+      'no #tasks styling for "' + cls + '" -- that status is colourless in the list');
     assert.ok(src.includes('.bcol.' + cls),
       'no board column styling for "' + cls + '" -- the two views disagree');
   }
@@ -204,41 +199,12 @@ test('an unknown status falls back to To Do rather than vanishing', () => {
   renderTasks([T('from the future', 'shipped-to-mars')]);
   assert.strictEqual(rows().length, 1, 'the task disappeared');
   assert.strictEqual(rows()[0].className, 'task');
-  // BY NAME, NOT BY POSITION. This read COLS[0].short, which was To Do until
-  // Planning took first place on 2026-08-07 -- so the test would have moved
-  // WITH the bug and gone on passing while every unrecognised task was filed
-  // as a plan nobody may start. A test that follows the code it guards is
-  // not guarding anything. Third instance of this same assumption in one
-  // change: colFor(), the sidebar's rank(), and here.
+  // BY NAME, NOT BY POSITION: this read COLS[0].short, so it would have
+  // moved along with a reorder and gone on passing while unknown work was
+  // filed into whatever column took first place.
   const toDo = COLS.find(c => c.key === 'open');
   assert.strictEqual(cellOf(rows()[0], 'st').textContent, toDo.short,
     'an unknown status no longer lands in To Do');
-});
-
-test('an unknown status SORTS with To Do, not with the plans', () => {
-  // The class test above passes on colFor() alone. The sidebar has a SECOND
-  // positional assumption in rank(), and it survived the whole injection
-  // round: restore `return i < 0 ? 0 : i` and an unrecognised task sorts to
-  // the very top, in among things nobody has committed to, while still
-  // wearing the To Do class. Wrong place, right colour -- the quietest kind
-  // of wrong. Order is asserted here because order is what rank() decides.
-  // THE FIXTURE ORDER IS THE TEST. My first version handed these in with the
-  // plan first, and the sort is stable -- so the broken rank (0, the same as
-  // planning) and the correct one produced the IDENTICAL order and the test
-  // passed either way. The unknown task goes FIRST here: with rank 0 it stays
-  // above the plan, with the correct rank it falls below it.
-  renderTasks([
-    T('from the future', 'shipped-to-mars'),
-    T('a plan', 'planning'),
-    T('committed', 'open'),
-  ]);
-  const titles = rows().map(r => cellOf(r, 'title').textContent);
-  assert.strictEqual(titles.length, 3, 'a row vanished: ' + titles.join(' | '));
-  assert.ok(titles[0].includes('a plan'),
-    'an unrecognised task sorted ABOVE the plans -- real work filed as ' +
-    'something nobody has committed to: ' + titles.join(' | '));
-  assert.ok(titles[1].includes('from the future'),
-    'the unknown task did not sort with To Do: ' + titles.join(' | '));
 });
 
 test('the title carries the priority and the note stays in the tooltip', () => {

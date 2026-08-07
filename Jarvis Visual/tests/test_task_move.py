@@ -508,8 +508,7 @@ class TestTheDrag(Base):
         # on purpose whether a drag may reach it.
         self.assertEqual(
             list(self.srv.DRAG_STATUSES),
-            ["planning", "open", "active", "review", "test",
-             "waiting-on-serge", "done"],
+            ["open", "active", "review", "test", "waiting-on-serge", "done"],
         )
 
     def test_a_drag_moves_a_card_to_any_board_column(self):
