@@ -93,6 +93,14 @@ eval(grab('esc') + '\nconst BOARD_COLS = ' + COLS_SRC + ';'
    + '\nconst BOARD_OWNED = ' + OWNED_SRC + ';\n' + grab('ownerOf') + '\n'
    + '\nconst BOARD_CHECKING = ' + CHECK_SRC + ';'
    + '\nconst STEP_MAX = ' + STEP_MAX + ';\n' + grab('stepText') + '\n'
+   // WALK_NOTE and isHisToAnswer are PARSED OUT OF THE PAGE, never restated
+   // here. The marker is the one string the server writes and the page reads,
+   // so a test that declared its own copy would go on passing after the page
+   // drifted -- guarding a constant that no longer exists anywhere real.
+   + '\nconst WALK_NOTE = ' + (
+       fs.readFileSync(HTML, 'utf8').match(/const WALK_NOTE = ('[^']*')/) || []
+     )[1] + ';\n'
+   + grab('isHisToAnswer') + '\n'
    + grab('verdictButtons') + '\n' + grab('wireVerdicts') + '\n'
    + grab('clearDrag') + '\n' + grab('wireDrag') + '\n'
    + grab('renderBoard'));
@@ -814,10 +822,18 @@ test('a Review card carries approve and send back', () => {
   assert.ok(/data-act="send-back"/.test(cols()), 'no send-back button on a Review card');
 });
 
-test('TWO buttons, not one -- a verdict he cannot refuse is not a verdict', () => {
+// NARROWED 2026-08-07, not deleted. This asserted "exactly 2 buttons", which
+// was the right guard when a Review card could only be answered. The walk-me-
+// through button made that literal false while its MEANING -- that there are
+// two verdicts and neither is the unspoken default -- is unchanged. So the
+// count moved onto the verdicts themselves, where it always belonged, and the
+// total is pinned separately below.
+test('TWO verdicts, not one -- a verdict he cannot refuse is not a verdict', () => {
   taskMoveOK = true;
   renderBoard([T('Alpha', 'review')]);
-  assert.strictEqual((cols().match(/class="bv /g) || []).length, 2);
+  const c = cols();
+  assert.strictEqual((c.match(/class="bv ok"/g) || []).length, 1);
+  assert.strictEqual((c.match(/class="bv no"/g) || []).length, 1);
 });
 
 test('NO other column gets a verdict -- he is not the decider there', () => {
@@ -1254,6 +1270,273 @@ test('the tell replaces the owner slot, it does not add a second one', () => {
     'the placeholder was drawn alongside the warning');
 });
 
+
+// ---- WALK ME THROUGH IT (Serge, 2026-08-07) -------------------------------
+//
+// The third button on a Review card. It decides nothing and writes nothing --
+// it starts a conversation about the card and leaves both verdicts pressable.
+// What these guard is the one way it can quietly become a fourth verdict:
+// acquiring the busy state, the route, or a status write.
+
+test('a Review card carries a third button that decides nothing', () => {
+  taskMoveOK = true;
+  renderBoard([T('Alpha', 'review')]);
+  const c = cols();
+  assert.ok(/data-act="walk"/.test(c), 'no walk-through button on a Review card');
+  assert.strictEqual((c.match(/class="bv /g) || []).length, 3,
+    'the Review card no longer carries exactly three buttons: ' + c.slice(0, 400));
+});
+
+test('the walk-through wears NEITHER verdict colour', () => {
+  // Green would read as approval and amber as rejection. This button is not
+  // an answer, and a button that looks like one collects presses that mean
+  // something he did not say.
+  taskMoveOK = true;
+  renderBoard([T('Alpha', 'review')]);
+  const walk = cols().split('<button ').find(b => b.includes('data-act="walk"'));
+  assert.ok(walk, 'the walk button vanished');
+  assert.ok(/class="bv walk"/.test(walk),
+    'the walk button took a verdict class: ' + walk.slice(0, 160));
+});
+
+test('the walk-through is drawn on NO other column', () => {
+  for (const c of COLS) {
+    if (c.key === 'review') continue;
+    reset(); taskMoveOK = true;
+    renderBoard([T('X', c.key)]);
+    assert.ok(!/data-act="walk"/.test(cols()),
+      'a walk-through button was drawn on the ' + c.key + ' column');
+  }
+});
+
+test('the walk-through STAYS pressable while a verdict is being written', () => {
+  // verdictBusy guards the vault write. This button makes no vault write, and
+  // disabling it would mean that answering one card silently blocks talking
+  // about it -- the two things are unrelated and must not share a latch.
+  taskMoveOK = true; verdictBusy = 'Alpha';
+  renderBoard([T('Alpha', 'review')]);
+  const walk = cols().split('<button ').find(b => b.includes('data-act="walk"'));
+  assert.ok(!/disabled/.test(walk),
+    'the walk-through went dead because a verdict was in flight');
+});
+
+test('the walk-through leaves the handler BEFORE the busy state is set', () => {
+  const s = grab('wireVerdicts');
+  const walkAt = s.indexOf("act === 'walk'");
+  const busyAt = s.indexOf('verdictBusy = title');
+  assert.ok(walkAt !== -1, 'the walk branch is gone from the verdict handler');
+  assert.ok(busyAt !== -1, 'the busy assignment is gone');
+  assert.ok(walkAt < busyAt,
+    'the walk-through falls through into the verdict machinery');
+});
+
+test('the walk-through posts to NO route -- it writes nothing', () => {
+  // The single most important property. A /task-move post from this button
+  // would move his card the moment he asked a question about it.
+  const s = grab('askWalkthrough');
+  assert.ok(!/fetch\(/.test(s), 'the walk-through calls fetch -- it can write');
+  assert.ok(!/task-move/.test(s), 'the walk-through names the write route');
+});
+
+test('the walk-through sends the TITLE ONLY, over the socket', () => {
+  const s = grab('askWalkthrough');
+  assert.ok(/type:\s*'review'/.test(s), "the walk-through does not send a 'review' message");
+  const sends = s.match(/ws\.send\(JSON\.stringify\(\{[^}]*\}/g) || [];
+  const reviews = sends.filter(x => /'review'/.test(x));
+  assert.ok(reviews.length > 0, 'no review message is sent');
+  for (const r of reviews) {
+    assert.ok(!/text:|status:|action:/.test(r),
+      'the walk-through ships more than the title: ' + r);
+  }
+});
+
+test('the walk branch RETURNS -- ordering alone is not the guard', () => {
+  // Gap found by injection 2026-08-07. The ordering test above passed with the
+  // `return` deleted: the walk branch was still textually first, so walkAt <
+  // busyAt held while execution fell straight on into `verdictBusy = title`.
+  // Pressing "walk me through it" would then grey out his approve and send
+  // back buttons on the very card he asked to talk about. So assert the exit.
+  const s = grab('wireVerdicts');
+  const m = s.match(/if \(act === 'walk'\)[^\n]*/);
+  assert.ok(m, 'the walk branch is gone from the verdict handler');
+  assert.ok(/\breturn\b/.test(m[0]),
+    'the walk branch does not return -- it falls into the busy state: ' + m[0]);
+});
+
+test('EVERY socket message the walk-through sends is a review or an interrupt', () => {
+  // Gap found by injection 2026-08-07. The test above filters down to the
+  // sends that ARE review messages and then checks those -- so swapping the
+  // terminal-line branch to {type:'text', text:title} passed, and the page's
+  // raw string went to the brain as ordinary typed text, bypassing the whole
+  // server-side vault match. Check the sends it does NOT recognise too.
+  const s = grab('askWalkthrough');
+  const sends = s.match(/ws\.send\(JSON\.stringify\(\{[^}]*\}/g) || [];
+  assert.ok(sends.length >= 2, 'the walk-through stopped sending anything');
+  for (const snd of sends) {
+    const kind = (snd.match(/type:\s*'([a-z-]+)'/) || [])[1];
+    assert.ok(kind === 'review' || kind === 'interrupt',
+      "the walk-through sends a '" + kind + "' message -- only 'review' " +
+      'goes through the server-side match: ' + snd);
+    if (kind === 'review') assert.ok(/title:/.test(snd) && !/text:/.test(snd),
+      'a review message carries something other than the title: ' + snd);
+  }
+});
+
+test('the walk button wears neither verdict COLOUR, not just neither class', () => {
+  // Gap found by injection 2026-08-07. The existing colour test asserts the
+  // class is `bv walk` -- it never reads the rule that class resolves to, so
+  // repainting .bv.walk in the approve green left the suite green. The page's
+  // own comment says why it matters: green reads as approval, amber as
+  // rejection, and this button decides nothing.
+  const src = fs.readFileSync(HTML, 'utf8');
+  const m = src.match(/\.bcard \.bv\.walk \{([^}]*)\}/);
+  assert.ok(m, 'the .bv.walk rule is gone');
+  for (const verdict of ['--ok', '--warn']) {
+    assert.ok(!m[1].includes(verdict),
+      'the walk button is painted with ' + verdict + ' -- it reads as a ' +
+      'verdict it never gives: ' + m[1].trim());
+  }
+  assert.ok(/--accent/.test(m[1]),
+    'the walk button lost the Review accent it is supposed to wear');
+});
+
+// ---- the verdict buttons FOLLOW the card into In Progress -----------------
+// Serge, 2026-08-07 ~1:40 PM, pressing the button live: "when I press the
+// button, it should go in progress at that time, because you're doing some
+// work for me, the thinking part." He is right -- thinking is work and the
+// board must not go quiet -- but the card leaving Review would take his
+// approve and send back buttons with it, at the moment he is deciding. So
+// they travel with it, and ONLY with it.
+const WALK = 'walking through it with Serge -- the verdict is still his';
+
+test('an In Progress card being walked through KEEPS his two verdicts', () => {
+  taskMoveOK = true;
+  renderBoard([T('Alpha', 'active', { note: WALK })]);
+  const c = cols();
+  assert.ok(/data-act="approve"/.test(c),
+    'approve vanished from the card he is being walked through');
+  assert.ok(/data-act="send-back"/.test(c), 'send back vanished too');
+});
+
+test('an ORDINARY In Progress card grows no verdict buttons', () => {
+  // The whole danger of the widening in one test. If this ever passes with
+  // buttons drawn, every piece of work in flight has an approve button on it.
+  taskMoveOK = true;
+  renderBoard([T('Beta', 'active', { note: 'being built' })]);
+  const c = cols();
+  assert.ok(!/data-act="approve"/.test(c),
+    'ordinary work in flight grew an approve button');
+  assert.ok(!/data-act="send-back"/.test(c), 'and a send back button');
+});
+
+test('a card with NO note is not mistaken for one being walked through', () => {
+  // Absent is not a match. Defaulting an unlabelled card to "his to answer"
+  // would hand the entire In Progress column to the verdict buttons -- the
+  // same rule task.py enforces on the write side.
+  taskMoveOK = true;
+  renderBoard([T('Gamma', 'active')]);
+  assert.ok(!/data-act="approve"/.test(cols()),
+    'a note-less In Progress card was treated as a walk-through');
+});
+
+test('the marker must match EXACTLY -- no prefix, no substring', () => {
+  taskMoveOK = true;
+  for (const near of [WALK + ' and more', WALK.slice(0, -1), 'walking through',
+                      WALK.toUpperCase()]) {
+    renderBoard([T('Delta', 'active', { note: near })]);
+    assert.ok(!/data-act="approve"/.test(cols()),
+      'a near-miss note passed as the walk-through marker: ' + near);
+    boardSig = '';
+  }
+});
+
+test('the walk button is drawn ONLY in Review, never on the card it moved', () => {
+  // It moves review -> active and the server refuses it from anywhere else,
+  // so drawing it on an In Progress card would be a button that always fails
+  // -- a silent dead press, which is this whole week's bug.
+  taskMoveOK = true;
+  renderBoard([T('Alpha', 'active', { note: WALK })]);
+  assert.ok(!/data-act="walk"/.test(cols()),
+    'the walk-through button was drawn on a card it had already moved');
+});
+
+test('the page and the server spell the marker identically', () => {
+  // Two copies of one constant in two languages. If they drift, his approve
+  // button silently stops being drawn on the card he is deciding.
+  const src = fs.readFileSync(HTML, 'utf8');
+  const m = src.match(/const WALK_NOTE = '([^']*)'/);
+  assert.ok(m, 'the page has no WALK_NOTE constant');
+  assert.strictEqual(m[1], WALK);
+  const server = fs.readFileSync(
+    path.join(__dirname, '..', 'voice-web-server.py'), 'utf8');
+  assert.ok(server.includes('WALK_NOTE = "' + WALK + '"'),
+    'the server spells the marker differently from the page');
+});
+
+test('a dead socket is SAID, not swallowed', () => {
+  // Every silent-failure bug this week started as a press that did nothing.
+  const s = grab('askWalkthrough');
+  assert.ok(/readyState/.test(s), 'the walk-through sends into a socket it never checked');
+  assert.ok(/showLine\(/.test(s), 'a dead line produces no message to Serge');
+});
+
+// ---- the three buttons FIT ------------------------------------------------
+// Serge's catch from his own screenshot, 2026-08-07 ~2:00 PM: "WALK ME
+// THROUGH IT" rendered clipped across two cut lines. Three flex:1 buttons in
+// a 300px card cannot each hold their label, and a control whose label you
+// cannot read is not a control. These tests are appended ABOVE the exit
+// below, deliberately -- twelve board tests were once added past
+// process.exit() and silently never ran.
+
+test('the verdict row WRAPS rather than squeezing a label', () => {
+  const src = fs.readFileSync(HTML, 'utf8');
+  const m = src.match(/\.bcard \.bverdict \{([^}]*)\}/);
+  assert.ok(m, 'the .bcard .bverdict rule is gone');
+  assert.ok(/flex-wrap:\s*wrap/.test(m[1]),
+    'the verdict row no longer wraps -- the walk label clips again: ' +
+    m[1].trim());
+});
+
+test('the walk button takes a full row of its own', () => {
+  // The wrap alone is not enough: without a 100% basis the third button
+  // simply shares the first row again and clips exactly as before.
+  const src = fs.readFileSync(HTML, 'utf8');
+  const m = src.match(/\.bcard \.bv\.walk \{([^}]*)\}/);
+  assert.ok(m, 'the .bv.walk rule is gone');
+  assert.ok(/flex-basis:\s*100%/.test(m[1]),
+    'the walk button no longer spans its own row: ' + m[1].trim());
+});
+
+test('the buttons are slim -- height is the label plus a hair', () => {
+  // Serge, 2026-08-07 ~2:10 PM: "not as thick... maybe as just a bit bigger
+  // than the font size." Asserted as a COMPUTED height, not as the padding
+  // literal -- padding, line-height and font-size can each be edited to
+  // restore the slab while any single one of them still looks reasonable.
+  const src = fs.readFileSync(HTML, 'utf8');
+  // `.bcard .bv {` appears TWICE -- once for the drag guard, once for the
+  // styling -- and a first-match read grabs the drag guard and reports the
+  // styling missing. Third time this exact trap has been hit on this file,
+  // so: scan every occurrence and take the one that actually sizes.
+  const all = [...src.matchAll(/\.bcard \.bv \{([^}]*)\}/g)].map(x => x[1]);
+  assert.ok(all.length, 'the .bcard .bv rule is gone');
+  const body = all.find(b => /font-size:/.test(b));
+  assert.ok(body, 'no .bcard .bv rule sizes the button any more');
+  const m = [null, body];
+  const num = (re) => { const g = m[1].match(re); return g ? parseFloat(g[1]) : null; };
+  const fontSize = num(/font-size:\s*([\d.]+)px/);
+  const lineH    = num(/line-height:\s*([\d.]+)\s*;/);
+  const padY     = num(/padding:\s*([\d.]+)px/);
+  assert.ok(fontSize && lineH && padY !== null,
+    'font-size, line-height and padding must all be pinned here, or the ' +
+    'height is decided somewhere this test cannot see: ' + m[1].trim());
+  // content box + both paddings + both 1px borders
+  const height = fontSize * lineH + padY * 2 + 2;
+  assert.ok(height <= fontSize * 2,
+    'a verdict button is ' + height.toFixed(1) + 'px tall against a ' +
+    fontSize + 'px label -- that is the slab Serge asked to lose');
+  assert.ok(height > fontSize,
+    'the button is shorter than its own text (' + height.toFixed(1) + 'px)');
+});
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

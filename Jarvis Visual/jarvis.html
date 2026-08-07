@@ -345,10 +345,21 @@
      cuts both ways, and a verdict he cannot tell is clickable is a verdict
      he will not give. Approve wears the up-green, send back the warn-amber,
      both from the palette tokens rather than literals. */
-  .bcard .bverdict { display: flex; gap: 5px; margin-top: 5px; }
+  /* THE ROW WRAPS, because a card is 300px and "walk me through it" cannot
+     live in a third of it -- it rendered clipped across two cut lines in
+     Serge's own screenshot, 2026-08-07 2:00 PM. Same rule the counts strip
+     in the tasks heading already follows: a row of height beats a lost word,
+     and a control whose label you cannot read is not a control. */
+  .bcard .bverdict { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
   .bcard .bv {
+    /* Deliberately SLIM (Serge, 2026-08-07 ~2:10 PM: "not as thick... maybe
+       as just a bit bigger than the font size"). The height is the label
+       plus a hair, so three stacked controls stay a strip and not a slab.
+       line-height is set rather than inherited: the card's own line-height
+       is tuned for wrapped prose and would put a verdict button at twice
+       this height without a single padding value looking wrong. */
     flex: 1; font: inherit; font-size: 9px; letter-spacing: 0.06em;
-    padding: 3px 4px; cursor: pointer; border-radius: 3px;
+    line-height: 1.35; padding: 1px 4px; cursor: pointer; border-radius: 3px;
     background: transparent; text-transform: uppercase;
   }
   .bcard .bv.ok {
@@ -359,8 +370,23 @@
     color: rgba(var(--warn-soft-rgb), 0.88);
     border: 1px solid rgba(var(--warn-soft-rgb), 0.34);
   }
+  /* WALK ME THROUGH IT wears NEITHER verdict colour, on purpose. Green would
+     read as approval and amber as rejection, and this button decides nothing
+     at all -- it opens the card for a conversation and leaves the verdict on
+     its two neighbours. It takes the same accent the Review column itself
+     wears, which is the page's existing word for "in hand, not on Serge". */
+  /* ...and it takes a FULL ROW of its own beneath the two verdicts, rather
+     than being made to fit beside them. flex-basis:100% is what forces the
+     wrap -- shrinking the font until it fit would have made the one button
+     Serge presses BEFORE he has an answer the hardest one to read. */
+  .bcard .bv.walk {
+    flex-basis: 100%;
+    color: var(--text-val);
+    border: 1px solid rgba(var(--accent-rgb), 0.38);
+  }
   .bcard .bv.ok:hover { background: rgba(var(--ok-soft-rgb), 0.14); }
   .bcard .bv.no:hover { background: rgba(var(--warn-soft-rgb), 0.14); }
+  .bcard .bv.walk:hover { background: rgba(var(--accent-rgb), 0.14); }
   /* Dead while the write is in flight, and visibly so -- a button that still
      looks live invites a second press on a card that is already moving. */
   .bcard .bv:disabled { opacity: 0.4; cursor: default; }
@@ -1908,6 +1934,34 @@ function sendTyped(){
   turnOpen = true; thinking = true; state = 'thinking';
   ws.send(JSON.stringify({type: 'text', text}));
 }
+// WALK ME THROUGH IT. Starts a turn about a Review card and changes nothing.
+//
+// It sends the TITLE ONLY. The server does not use that string -- it matches
+// it against the cards actually sitting in Review in the vault and builds the
+// prompt from its own copy, so nothing typed or injected into this page can
+// reach the brain through this button. That check lives on the server on
+// purpose: a guard the browser performs is a guard the browser can skip.
+function askWalkthrough(title){
+  if (!title) return;
+  if (!ws || ws.readyState !== 1) {
+    showLine('jarvis', 'the line is down -- nothing was sent');
+    return;
+  }
+  if (lineAlive) {
+    // Terminal line owns the conversation; the server routes it there and
+    // the reply comes back through the shared transcript, same as typed text.
+    ws.send(JSON.stringify({type: 'review', title: title}));
+    showLine('you', 'walk me through: ' + title);
+    return;
+  }
+  stopPlayback();
+  ensureOut();
+  if (outCtx.state === 'suspended') outCtx.resume();
+  if (approvalId === null) ws.send(JSON.stringify({type: 'interrupt'}));
+  showLine('you', 'walk me through: ' + title);
+  turnOpen = true; thinking = true; state = 'thinking';
+  ws.send(JSON.stringify({type: 'review', title: title}));
+}
 typedEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendTyped(); });
 document.getElementById('send').addEventListener('click', sendTyped);
 
@@ -2216,14 +2270,52 @@ let boardSig = '';
 let taskMoveOK = false;
 let verdictBusy = '';
 let boardTasks = [];
-function verdictButtons(colKey, title){
-  if (colKey !== 'review' || !taskMoveOK) return '';
+// The EXACT note the server writes when it moves a card into In Progress for
+// a walk-through. It is the marker that says "this In Progress card is still
+// Serge's to decide", and it must match voice-web-server.py's WALK_NOTE
+// character for character -- a test asserts the two agree, because a marker
+// that silently stops matching takes his verdict buttons away with it.
+const WALK_NOTE = 'walking through it with Serge -- the verdict is still his';
+
+// A card is Serge's to answer when it is in Review, OR when it is the one
+// being walked through right now. (Serge, 2026-08-07 ~1:40 PM.) The second
+// case is why this is a function and not a column check: pressing "walk me
+// through it" moves the card to In Progress -- because the thinking is work
+// and the board must not go quiet -- and his two verdicts have to travel
+// with it or they vanish at the moment he is deciding.
+//
+// It is deliberately NOT "any In Progress card". Ordinary work in flight
+// must never grow an approve button, and the note is what tells them apart.
+// The server enforces the same rule inside task.py's atomic write, so this
+// is the drawing rule, not the guard -- a guard the browser performs is a
+// guard the browser can skip.
+function isHisToAnswer(colKey, t){
+  if (colKey === 'review') return true;
+  return colKey === 'active' && t && t.note === WALK_NOTE;
+}
+function verdictButtons(colKey, title, t){
+  if (!isHisToAnswer(colKey, t) || !taskMoveOK) return '';
   const busy = verdictBusy === title;
   return '<div class="bverdict"' + (busy ? ' data-busy="1"' : '') + '>'
     + '<button class="bv ok" data-act="approve" data-title="' + esc(title || '') + '"'
     + (busy ? ' disabled' : '') + '>approve</button>'
     + '<button class="bv no" data-act="send-back" data-title="' + esc(title || '') + '"'
-    + (busy ? ' disabled' : '') + '>send back</button></div>';
+    + (busy ? ' disabled' : '') + '>send back</button>'
+    // THE THIRD BUTTON DECIDES NOTHING. (Serge, 2026-08-07 ~10:30 AM: "some
+    // kind of button, that if I press, you will help me review it together.")
+    // It is drawn last, after both verdicts, because it is what you press
+    // BEFORE you have an answer -- and it is deliberately not disabled by
+    // verdictBusy, which guards the vault write this button never makes.
+    // ...and it is drawn ONLY in Review, because that is the only place it
+    // can work: the server moves the card review -> active and refuses from
+    // anywhere else, so drawing it on the card it already moved would be a
+    // button that always fails. The two verdicts still show there; this one
+    // has already done its job.
+    + (colKey === 'review'
+        ? '<button class="bv walk" data-act="walk" data-title="'
+          + esc(title || '') + '">walk me through it</button>'
+        : '')
+    + '</div>';
 }
 // Delegated, because renderBoard rewrites this subtree whenever the data
 // changes -- listeners bound to individual buttons would be discarded under
@@ -2238,6 +2330,10 @@ function wireVerdicts(){
     ev.stopPropagation();               // never let a verdict roll the board up
     const title = btn.getAttribute('data-title') || '';
     const act   = btn.getAttribute('data-act');
+    // The walk-through leaves before the verdict machinery: it posts to no
+    // route, writes nothing, and must not put the card into the busy state --
+    // his two real answers stay pressable while we are talking about it.
+    if (act === 'walk') { askWalkthrough(title); return; }
     verdictBusy = title;
     boardSig = '';                      // force a redraw into the busy state
     renderBoard(boardTasks);
@@ -2436,7 +2532,7 @@ function renderBoard(tasks){
       + (BOARD_OWNED.has(c.key) && !ownerOf(t)
           ? '<span class="noown">no owner</span>'
           : (t.owner ? '<span>' + esc(t.owner) + '</span>' : '')) + '</div>'
-      + verdictButtons(c.key, t.title) + '</div>';
+      + verdictButtons(c.key, t.title, t) + '</div>';
     }).join('');
     // DONE holds only what was finished TODAY -- Serge, 2026-08-06: a closed
     // task should linger long enough to be seen, then be gone the next day.

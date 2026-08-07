@@ -845,6 +845,93 @@ DRAG_STATUSES = (
 )
 DRAG_NOTE = "moved by Serge on the board"
 
+# WALK ME THROUGH IT -- the third button on a Review card.
+# (Serge, 2026-08-07 ~10:30 AM, looking at the Review column: "I thought
+# yesterday we were talking about having some kind of button, that if I press,
+# you will help me review it together.")
+#
+# He was right that we discussed it and right that it did not exist. Approve
+# and send back are both VERDICTS -- final answers that empty the column. There
+# was no way to open a card and go through it before deciding, which is the
+# part he actually wanted, and the reviewer agent (the together-half) is
+# something only Jarvis can invoke.
+#
+# THIS BUTTON WRITES NOTHING. It moves no card, sets no status, and touches
+# the vault not at all. It starts a conversation and leaves the verdict exactly
+# where it was -- in his hands, on the other two buttons. That separation is
+# the whole design: a button that both discusses and decides would make every
+# walk-through look like a commitment.
+#
+# THE INJECTION BOUNDARY, and it is why the title is matched rather than used.
+# The page posts a title; this server does NOT put that string in the prompt.
+# It reads the vault itself, finds the card whose title matches EXACTLY and
+# whose status is genuinely `review`, and builds the prompt from ITS OWN copy.
+# So the set of strings that can ever reach the brain through this path is
+# exactly "the titles currently sitting in Review in Serge's own vault" -- a
+# closed set he authors, not free text from a browser. Same rule as the session
+# bus, arrived at from the same direction: a payload that reaches a model's
+# attention is an instruction surface whether or not anyone meant it to be.
+REVIEW_STATUS = "review"
+
+# WHAT THE BUTTON WRITES, and why it writes at all.
+# (Serge, 2026-08-07 ~1:40 PM, pressing it live for the first time: "when I
+# press the button, it should go in progress at that time, because you're
+# doing some work for me, the thinking part. Am I right, thinking like that?")
+#
+# He was right, by his own 2026-08-06 rule: thinking counts as work, and the
+# board does not lie by showing the wrong card -- it lies by GOING QUIET. A
+# walk-through is real work on a real card, and leaving the board silent
+# through it is the exact failure he has caught four separate times.
+#
+# SO THE "IT WRITES NOTHING" PROPERTY IS DELIBERATELY INVERTED HERE, and the
+# tests that guarded it were inverted rather than deleted, so this file
+# records a decision instead of a drift. The property that replaces it is
+# narrower and truer: THE BUTTON MAY NEVER RENDER A VERDICT. Approve and send
+# back stay Serge's alone. Moving a card to In Progress is a statement of
+# fact -- work is happening -- and it is reversible by either verdict.
+#
+# The note is a FIXED CONSTANT, like DRAG_NOTE and the TASK_ACTIONS notes.
+# It is not prose and it is not caller-controlled: it doubles as the marker
+# that tells the board this In Progress card still carries Serge's two
+# verdict buttons, and task.py refuses a verdict on an `active` card whose
+# note is not exactly this string.
+WALK_NOTE = "walking through it with Serge -- the verdict is still his"
+
+
+def review_prompt(title: str) -> str:
+    """The fixed sentence a walk-through opens with, around a matched title.
+
+    Fixed on purpose. The only variable is the card's own name, and it has
+    already been proven to be one of his Review cards before it gets here.
+    """
+    return (
+        f"Serge pressed 'walk me through it' on the Review card titled "
+        f"{title!r}. Go over it WITH him, out loud: what the change actually "
+        f"does, what was claimed, what the tests prove and what they do not, "
+        f"and anything in the record that does not match the code. Do not "
+        f"approve it and do not move the card -- the verdict is his, on the "
+        f"approve and send back buttons. End by asking him what he wants to do."
+    )
+
+
+def find_review_card(title: str) -> str | None:
+    """The matched title from the vault, or None. Never the caller's string.
+
+    Exact match, and the card must be in Review right now -- a card he is
+    looking at may have been moved by another session between the render and
+    the press, and walking him through a card that is no longer under review
+    would be a quiet lie about the board's state.
+    """
+    if not isinstance(title, str):
+        return None
+    want = title.strip()
+    if not want or len(want) > MAX_TITLE:
+        return None
+    for t in read_tasks():
+        if t.get("status") == REVIEW_STATUS and t.get("title", "") == want:
+            return t["title"]        # the vault's copy, not the caller's
+    return None
+
 
 def _task_tool():
     """vault-tools/task.py, imported by path so it cannot drift from the CLI."""
@@ -923,16 +1010,27 @@ async def task_move(request: web.Request) -> web.Response:
         if status not in DRAG_STATUSES:
             return web.json_response({"ok": False, "error": "unknown column"})
         note, only_from = DRAG_NOTE, None
+        note_required = None
     elif action in TASK_ACTIONS:
         status, note = TASK_ACTIONS[action]
-        only_from = ("review",)
+        # A verdict used to reach ONLY `review`. It now has to reach the card
+        # Serge is being walked through, which the walk-through button moved
+        # into `active` -- otherwise pressing "walk me through it" makes his
+        # approve and send back buttons unreachable at the moment he needs
+        # them. The widening is real and dangerous on its own, so it never
+        # travels without its narrowing: an `active` card is reachable ONLY
+        # while it carries WALK_NOTE, and task.py enforces that inside the
+        # same atomic write. Ordinary work in flight stays untouchable.
+        only_from = ("review", "active")
+        note_required = {"active": WALK_NOTE}
     else:
         return web.json_response({"ok": False, "error": "unknown action"})
     try:
         tool = _task_tool()
         moved = await asyncio.to_thread(
             tool.move, title.strip(), status, note,
-            exact=True, only_from=only_from)
+            exact=True, only_from=only_from,
+            note_required_for=note_required)
     except Exception as exc:
         # TaskError carries the reason Serge should read; anything else is a
         # real fault and must not take the request down with it.
@@ -1657,6 +1755,48 @@ async def voice_ws(request: web.Request) -> web.WebSocketResponse:
                 await VW.interrupt()
             asyncio.create_task(
                 VW.run_turn(ws, text, t0=time.monotonic()))
+        elif kind == "review":
+            # The walk-me-through button. Runs a normal turn and writes
+            # nothing -- see REVIEW_STATUS above for why the title is
+            # matched against the vault rather than used as sent.
+            matched = find_review_card(data.get("title"))
+            if not matched:
+                # SAY SO. A button that goes quiet is the bug this whole
+                # week has been about; a card moved out of Review between
+                # the render and his press is the ordinary way to get here.
+                await VW.safe_send(ws, {
+                    "type": "error",
+                    "text": "I couldn't find that card in Review any more."})
+                continue
+            prompt = review_prompt(matched)
+            # THE BOARD MOVES FIRST, and a failure to move does NOT stop the
+            # walk-through. Serge asked a question; refusing to answer it
+            # because a vault write failed would trade a quiet board for a
+            # dead button, which is the worse of the two bugs by a distance.
+            # The refusal is printed, never swallowed silently.
+            try:
+                await asyncio.to_thread(
+                    _task_tool().move, matched, "active", WALK_NOTE,
+                    exact=True, only_from=(REVIEW_STATUS,))
+                _TASK_CACHE["mtime"] = None   # the note just changed
+            except Exception as exc:
+                print(f"walk-through: board move refused: {exc}", flush=True)
+            if terminal_alive():
+                # One brain: same routing rule as typed text and images.
+                try:
+                    INBOX_DIR.mkdir(exist_ok=True)
+                    (INBOX_DIR / f"{time.time_ns()}.txt").write_text(prompt)
+                    await VW.safe_send(ws, {"type": "routed"})
+                    continue
+                except Exception as e:
+                    print(f"inbox route failed: {e}", flush=True)
+            if VW.approval_pending():
+                await VW.safe_send(ws, {"type": "held"})
+            else:
+                await VW.interrupt()
+            print(f"walk-through: {matched!r} (by Serge)", flush=True)
+            asyncio.create_task(
+                VW.run_turn(ws, prompt, t0=time.monotonic()))
         elif kind == "image":
             # Pasted/dropped on the page: save to uploads/, then run a
             # normal turn pointing the brain at the file. If the

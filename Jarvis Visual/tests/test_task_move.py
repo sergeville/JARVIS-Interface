@@ -179,6 +179,115 @@ class TestTheWrite(Base):
         self.assertIn("APPROVED by Serge on the board", self.note.read_text())
 
 
+WALK_NOTE = "walking through it with Serge -- the verdict is still his"
+
+
+class TestTheWalkThroughNarrowing(Base):
+    """`note_required_for` -- the narrowing that makes a widening safe.
+
+    (Serge, 2026-08-07 ~1:40 PM.) Pressing "walk me through it" moves the
+    card into In Progress, because the thinking is work and a board that
+    goes quiet is the failure he keeps catching. His approve and send back
+    buttons then have to reach an `active` card, or they vanish out from
+    under him mid-decision -- so `only_from` had to widen from ("review",)
+    to ("review", "active").
+
+    THAT WIDENING IS THE DANGER, and these are the tests that pay for it.
+    An `active` card is reachable ONLY while it carries the exact walk
+    note; ordinary work in flight stays untouchable, which is the property
+    `only_from` existed for in the first place.
+    """
+
+    def walk(self, title):
+        """Put a card into the state the walk-through button leaves it in."""
+        self.task.move(title, "active", WALK_NOTE,
+                       exact=True, only_from=("review",))
+
+    def test_a_walked_through_card_CAN_be_approved_from_active(self):
+        self.walk("Alpha the built thing")
+        self.task.move("Alpha the built thing", "done", "APPROVED",
+                       exact=True, only_from=("review", "active"),
+                       note_required_for={"active": WALK_NOTE})
+        self.assertEqual(self.status_of("Alpha the built thing"), "done")
+
+    def test_ORDINARY_work_in_flight_still_cannot_be_approved(self):
+        # The one that matters. "Beta in flight" is real work with a real
+        # note; if this ever stops raising, every card in In Progress has
+        # an approve button within reach of a stale or hostile page.
+        with self.assertRaises(self.task.TaskError):
+            self.task.move("Beta in flight", "done", "APPROVED",
+                           exact=True, only_from=("review", "active"),
+                           note_required_for={"active": WALK_NOTE})
+        self.assertEqual(self.status_of("Beta in flight"), "active")
+
+    def test_a_NEAR_MISS_note_is_refused(self):
+        # Absent, truncated, extended and re-cased all fail. A marker matched
+        # loosely is the same trap as a title matched loosely.
+        for near in (WALK_NOTE + " and more", WALK_NOTE[:-1],
+                     WALK_NOTE.upper(), "walking through"):
+            self.note.write_text(NOTE_TEMPLATE)
+            self.task.move("Alpha the built thing", "active", near,
+                           exact=True, only_from=("review",))
+            with self.assertRaises(self.task.TaskError, msg=near):
+                self.task.move("Alpha the built thing", "done", "APPROVED",
+                               exact=True, only_from=("review", "active"),
+                               note_required_for={"active": WALK_NOTE})
+            self.assertEqual(self.status_of("Alpha the built thing"), "active")
+
+    def test_a_card_with_NO_note_line_is_refused(self):
+        # Absent is not a match. Defaulting an unlabelled card to "allowed"
+        # would hand the whole In Progress column to the verdict buttons.
+        text = self.note.read_text().replace(
+            "  - note: being worked right now\n", "")
+        self.note.write_text(text)
+        with self.assertRaises(self.task.TaskError):
+            self.task.move("Beta in flight", "done", "APPROVED",
+                           exact=True, only_from=("review", "active"),
+                           note_required_for={"active": WALK_NOTE})
+
+    def test_review_is_STILL_reachable_without_any_note(self):
+        # The narrowing applies only to the status it names. A card in Review
+        # is his to answer whatever its note says -- that never changed, and
+        # a guard that quietly broke the ordinary path would be worse than
+        # the hole it closed.
+        self.task.move("Alpha the second one", "done", "APPROVED",
+                       exact=True, only_from=("review", "active"),
+                       note_required_for={"active": WALK_NOTE})
+        self.assertEqual(self.status_of("Alpha the second one"), "done")
+
+    def test_the_narrowing_is_OFF_when_nobody_asks_for_it(self):
+        # Every existing caller passes no note_required_for at all; none of
+        # them may start refusing.
+        self.walk("Alpha the built thing")
+        self.task.move("Alpha the built thing", "review", "dragged",
+                       exact=True, only_from=None)
+        self.assertEqual(self.status_of("Alpha the built thing"), "review")
+
+    def test_the_check_reads_the_note_from_the_SAME_lines_it_writes(self):
+        # Structural: the guard must sit inside move(), after load() and
+        # before the write, or it is a check with a race under it.
+        src = Path(TASK_PY).read_text()
+        body = src[src.index("def move("):src.index("\ndef ", src.index("def move(") + 5)]
+        self.assertIn("note_required_for", body)
+        self.assertLess(body.index("lines, mtime = load()"),
+                        body.index("note_required_for and was in"),
+                        "the note guard runs before the file is loaded")
+        self.assertLess(body.index("note_required_for and was in"),
+                        body.index("- status: {status}"),
+                        "the note guard runs after the status is rewritten")
+        # ...and ordering is not enough, which an injection proved. Moving the
+        # note read onto a SECOND `load()` keeps every index above in order
+        # while the guard starts checking a different snapshot than the write
+        # uses -- a check-then-write race, reintroduced without moving a line.
+        # move() reads the file exactly once, and that is the property.
+        self.assertEqual(body.count("load()"), 1,
+                         "move() loads the note more than once -- the guard "
+                         "and the write can now disagree about the file")
+        self.assertIn('field(lines, s, e, "note")', body,
+                      "the note guard reads from something other than the "
+                      "lines the write is about to use")
+
+
 class TestTheRefusals(Base):
     """Most of the value is here: what the button CANNOT do."""
 
@@ -328,11 +437,28 @@ class TestTheRoute(unittest.TestCase):
         src = SERVER.read_text()
         i = src.index("async def task_move")
         body = src[i:src.index("WHISPER_URL", i)]
+        # INVERTED AGAIN 2026-08-07 on Serge's go, and inverted rather than
+        # deleted -- "a verdict may reach only review" and "a verdict may
+        # reach review, or the one active card being walked through" cannot
+        # both guard this file, and which one is true is a decision he made
+        # out loud. The widening exists because pressing "walk me through it"
+        # moves the card into In Progress, and his approve and send back
+        # buttons have to follow it there. The narrowing that pays for it is
+        # asserted in the same breath, because a widening whose guard is
+        # optional is just a widening.
         self.assertIn("exact=True", body)
-        self.assertIn('only_from = ("review",)', body,
-                      "the verdict branch no longer narrows to review")
+        self.assertIn('only_from = ("review", "active")', body,
+                      "the verdict branch no longer reaches the walk-through")
+        self.assertIn('note_required = {"active": WALK_NOTE}', body,
+                      "the verdict branch widened to active WITHOUT the note "
+                      "guard -- ordinary work in flight is now approvable")
         self.assertIn("only_from=only_from", body,
                       "the narrowing is computed but never passed to the write")
+        self.assertIn("note_required_for=note_required", body,
+                      "the note guard is computed but never passed to the write")
+        # The drag branch must still switch BOTH off together.
+        self.assertIn("note_required = None", body,
+                      "the drag branch does not clear the note guard")
 
     def test_the_real_note_is_not_modified_by_the_route_tests(self):
         """These exercise the REAL writer, so prove the real note stood still.

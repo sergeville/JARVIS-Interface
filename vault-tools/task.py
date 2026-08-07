@@ -222,7 +222,8 @@ def cmd_list():
     return 0
 
 
-def move(needle, status, note, exact=False, only_from=None):
+def move(needle, status, note, exact=False, only_from=None,
+         note_required_for=None):
     """Move one task. Returns its title; raises TaskError on any refusal.
 
     `exact` and `only_from` exist for the HUD button, which is the first
@@ -238,6 +239,26 @@ def move(needle, status, note, exact=False, only_from=None):
         `review` and NOTHING ELSE -- it cannot touch work in flight, and
         a page that is compromised or simply stale cannot reach past the
         column Serge is actually looking at.
+
+    `note_required_for` narrows a status that `only_from` had to widen.
+    (Serge, 2026-08-07 ~1:40 PM: pressing "walk me through it" must move
+    the card to In Progress, because the thinking IS work and the board
+    must not go quiet -- and his approve and send back buttons have to
+    follow it there or they vanish out from under him mid-decision.)
+
+    That widening is the danger. Letting a verdict reach `active` at all
+    would put approve within reach of ORDINARY WORK IN FLIGHT, which is
+    exactly what `only_from` was written to prevent. So the caller may
+    demand that a card in a given status ALSO carry an exact note:
+
+        only_from=("review", "active"),
+        note_required_for={"active": WALK_NOTE}
+
+    -- meaning "out of review freely, out of active only if this is the
+    card Serge is being walked through right now". The check is here, in
+    the same atomic read-modify-write as everything else, and NOT in the
+    server: a card can change status between a caller's look and its
+    write, and a guard that runs before the lock is not a guard.
     """
     if status not in STATUSES:
         raise TaskError(
@@ -259,12 +280,24 @@ def move(needle, status, note, exact=False, only_from=None):
     st = field(lines, s, e, "status")
     if st is None:
         raise TaskError(f"{title!r} has no status line")
+    was = lines[st].split(":", 1)[1].strip()
     if only_from is not None:
-        was = lines[st].split(":", 1)[1].strip()
         if was not in only_from:
             raise TaskError(
                 f"{title!r} is {was!r}, not {' or '.join(only_from)} -- "
                 "refusing to move it")
+    if note_required_for and was in note_required_for:
+        # Read the note from the SAME `lines` the write is about to use, so
+        # there is no window between the check and the edit. A missing note
+        # line refuses too -- absent is not a match, and defaulting an
+        # unlabelled card to "allowed" would hand the whole In Progress
+        # column to the verdict buttons.
+        nt = field(lines, s, e, "note")
+        have = lines[nt].split(":", 1)[1].strip() if nt is not None else None
+        if have != note_required_for[was]:
+            raise TaskError(
+                f"{title!r} is in {was!r} but is not the card being walked "
+                "through -- refusing to move it")
     indent = re.match(r"\s*", lines[st]).group(0)
     lines[st] = f"{indent}- status: {status}\n"
 
