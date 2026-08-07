@@ -218,9 +218,15 @@
      middle would have no visible parent. It keeps rolling over the stage, so
      nothing was given up by moving it. */
   #board {
-    position: fixed; right: 12px; top: 74px;
+    /* FULL WIDTH since 2026-08-07, and it is what pays for the seventh
+       column. Serge: "it could be the full width of the window... there's
+       room to spare on the left where you see the system monitor." He is
+       right -- the sheet rolls OVER the stage already, so covering the left
+       panel for the moment it is open costs nothing that was not already
+       covered, and it buys every column back the width Planning took. */
+    position: fixed; left: 12px; right: 12px; top: 74px;
     transform: translate(26px, -14px);
-    width: min(1060px, calc(100vw - 262px)); z-index: 60;
+    z-index: 60;
     opacity: 0; pointer-events: none; visibility: hidden;
     transition: opacity 520ms ease, transform 520ms cubic-bezier(.2,.8,.3,1),
                 visibility 0s linear 520ms;
@@ -246,8 +252,11 @@
     visibility: visible; transition-delay: 0s;
   }
   #board-cols {
-    /* Six since 2026-08-06 (Serge): Review and Test joined the vocabulary. */
-    display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px;
+    /* SEVEN since 2026-08-07: Planning joined the vocabulary, first in the
+       row. A test asserts this number equals BOARD_COLS.length -- a table
+       longer than the grid wraps its last columns onto a second row, which
+       reads as a broken board rather than a wide one. */
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px;
     /* Serge 2026-08-06: each column scrolls on its OWN -- a whole-area scroll
        let a long Done column drag every other column's cards out of view,
        so counts said 2 while To Do looked empty. min-height: 0 lets the
@@ -275,6 +284,14 @@
      asserting the row list and the board share one vocabulary. Dimmed rather
      than coloured: finished work should read as spent, not compete with live
      work for the eye. */
+  /* PLANNING WEARS NO STATUS COLOUR, deliberately. Green would say it is
+     being worked, amber that Serge is blocking, the checking accent that it
+     is in flight -- all three are lies about a plan nobody has started. It
+     gets a dimmed neutral instead, which is the page's existing word for
+     "present, not active". */
+  .bcol.planning .bcol-head { border-bottom-color: rgba(var(--accent-rgb), 0.18); }
+  .bcol.planning .bcol-head, .bcol.planning .bcard .bt { opacity: 0.72; }
+  .bcol.planning .bcard { border-color: rgba(var(--accent-rgb), 0.16); }
   .bcol.done .bcol-head { border-bottom-color: rgba(var(--ok-soft-rgb), 0.30); }
   .bcol.done .bcard { border-color: rgba(var(--ok-soft-rgb), 0.22); }
   .bcol.done .bcard .bt { color: rgba(var(--accent-rgb), 0.55); }
@@ -881,6 +898,11 @@
   #tasks .task.done { border-left-color: rgba(var(--ok-soft-rgb), 0.30); }
   #tasks .task.done .dot { background: rgba(var(--ok-soft-rgb), 0.40); }
   #tasks .task.done .title { color: rgba(var(--accent-rgb), 0.45); }
+  /* Planning in the sidebar list, so the card and the board speak with one
+     vocabulary -- Serge's own principle: "it should be the same thing, just
+     a different view." Dimmed and colourless on purpose: it claims no state. */
+  #tasks .task.planning .st { color: rgba(var(--accent-rgb), 0.45); }
+  #tasks .task.planning { opacity: 0.75; }
   #tasks .task.done .st { color: rgba(var(--ok-soft-rgb), 0.55); }
   /* Serge, 2026-08-06 ~5:40 PM: "just one line saying done, five, 20, whatever
      the count is, and if I go to the board then I could see the done." So the
@@ -2111,7 +2133,12 @@ function renderTasks(tasks){
   // rather than vanishing, exactly as colFor() already resolves it.
   const rank = (tk) => {
     const i = BOARD_COLS.findIndex(c => c.key === tk.status);
-    return i < 0 ? 0 : i;
+    // NOT 0 -- index 0 was To Do until Planning took first place, and
+    // sorting an unrecognised task in with the plans would file real work
+    // as something nobody has committed to. Resolve it the way colFor()
+    // does, by NAME. Second instance of this same positional assumption in
+    // one change; the reorder found both.
+    return i < 0 ? BOARD_COLS.findIndex(c => c.key === 'open') : i;
   };
   const live = tasks.filter(tk => tk.status !== 'done')
                     .sort((a, b) => rank(a) - rank(b));
@@ -2173,6 +2200,21 @@ function renderTasks(tasks){
 // and it is the same class the column wears. Adding a seventh status lights
 // up both views without anyone remembering to.
 const BOARD_COLS = [
+  // PLANNING IS FIRST, AND IT IS NOT A BACKLOG. (Serge, 2026-08-07 ~2:52 PM:
+  // "the new column then should be planning.")
+  //
+  // He found the gap himself: all six other columns are work in flight, and
+  // To Do already means COMMITTED -- something a session may pick up. So a
+  // brainstorm had nowhere to live and got filed as a commitment. That is
+  // how the JarvisOS 5000 plan came to sit in Review, with the board quietly
+  // claiming a conversation was a deliverable, while he was saying "I don't
+  // want things to happen... it's not an action, it's a plan."
+  //
+  // The rule this column carries: NOTHING LEAVES PLANNING WITHOUT SERGE.
+  // It is enforced by the two things that can move a card -- the verdict
+  // buttons are drawn only on Review, and a drag is his own hand. No session
+  // may promote its own plan into work.
+  {key: 'planning',         label: 'Planning',     cls: 'planning', short: 'planning'},
   {key: 'open',             label: 'To Do',        cls: '',         short: 'open'},
   {key: 'active',           label: 'In Progress',  cls: 'doing',    short: 'working'},
   {key: 'review',           label: 'Review',       cls: 'checking', short: 'review'},
@@ -2184,7 +2226,15 @@ const BOARD_COLS = [
 // does on the board -- a task Serge cannot see is the worst outcome here,
 // and it is a silent one.
 function colFor(status){
-  return BOARD_COLS.find(c => c.key === status) || BOARD_COLS[0];
+  // THE FALLBACK IS NAMED, NOT POSITIONAL, and this is why: it used to be
+  // BOARD_COLS[0], which was To Do until Planning took first place on
+  // 2026-08-07 -- at which point every unknown status silently became a
+  // PLAN. That is the worst possible landing spot: real work, filed as
+  // something nobody has committed to and nobody may start. Caught by the
+  // existing "an unknown status falls back to To Do" test within minutes of
+  // the reorder, which is exactly what it was written for.
+  return BOARD_COLS.find(c => c.key === status)
+      || BOARD_COLS.find(c => c.key === 'open');
 }
 // The summary counts anything in review or test as CHECKING. Without it the
 // two new states would be INVISIBLE in the strip: a status with a column of
@@ -2492,10 +2542,18 @@ function renderBoard(tasks){
     ? '<span class="bs' + (cls ? ' ' + cls : '') + '"><span class="dot"></span><b>'
       + n + '</b> ' + word + '</span>'
     : '';
+  // Planning is counted LAST and hides at zero like every other count. It is
+  // drawn at all for the same reason Review and Test earned a count: a status
+  // with its own column is excluded from doing/you/open BY CONSTRUCTION, so
+  // without this a parked plan would be invisible in the strip Serge actually
+  // reads. It is drawn last because it is the one count that is NOT a claim
+  // on anybody's time.
+  const nPlan = bucket('planning').length;
   const counts = bs(nDoing, 'doing', 'doing')
                + bs(nCheck, 'checking', 'checking')
                + bs(nWait, 'waiting', 'you')
-               + bs(nOpen, '', 'open');
+               + bs(nOpen, '', 'open')
+               + bs(nPlan, 'planning', 'planning');
   // THE EDGE CASE IS THE WHOLE BUILD: with every count hidden, a quiet day
   // draws an EMPTY row, which reads as a broken card rather than a calm one
   // -- and it would collapse the two-row heading Serge chose this morning

@@ -841,7 +841,7 @@ MAX_TITLE = 200
 # here rather than buried, because it is the moment this page stopped being
 # able to write two values and started being able to write six.
 DRAG_STATUSES = (
-    "open", "active", "review", "test", "waiting-on-serge", "done",
+    "planning", "open", "active", "review", "test", "waiting-on-serge", "done",
 )
 DRAG_NOTE = "moved by Serge on the board"
 
