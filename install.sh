@@ -14,7 +14,10 @@
 #   2. IT VERIFIES, IT DOES NOT ASSUME. An installer exiting 0 is not proof of
 #      anything. Every step ends by testing the thing FOR THIS PROJECT -- the
 #      whisper model by its magic bytes, kokoro by the presence and size of its
-#      model weights AND the import, the Python environment by importing what
+#      model weights AND the import -- except when a Kokoro is already serving,
+#      where the import is skipped and SAID to be skipped, because probing it
+#      would load a second model onto the same GPU and can take the running one
+#      down, the Python environment by importing what
 #      the stack imports, the vault by the vault auditor. A binary being on
 #      PATH proves only that a binary is on PATH -- and, learned the hard way
 #      here, a module importing proves only that a module imports.
@@ -198,6 +201,13 @@ render_settings() {
   [[ -f "$tpl" ]] || { fail "templates/claude-settings.json.template is missing"; return; }
   local made=0 kept=0
   for dest in "$ROOT/.claude/settings.json" "$VISUAL/.claude/settings.json"; do
+    # --check PROMISES to change nothing, and this step ran before that gate:
+    # on a machine missing a settings.json it would create one while claiming
+    # to be inspecting. would_install() is the single gate for this precisely
+    # so no step can forget it -- and this one had.
+    if [[ ! -f "$dest" ]] || grep -q "{{JARVIS_ROOT}}" "$dest" 2>/dev/null; then
+      would_install "settings.json ($(basename "$(dirname "$(dirname "$dest")")"))" || continue
+    fi
     mkdir -p "$(dirname "$dest")"
     if [[ -f "$dest" ]]; then
       # Never clobber. This file carries a user's own permission grants.
@@ -210,21 +220,33 @@ render_settings() {
       sed "s|{{JARVIS_ROOT}}|$ROOT|g" "$tpl" > "$dest"; made=$((made+1))
     fi
   done
-  # Proof, not intent: both must exist, parse, and carry the real root.
-  python3 - "$ROOT" <<'PYCHK' || { fail "rendered settings.json did not verify"; return; }
+  # Proof, not intent: whatever exists must parse and carry the real root.
+  #
+  # It verifies what is THERE rather than demanding both files: under --check
+  # a missing one was deliberately not created two lines up, and reading it
+  # would crash the verifier instead of reporting the absence -- which
+  # would_install() has already reported honestly.
+  python3 - "$ROOT" <<'PYCHK' || { fail "settings.json did not verify"; return; }
 import json, sys, pathlib
 root = sys.argv[1]
+seen = 0
 for d in (f"{root}/.claude/settings.json", f"{root}/Jarvis Visual/.claude/settings.json"):
-    t = pathlib.Path(d).read_text()
+    p = pathlib.Path(d)
+    if not p.exists():
+        continue
+    seen += 1
+    t = p.read_text()
     assert "{{JARVIS_ROOT}}" not in t, f"{d} still has a placeholder"
     j = json.loads(t)
     cmds = [h["command"] for grp in j["hooks"].values() for g in grp for h in g["hooks"]]
     assert any("session_registry.py" in c for c in cmds), f"{d} lost the registry hook"
     assert all(root in c or "python3" not in c for c in cmds), f"{d} has a foreign root"
+print(seen)
 PYCHK
   [[ $made -gt 0 ]] && did "settings.json rendered ($made)"
   [[ $kept -gt 0 ]] && have "settings.json ($kept already configured -- left untouched)"
-  ok "both settings.json parse and carry the registry hooks"
+  [[ $((made + kept)) -gt 0 ]] && ok "settings.json parses and carries the registry hooks"
+  return 0
 }
 
 render_settings
@@ -293,6 +315,22 @@ KOKORO_WEIGHTS="$KOKORO/api/src/models/v1_0/kokoro-v1_0.pth"
 # initialize_with_warmup, so uvicorn dies at startup with "Application startup
 # failed" and nothing ever binds the port. So the weights are checked by size,
 # and the import is kept as a second, weaker signal.
+kokoro_listening() { lsof -nP -iTCP:8880 -sTCP:LISTEN >/dev/null 2>&1; }
+
+# THE IMPORT PROBE MUST NOT RUN WHILE A KOKORO IS ALREADY UP.
+#
+# `import api.src.main` loads PyTorch and puts a model on the GPU. Eight lines
+# below, this very script warns that two PyTorch/MPS processes competing for
+# one GPU is not supported and was observed taking down a healthy Kokoro. So
+# the probe was itself the hazard the script warns about -- and `--check`,
+# which promises in the usage text that it "changes NOTHING", was the worst
+# case: someone running it to inspect a working machine could take the voice
+# down mid-conversation.
+#
+# So when something is already listening on 8880, the weights are still
+# checked and the import is SKIPPED and SAID to be skipped. A weaker answer
+# that is honest about being weaker beats a stronger one that costs the thing
+# it is inspecting.
 kokoro_ok() {
   [[ -x "$KOKORO/.venv/bin/python3" ]] || return 1
   [[ -f "$KOKORO_WEIGHTS" ]] || return 1
@@ -301,12 +339,30 @@ kokoro_ok() {
   # any error page.
   local sz; sz=$(stat -f%z "$KOKORO_WEIGHTS" 2>/dev/null || echo 0)
   [[ "$sz" -gt 104857600 ]] || return 1
+  # A running Kokoro is itself the strongest possible evidence that this
+  # install works -- far better than an import. So when one is up, take that
+  # as the answer and do not spawn a second model to ask a weaker question.
+  kokoro_listening && return 0
   ( cd "$KOKORO" && MODEL_DIR=src/models VOICES_DIR=src/voices/v1_0 \
     .venv/bin/python3 -c "import api.src.main" >/dev/null 2>&1 )
 }
+# ONE PLACE SAYS WHAT WAS CHECKED, so no branch can claim more than was done.
+# Both call sites used to spell this out for themselves and one of them said
+# "AND api.src.main imports" even when the import had been skipped.
+#
+# Note honestly what the skip costs: something holding port 8880 is not proof
+# that it is Kokoro. This is a WEAKER check than the import, and the wording
+# says so rather than implying an equal one.
+kokoro_report() {
+  if kokoro_listening; then
+    ok "model weights present; something is already serving on 8880, so the import was NOT probed (it would load a second model onto the same GPU)"
+  else
+    ok "model weights present AND api.src.main imports"
+  fi
+}
 if kokoro_ok; then
-  have "kokoro-fastapi (weights $(du -h "$KOKORO_WEIGHTS" | cut -f1), module imports)"
-  ok "model weights present AND api.src.main imports"
+  have "kokoro-fastapi (weights $(du -h "$KOKORO_WEIGHTS" | cut -f1))"
+  kokoro_report
 elif would_install "kokoro-fastapi"; then
   if confirm "install kokoro-fastapi? clone, torch and the voice model, roughly 1.8 GB"; then
     mkdir -p "$VL/services"
@@ -322,7 +378,12 @@ elif would_install "kokoro-fastapi"; then
         ( cd "$KOKORO" && .venv/bin/python3 docker/scripts/download_model.py \
             --output api/src/models/v1_0 ) || fail "kokoro model download"
       fi
-      kokoro_ok && { did "kokoro-fastapi"; ok "model weights present AND api.src.main imports"; } \
+      # Says what was actually checked. The first version of this branch
+      # printed "AND api.src.main imports" unconditionally, so when the
+      # import was skipped (something already on 8880) it asserted a check
+      # it never performed -- the exact silent downgrade the skip was
+      # introduced to avoid, left standing one branch over.
+      kokoro_ok && { did "kokoro-fastapi"; kokoro_report; } \
                 || fail "kokoro-fastapi (installed but not usable -- weights missing or module will not import; see $KOKORO)"
     fi
   else
@@ -332,7 +393,14 @@ fi
 # Two PyTorch/MPS processes competing for the GPU is not a supported
 # configuration and was observed taking down a healthy kokoro. Say so rather
 # than let someone discover it the way it was discovered here.
-if lsof -nP -iTCP:8880 -sTCP:LISTEN >/dev/null 2>&1 && [[ "$ROOT" != "$OLD_ROOT" ]]; then
+# The `&& [[ "$ROOT" != "$OLD_ROOT" ]]` that used to be on this line outlived
+# OLD_ROOT itself -- see the note at the top, which removed the variable and
+# left this reader behind. Under `set -u` that is FATAL, not cosmetic: the
+# script died here, exit 1, before the vault step, the verify step and the
+# report, on any machine where Kokoro was already listening. Which is to say:
+# it worked on a first install and broke on every re-run, breaking precisely
+# the idempotence rule 1 promises at the top of this file.
+if kokoro_listening; then
   warn "another Kokoro is already running on port 8880 (a different copy of this project?)."
   note "    Starting a second one loads a second model onto the same GPU. Stop the"
   note "    other stack before running this one."
