@@ -1035,12 +1035,30 @@
      stream reads as arriving rather than as a list. */
   #log {
     position: absolute; left: 6%; right: 6%; bottom: 15%;
-    max-height: 32%; pointer-events: none; z-index: 2;
+    /* 32% -> 60%. Serge, 2026-08-07 ~5:00 PM, on why he reads this at all:
+       "sometimes I'm distracted. So if I miss something that you said, I
+       could have read it at least -- I don't have to make you repeat
+       yourself." At 32% one long answer overflowed and its OPENING was the
+       part clipped away, which is the half he needs most. The box is
+       content-sized, so it only reaches this ceiling while there is
+       actually that much to read, and shrinks straight back after. */
+    max-height: 60%; pointer-events: none; z-index: 2;
     display: flex; flex-direction: column; justify-content: flex-end;
     transition: opacity 1.4s ease;
-    /* The fade was far too deep: with only a handful of lines the mask ate
-       most of them, so a short exchange was half invisible. It now only
-       softens the very top edge. */
+    /* The fade softens the top edge over a moving field. It used to reach
+       26% down, which was fine when the box held eight short lines and
+       nothing else -- but a fitted long answer fills the box, so that
+       gradient was erasing the first line or two of the thing being read.
+       It now only feathers the very edge. The deep version comes back, and
+       only comes back, when a single message genuinely cannot fit: see
+       .clipped below, where a soft top edge is honest because there really
+       is more above. */
+    -webkit-mask-image: linear-gradient(to bottom,
+                        var(--scrim-deep) 0%, #000 4%);
+            mask-image: linear-gradient(to bottom,
+                        var(--scrim-deep) 0%, #000 4%);
+  }
+  #log.clipped {
     -webkit-mask-image: linear-gradient(to bottom,
                         transparent 0%, var(--scrim-deep) 10%, #000 26%);
             mask-image: linear-gradient(to bottom,
@@ -1392,6 +1410,41 @@ const shownLines = new Set();
 // of the globe without crowding it.
 const LOG_KEEP = 8;
 let logLastAt = 0;
+
+// THE NEWEST MESSAGE IS NEVER THE ONE THAT GETS CUT.
+//
+// Serge, 2026-08-07 ~5:00 PM, saying what this overlay is actually for:
+// "when you talk, I like to read what you're saying. Sometimes I'm
+// distracted. So if I miss something that you said, I could have read it at
+// least -- I don't have to make you repeat yourself."
+//
+// The box was capped and simply clipped what did not fit, and because lines
+// stack downward the part clipped was the OPENING of the newest answer --
+// the half he needs. LOG_KEEP counts MESSAGES, and one long message is many
+// visual rows, so counting messages never bounded the height.
+//
+// So: drop the OLDEST messages until the newest fits whole. Fewer past lines
+// on a wordy turn is the right trade -- the old ones are already in the
+// transcript on disk, and the current one is nowhere else he can see. This
+// is the EVENTS panel's rule applied here: fold, never truncate.
+function fitLog(){
+  const box = document.getElementById('log');
+  if (!box || !linesEl) return;
+  // A hidden or unlaid-out overlay measures 0. Acting on that would delete
+  // every line for a measurement that means "I cannot see yet" -- the same
+  // zero-measurement trap the board's own sizing already guards against.
+  const room = box.clientHeight;
+  if (!room) return;
+  while (linesEl.scrollHeight > room && linesEl.children.length > 1)
+    linesEl.removeChild(linesEl.firstChild);
+  // If ONE message still cannot fit, it is genuinely clipped -- and then the
+  // soft top edge is honest, because there really is more above. Any other
+  // time it would be lying about text that is fully present.
+  box.classList.toggle('clipped', linesEl.scrollHeight > room);
+}
+// The ceiling is a percentage of the stage, so a resize changes what fits.
+window.addEventListener('resize', fitLog);
+
 function showLine(who, text){
   shownLines.add(who + '|' + text);
   const div = document.createElement('div');
@@ -1400,6 +1453,7 @@ function showLine(who, text){
   linesEl.appendChild(div);
   while (linesEl.children.length > LOG_KEEP)
     linesEl.removeChild(linesEl.firstChild);
+  fitLog();
   linesEl.scrollTop = linesEl.scrollHeight;
   logLastAt = Date.now() / 1000;
   const box = document.getElementById('log');

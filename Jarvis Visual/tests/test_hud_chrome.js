@@ -84,9 +84,16 @@ const shownLines = new Set();
 const LOG_KEEP = num('LOG_KEEP');
 const LOG_IDLE_AFTER = num('LOG_IDLE_AFTER');
 
+// fitLog joined the eval 2026-08-07: showLine now calls it, so leaving it
+// out made every showLine test die on `fitLog is not defined` -- the tests
+// were red for a reason that had nothing to do with what they assert.
+// Its own behaviour is proven in test_log_fit.js against stubbed heights;
+// here it just has to exist and be harmless, which the 0-height stub
+// guarantees (a zero measurement deletes nothing, by design).
 eval(grab('fmtDur') + '\n' + grab('useClass') + '\n'
    + grab('renderUsage') + '\n' + grab('tickUsageRest') + '\n'
-   + grab('setChip') + '\n' + grab('showLine') + '\n' + grab('tickLogIdle'));
+   + grab('setChip') + '\n' + grab('fitLog') + '\n'
+   + grab('showLine') + '\n' + grab('tickLogIdle'));
 
 // ---- harness --------------------------------------------------------------
 let passed = 0, failed = 0;
