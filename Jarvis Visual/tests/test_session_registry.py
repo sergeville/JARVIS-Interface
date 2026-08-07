@@ -510,6 +510,105 @@ for where, path in SETTINGS.items():
               any("question_hook.py" in (c or "")
                   for c in hook_commands(cfg, event)), True)
 
+# ------------------------------------------------------- whoami: one answer
+# ONE ANSWER TO "WHICH CHANNEL AM I". The session bus and the board's task
+# tool both need it, and two independent derivations would drift the way the
+# hand-signed board drifts from the process table. These drive the function
+# against a STUB table rather than the live machine -- a test that reads the
+# running machine is flaky on the running machine, already on this record.
+
+_TABLE = {
+    10: {"pid": 10, "ppid": 1, "cmd": "python3 voice-web-server.py"},
+    20: {"pid": 20, "ppid": 10, "cmd": "claude --model claude-opus-5"},
+    30: {"pid": 30, "ppid": 20, "cmd": "python3 vault-tools/task.py move x"},
+}
+
+got = sr.whoami(pid=30, table=_TABLE, cwd=ROOT)
+check("whoami walks up to the owning session, not the parent shell",
+      got, ("voice line", 20))
+
+check("whoami returns None when no Claude session is above it",
+      sr.whoami(pid=10, table=_TABLE, cwd=ROOT), None)
+
+# A pid that is not in the table at all -- nothing to walk, nothing to say.
+# (This used to carry the approve-button comment, which was WRONG: an absent
+# pid is not the server case, and pointing a comment at a case the assertion
+# does not exercise is how the real gap below went unnoticed.)
+check("an unknown pid yields None rather than a guessed channel",
+      sr.whoami(pid=999, table=_TABLE, cwd=ROOT), None)
+
+# ------------------------------------------------- THE SERVER IS A BOUNDARY
+#
+# ⚠ THE TEST-ADVERSARY FOUND THIS ON 2026-08-07 AND IT WAS THE REAL DEFECT.
+# The docstrings claimed the approve button gets None "because the server is
+# not a Claude Code session". The walk upward had no stopping rule, so that
+# was only true while the stack happened to be launched from outside a
+# session. Start ./jarvis.sh from a terminal Jarvis and the HUD's approve
+# button would stamp THAT terminal as the owner of a card it never touched --
+# the wrong-owner failure this whole field exists to prevent, through the one
+# path the docstring named as safe.
+#
+# The behaviour was correct on the machine and wrong as a property. So the
+# table below is built specifically to break it: a real session sits ABOVE
+# the server, which is exactly the topology that used to leak.
+_LAUNCHED_FROM_SESSION = {
+    900: {"pid": 900, "ppid": 1, "cmd": "/bin/zsh"},
+    901: {"pid": 901, "ppid": 900, "cmd": "claude --model claude-opus-5"},
+    902: {"pid": 902, "ppid": 901, "cmd": "/bin/bash ./jarvis.sh start"},
+    903: {"pid": 903, "ppid": 902, "cmd": "python3 voice-web-server.py"},
+    904: {"pid": 904, "ppid": 903, "cmd": "python3 vault-tools/task.py move x"},
+}
+check("the approve button gets None even when a session LAUNCHED the stack",
+      sr.whoami(pid=904, table=_LAUNCHED_FROM_SESSION, cwd=ROOT), None)
+check("and the server process itself has no session identity either",
+      sr.whoami(pid=903, table=_LAUNCHED_FROM_SESSION, cwd=ROOT), None)
+
+# THE OTHER HALF, and it is what stops this fix breaking the voice line: the
+# BRAIN is itself a claude process BELOW the server, so the walk finds it
+# before the boundary is ever reached. If this went red, every voice-line
+# card would silently lose its owner -- the cure becoming the disease.
+check("the voice brain BELOW the server still gets its identity",
+      sr.whoami(pid=30, table=_TABLE, cwd=ROOT), ("voice line", 20))
+_launched_brain = dict(_LAUNCHED_FROM_SESSION)
+_launched_brain[905] = {"pid": 905, "ppid": 903, "cmd": "claude --model claude-opus-5"}
+_launched_brain[906] = {"pid": 906, "ppid": 905, "cmd": "python3 vault-tools/task.py move x"}
+check("a brain under a session-launched stack is still the brain, not the launcher",
+      sr.whoami(pid=906, table=_launched_brain, cwd=ROOT), ("voice line", 905))
+
+# The boundary is a RULE about the server, not a depth limit: one more shell
+# between the server and the caller must not let identity leak through.
+_deep = dict(_LAUNCHED_FROM_SESSION)
+_deep[904] = {"pid": 904, "ppid": 903, "cmd": "/bin/sh -c task"}
+_deep[907] = {"pid": 907, "ppid": 904, "cmd": "python3 vault-tools/task.py move x"}
+check("an extra shell below the server does not smuggle identity through",
+      sr.whoami(pid=907, table=_deep, cwd=ROOT), None)
+
+# is_server is deliberately narrow -- it must not fire on prose that merely
+# mentions the file, or a session grepping for it would lose its own name.
+check("is_server recognises the server", sr.is_server("python3 voice-web-server.py"), True)
+check("is_server is False on an empty command", sr.is_server(""), False)
+check("is_server does not fire on an unrelated command",
+      sr.is_server("claude --model claude-opus-5"), False)
+
+_terminal = {40: {"pid": 40, "ppid": 1, "cmd": "claude"}}
+check("a terminal session is classified by cwd, not called a voice line",
+      sr.whoami(pid=40, table=_terminal, cwd=ROOT), ("terminal (Jarvis root)", 40))
+
+# It is called on every card move, so it must never take the tool down with it.
+class _Boom(dict):
+    def get(self, *a, **k):
+        raise RuntimeError("process table exploded")
+check("whoami swallows a broken table instead of raising",
+      sr.whoami(pid=1, table=_Boom(), cwd=ROOT), None)
+
+# A guard nobody calls is not a guard: the bus must actually USE this, or the
+# two answers drift apart again in silence.
+_mail_src = (Path(ROOT) / "voice-line" / "session_mail.py").read_text()
+check("the session bus asks the registry rather than re-deriving identity",
+      "reg.whoami(" in _mail_src, True)
+check("the bus no longer classifies for itself",
+      "reg.classify(" in _mail_src, False)
+
 # ------------------------------------------------------------------- report
 
 print(f"\n{passed} passed, {failed} failed")

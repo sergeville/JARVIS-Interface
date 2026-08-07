@@ -38,6 +38,7 @@ import asyncio
 import importlib.util
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -435,6 +436,206 @@ class TestTheDrag(Base):
         d = self.call({"title": "Beta in flight", "action": "approve"})
         self.assertFalse(d.get("ok"), "approve reached a card outside review")
         self.assertEqual(self.status_of("Beta in flight"), "active")
+
+
+class TestTheOwnerIsStamped(Base):
+    """The owner field must be WRITTEN, not remembered.
+
+    Serge, 2026-08-06 ~9:05 PM: he caught a card in In Progress with nobody's
+    name on it. The cause was not a stale owner -- `add` hardcoded
+    "unassigned" and `move` never touched the field, so EVERY card on the
+    board was owner-less by construction and the field was decoration.
+
+    These tests guard the fix at the level his own rule points at: fix the
+    generator, not the artefact. They stub owner_label() rather than reading
+    the real process table, because a test that reads the live machine is
+    flaky on the live machine -- the lesson already on this project's record.
+    """
+
+    def owner_of(self, title):
+        """The owner line of ONE card.
+
+        THIS EXISTS BECAUSE THE FIRST VERSION OF THESE TESTS WAS WORTHLESS.
+        They asserted against the whole file, and the fixture holds three
+        cards -- one of which already reads `owner: unassigned` and another
+        `owner: voice line`. So "the owner was cleared" passed by matching a
+        card the test never touched, and the fault injection proved it: two
+        real faults (open no longer clearing, and an unknown identity writing
+        over a real name) ran with the suite GREEN. Scope the assertion to
+        the card under test, or it is guarding the fixture.
+        """
+        lines = self.note.read_text().splitlines(keepends=True)
+        for t, s, e in self.task.blocks(lines):
+            if t == title:
+                i = self.task.field(lines, s, e, "owner")
+                return lines[i].split(":", 1)[1].strip() if i is not None else None
+        return None
+
+    def stub_owner(self, value):
+        self.task.owner_label = lambda: value
+
+    def test_taking_a_card_stamps_the_running_session(self):
+        self.stub_owner("voice line (pid 4242)")
+        self.task.move("Beta in flight", "review", "done, awaiting eyes")
+        self.assertEqual(self.owner_of("Beta in flight"), "voice line (pid 4242)")
+
+    def test_every_owned_status_stamps(self):
+        # active, review and test all mean somebody is holding the work.
+        for status in ("active", "review", "test"):
+            with self.subTest(status=status):
+                self.note.write_text(NOTE_TEMPLATE)
+                self.stub_owner("terminal (Jarvis root) (pid 7)")
+                self.task.move("Alpha the second one", status, "x")
+                self.assertEqual(self.owner_of("Alpha the second one"),
+                                 "terminal (Jarvis root) (pid 7)")
+
+    def test_sending_a_card_back_to_the_backlog_clears_the_owner(self):
+        # Back to To Do means held by nobody. Leaving a name on it would
+        # claim a session is working something it has put down.
+        self.stub_owner("voice line (pid 4242)")
+        self.task.move("Beta in flight", "active", "working")
+        self.assertEqual(self.owner_of("Beta in flight"), "voice line (pid 4242)")
+        self.task.move("Beta in flight", "open", "parked")
+        self.assertEqual(self.owner_of("Beta in flight"), "unassigned")
+
+    def test_finishing_a_card_KEEPS_the_owner_as_the_record(self):
+        # On a closed card the owner is who did it. Clearing it would throw
+        # that away at the moment it becomes history.
+        self.stub_owner("voice line (pid 4242)")
+        self.task.move("Beta in flight", "active", "working")
+        self.task.move("Beta in flight", "done", "shipped")
+        self.assertEqual(self.owner_of("Beta in flight"), "voice line (pid 4242)")
+
+    def test_waiting_on_serge_KEEPS_the_owner_too(self):
+        self.stub_owner("voice line (pid 4242)")
+        self.task.move("Beta in flight", "active", "working")
+        self.task.move("Beta in flight", "waiting-on-serge", "needs his go")
+        self.assertEqual(self.owner_of("Beta in flight"), "voice line (pid 4242)")
+
+    def test_an_UNKNOWN_identity_leaves_the_field_ALONE(self):
+        # The HUD's approve button is the live case: the server is not a
+        # Claude Code session, so it has no identity to stamp. Writing
+        # "unassigned" over a real name there would DESTROY information --
+        # a wrong owner reads as fact, a missing one reads as unknown.
+        self.stub_owner(None)
+        self.task.move("Beta in flight", "review", "x")
+        # The fixture's own value, untouched -- and NOT the string "None".
+        self.assertEqual(self.owner_of("Beta in flight"), "voice line")
+
+    def test_a_card_with_no_owner_line_is_not_given_one(self):
+        # The write stays surgical: this tool edits fields that exist, it
+        # does not restructure someone else's block.
+        self.note.write_text(NOTE_TEMPLATE.replace(
+            "  - owner: voice line\n  - priority: P2\n", "  - priority: P2\n"))
+        self.stub_owner("voice line (pid 4242)")
+        self.task.move("Beta in flight", "active", "x")
+        self.assertNotIn("owner:", self.note.read_text().split(
+            "**Beta in flight**")[1].split("- [ ]")[0])
+
+    def test_the_prose_survives_an_owner_stamp(self):
+        self.stub_owner("voice line (pid 4242)")
+        self.task.move("Alpha the built thing", "test", "x")
+        self.assertIn("Some prose that must survive untouched.",
+                      self.note.read_text())
+
+    def test_OWNED_is_a_subset_of_the_real_statuses(self):
+        # A typo here would silently stop stamping rather than fail.
+        for st in self.task.OWNED:
+            self.assertIn(st, self.task.STATUSES)
+
+    def test_OWNED_matches_the_board_page(self):
+        # Two lists that must agree get a guard that proves they do -- the
+        # same reason the jarvis.sh and sample_stack() patterns have one.
+        page = (HERE.parent / "jarvis.html").read_text()
+        m = re.search(r"BOARD_OWNED\s*=\s*new Set\(\[(.*?)\]\)", page, re.S)
+        self.assertIsNotNone(m, "BOARD_OWNED is gone from the page")
+        on_page = tuple(re.findall(r"'([a-z-]+)'", m.group(1)))
+        self.assertEqual(on_page, tuple(self.task.OWNED))
+
+
+class TestOwnerLabelIsWired(Base):
+    """The label must come from the registry, not be re-derived here.
+
+    A guard nobody calls is not a guard, and a second answer to "which
+    channel am I" would drift from the session bus's answer -- which is the
+    exact failure the hand-signed board has against the process table.
+    """
+
+    def test_owner_label_asks_the_registry(self):
+        import types
+        fake = types.ModuleType("session_registry")
+        fake.whoami = lambda: ("voice line", 99)
+        sys.modules["session_registry"] = fake
+        try:
+            self.assertEqual(self.task.owner_label(), "voice line (pid 99)")
+        finally:
+            del sys.modules["session_registry"]
+
+    def test_owner_label_is_None_when_the_registry_cannot_say(self):
+        import types
+        fake = types.ModuleType("session_registry")
+        fake.whoami = lambda: None
+        sys.modules["session_registry"] = fake
+        try:
+            self.assertIsNone(self.task.owner_label())
+        finally:
+            del sys.modules["session_registry"]
+
+    def test_owner_label_survives_a_registry_that_raises(self):
+        """A card move is not worth a traceback.
+
+        ⚠ THIS TEST USED TO ASSERT THE OPPOSITE OF ITS OWN NAME -- it said
+        "survives" and asserted `assertRaises`, documenting a crash as
+        though it were the design. The test-adversary caught it on
+        2026-08-07. `owner_label` called whoami() OUTSIDE its try, so a
+        registry that threw would take `task.py move` down mid-edit,
+        between reading the note and writing it. Every sibling path
+        (whoami itself, the bus's _self_identity) swallows and returns
+        None; this one now does too, because an identity we cannot compute
+        IS the None case, not an error.
+        """
+        import types
+        fake = types.ModuleType("session_registry")
+        def boom():
+            raise RuntimeError("no process table")
+        fake.whoami = boom
+        sys.modules["session_registry"] = fake
+        try:
+            self.assertIsNone(self.task.owner_label())
+        finally:
+            del sys.modules["session_registry"]
+
+    def test_a_channel_outside_the_vocabulary_is_not_written_to_the_note(self):
+        """The board must not trust what the bus refuses.
+
+        This value is f-strung straight into a note Serge reads. The bus
+        already vets `channel not in CHANNELS`; the board did not, so the
+        two surfaces disagreed about whether the registry's output is
+        trusted -- and only one of them renders. Defence in depth today,
+        since classify() returns only literals, but the asymmetry is the
+        kind that stops being theoretical the moment classify grows a
+        branch.
+        """
+        import types
+        fake = types.ModuleType("session_registry")
+        fake.whoami = lambda: ("mainframe", 99)
+        sys.modules["session_registry"] = fake
+        try:
+            self.assertIsNone(self.task.owner_label())
+        finally:
+            del sys.modules["session_registry"]
+
+    def test_a_nonsense_pid_is_not_written_to_the_note(self):
+        import types
+        for bad in (0, -1, "99", None, True):
+            with self.subTest(pid=bad):
+                fake = types.ModuleType("session_registry")
+                fake.whoami = lambda b=bad: ("voice line", b)
+                sys.modules["session_registry"] = fake
+                try:
+                    self.assertIsNone(self.task.owner_label())
+                finally:
+                    del sys.modules["session_registry"]
 
 
 if __name__ == "__main__":

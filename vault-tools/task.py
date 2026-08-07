@@ -72,6 +72,65 @@ STATUSES = ("open", "active", "review", "test", "waiting-on-serge", "done")
 TASK_RE = re.compile(r"^- \[([ x])\] \*\*(.+?)\*\*")
 
 
+# Moving a card into one of these means a session has picked the work up,
+# so the owner field is stamped from the running session. `open` is the
+# opposite move -- back to the backlog, held by nobody -- so it clears the
+# field. `done` and `waiting-on-serge` deliberately LEAVE THE OWNER ALONE:
+# on a finished card the owner is the record of who did it, and clearing it
+# would throw that away at the exact moment it becomes history.
+OWNED = ("active", "review", "test")
+
+
+def owner_label():
+    """"channel (pid N)" for the session running this, or None.
+
+    None means the answer is not knowable -- the HUD's approve button is
+    the live case, since the server is not a Claude Code session. A caller
+    that gets None must leave the owner field untouched rather than write
+    "unassigned" over a real name: a WRONG owner reads as fact, while a
+    missing one reads as unknown, and the whole reason this field is being
+    stamped is that a field nobody writes is decoration.
+
+    The server case is a RULE, not a topology: whoami() stops walking at
+    the web server, so the approve button gets None even if the stack was
+    launched from a session's own terminal. See session_registry's
+    SERVER_MARKERS -- an unbounded walk stamped the LAUNCHING session onto
+    a card it never touched, which is the wrong-owner failure this whole
+    field exists to prevent.
+
+    NEVER RAISES. This runs inside `move`, between reading the note and
+    writing it, and a card move is not worth a traceback: an identity we
+    cannot compute is exactly the None case, not an error. (Found
+    2026-08-07 -- the test asserting this was named "survives a registry
+    that raises" while asserting that it DIED.)
+
+    The channel is vetted against the same closed vocabulary the session
+    bus uses, because this value is f-strung into a note Serge reads.
+    Today classify() returns only literals, so this is defence in depth --
+    but the bus and the board must not disagree about whether the
+    registry's output is trusted, and only one of them renders.
+    """
+    try:
+        sys.path.insert(0, os.path.join(_ROOT, "voice-line"))
+        import session_registry as reg
+        who = reg.whoami()
+        if not who:
+            return None
+        channel, pid = who
+        import session_mail as mail
+        if channel not in mail.CHANNELS:
+            return None
+        # `isinstance(True, int)` is True in Python, so a bool would sail
+        # through an int check and render as "pid True". The same trap was
+        # already paid for once on this project, in the approval-reply id
+        # guard -- so it is spelled out here rather than rediscovered.
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+            return None
+        return f"{channel} (pid {pid})"
+    except Exception:
+        return None
+
+
 def load():
     with open(NOTE, "r", encoding="utf-8") as fh:
         return fh.read().splitlines(keepends=True), os.stat(NOTE).st_mtime_ns
@@ -208,6 +267,21 @@ def move(needle, status, note, exact=False, only_from=None):
                 "refusing to move it")
     indent = re.match(r"\s*", lines[st]).group(0)
     lines[st] = f"{indent}- status: {status}\n"
+
+    # THE OWNER IS STAMPED, NOT TYPED. Every card on the board read
+    # "unassigned" on 2026-08-06 because `add` hardcoded it and `move`
+    # never touched it -- the field was decoration, and Serge caught a
+    # card running with nobody's name on it. A field a human has to
+    # remember to update is the same failure as a nag they cannot cheaply
+    # satisfy, one level down.
+    ow = field(lines, s, e, "owner")
+    if ow is not None:
+        if status in OWNED:
+            who = owner_label()
+            if who:
+                lines[ow] = f"{indent}- owner: {who}\n"
+        elif status == "open":
+            lines[ow] = f"{indent}- owner: unassigned\n"
 
     up = field(lines, s, e, "updated")
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")

@@ -778,5 +778,64 @@ ok("/signals carries the mail key", '"mail": read_mail()' in vsrc)
 ok("the server only READS the bus -- it never posts a notice",
    "session_mail.send" not in vsrc)
 
+# ===========================================================================
+# 12. THE HOOK'S OWN IDENTITY GATE
+# ===========================================================================
+#
+# Added 2026-08-07 because the injection round found it UNCAUGHT: deleting
+# the `channel not in CHANNELS` check from _self_identity left the whole
+# suite green. The list-agreement test above proves the two vocabularies
+# MATCH; nothing proved the code still CONSULTS one. That is this project's
+# oldest failure in a new place -- a guard proven correct and never proven
+# CALLED -- so this drives the function rather than reading it.
+#
+# It matters because the channel is written into the bus and rendered into
+# another session's context. A channel the vocabulary has never heard of is
+# the one field on a notice that did not come from a closed enum, so it is
+# exactly where a junk value would ride in.
+
+# ⚠ PATCH THE MODULE THE FUNCTION ACTUALLY GETS, NOT THE ONE THIS FILE HOLDS.
+# The first version of this block patched `sr` -- the module object loaded by
+# spec_from_file_location at the top of this file, which is NOT registered in
+# sys.modules. `_self_identity` does a plain `import session_registry`, so it
+# received a DIFFERENT module object and every patch here was invisible to it:
+# five tests failed against correct code. The test was wrong, not the code.
+# Same family as every other "the guard measured the wrong thing" miss on this
+# project's record -- so the module is resolved the way the code resolves it.
+import session_registry as _reg_live          # noqa: E402  (path set above)
+
+assert _reg_live is sys.modules.get("session_registry")
+_real_whoami = _reg_live.whoami
+try:
+    _pay = {"session_id": "a" * 36, "cwd": ROOT}
+    ok("a valid session id alone is not enough -- the sid must still pass",
+       sm._self_identity({"session_id": "not-a-sid", "cwd": ROOT}) is None)
+
+    _reg_live.whoami = lambda **kw: ("voice line", 4242)
+    check("a channel IN the vocabulary is accepted, with its pid",
+          sm._self_identity(_pay), ("a" * 36, "voice line", 4242))
+
+    # The fault the round missed, in its own words: a channel the vocabulary
+    # does not contain must be REFUSED, not passed through.
+    _reg_live.whoami = lambda **kw: ("mainframe", 4242)
+    ok("a channel OUTSIDE the vocabulary is refused, not forwarded",
+       sm._self_identity(_pay) is None)
+
+    _reg_live.whoami = lambda **kw: ("", 4242)
+    ok("an empty channel is refused too", sm._self_identity(_pay) is None)
+
+    _reg_live.whoami = lambda **kw: None
+    ok("an unknowable identity yields None rather than a guess",
+       sm._self_identity(_pay) is None)
+
+    # It is called on every SessionStart, so it must never take the hook down.
+    def _boom(**kw):
+        raise RuntimeError("registry exploded")
+    _reg_live.whoami = _boom
+    ok("a registry that raises yields None instead of killing the hook",
+       sm._self_identity(_pay) is None)
+finally:
+    _reg_live.whoami = _real_whoami
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

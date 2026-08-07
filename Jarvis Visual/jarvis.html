@@ -310,6 +310,16 @@
     margin-top: 5px; color: rgba(var(--accent-rgb), 0.42);
     display: flex; gap: 7px;
   }
+  /* A card being WORKED with nobody's name on it. Serge caught one on
+     2026-08-06 and the cause was that the owner field was never written by
+     anything -- so the stamping is the real fix and this is the tell that it
+     failed. It wears the WARN amber, never the bad red: an unowned card is
+     not broken work, it is work whose owner is unknown, and the three status
+     states are doctrine here. Deliberately visible rather than hidden: the
+     board does not lie by showing a wrong card, it lies by going quiet. */
+  .bcard .bm .noown {
+    color: var(--warn); letter-spacing: 0.1em;
+  }
   /* The step line: what is happening INSIDE the card, not what it is called.
      Serge, 2026-08-06 ~8:12 AM -- he had just asked whether Jarvis was on
      strike while work was in flight, and that question is the bug report.
@@ -2104,6 +2114,19 @@ function colFor(status){
 // task in Review would simply stop being counted anywhere. Drawn only when
 // non-zero, so a quiet day's heading does not get noisier for nothing.
 const BOARD_CHECKING = ['review', 'test'];
+// The columns that MEAN a session is holding the work. Kept as a Set beside
+// the column table rather than inline in the renderer so the two cannot drift
+// -- and it is deliberately the same three statuses the task tool stamps an
+// owner on (vault-tools/task.py, OWNED). Two lists that must agree get a test
+// that proves they do.
+const BOARD_OWNED = new Set(['active', 'review', 'test']);
+// "unassigned" is not an owner, it is the ABSENCE of one spelled out. The
+// board must read it the same way a human does, or a card stamped with the
+// placeholder would pass as owned and the tell would never fire.
+function ownerOf(t) {
+  const o = (t && t.owner ? String(t.owner) : '').trim();
+  return (!o || o.toLowerCase() === 'unassigned') ? '' : o;
+}
 // THE CARD MUST SAY WHAT IS HAPPENING, NOT ONLY WHAT IT IS CALLED.
 //
 // Serge, 2026-08-06 ~8:12 AM: "nothing moving -- is it because you work on it
@@ -2382,7 +2405,13 @@ function renderBoard(tasks){
       // reads as a card that failed to load rather than one with nothing to say.
       + (step ? '<div class="bstep">' + esc(step) + '</div>' : '')
       + '<div class="bm">' + (t.priority ? '<span>' + esc(t.priority) + '</span>' : '')
-      + (t.owner ? '<span>' + esc(t.owner) + '</span>' : '') + '</div>'
+      // An owner-less card in a column that MEANS someone is holding it says
+      // so, rather than rendering a blank where a name belongs. Columns where
+      // nobody is expected to hold the work -- To Do, Waiting on You, Done --
+      // are silent, or the board would nag about every backlog item.
+      + (BOARD_OWNED.has(c.key) && !ownerOf(t)
+          ? '<span class="noown">no owner</span>'
+          : (t.owner ? '<span>' + esc(t.owner) + '</span>' : '')) + '</div>'
       + verdictButtons(c.key, t.title) + '</div>';
     }).join('');
     // DONE holds only what was finished TODAY -- Serge, 2026-08-06: a closed

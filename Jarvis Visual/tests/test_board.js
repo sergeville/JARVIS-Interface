@@ -80,7 +80,17 @@ const STEP_MAX = (() => {
   assert.ok(m, 'STEP_MAX not found in jarvis.html');
   return +m[1];
 })();
+// The owned-column set is parsed out of the page for the same reason as the
+// tables above -- and it is the half of this feature that must agree with
+// vault-tools/task.py's OWNED. A restated copy here could pass while the page
+// and the tool disagreed, which is the exact failure the pairing prevents.
+const OWNED_SRC = (() => {
+  const m = src.match(/const BOARD_OWNED = (new Set\(\[[^\]]*\]\));/);
+  assert.ok(m, 'BOARD_OWNED not found in jarvis.html');
+  return m[1];
+})();
 eval(grab('esc') + '\nconst BOARD_COLS = ' + COLS_SRC + ';'
+   + '\nconst BOARD_OWNED = ' + OWNED_SRC + ';\n' + grab('ownerOf') + '\n'
    + '\nconst BOARD_CHECKING = ' + CHECK_SRC + ';'
    + '\nconst STEP_MAX = ' + STEP_MAX + ';\n' + grab('stepText') + '\n'
    + grab('verdictButtons') + '\n' + grab('wireVerdicts') + '\n'
@@ -102,6 +112,9 @@ let boardTasks = [];
 let innerHeight = 900;
 eval(grab('boardOpen'));
 const COLS = eval('(' + COLS_SRC + ')');
+// Same trick as COLS: a const inside the eval above is scoped to it, so the
+// tests need their own top-level handle on the owned set.
+const OWNED = eval('(' + OWNED_SRC + ')');
 
 const T = (title, status, extra) =>
   Object.assign({ title, status, priority: 'P2', owner: 'voice line' }, extra || {});
@@ -1140,6 +1153,107 @@ test('a card offers grab, and gains no border -- a border says pressable', () =>
   const r = m[1];
   assert.ok(/cursor:\s*grab/.test(r), 'a draggable card gives no affordance');
 });
+
+
+
+// ---------------------------------------------------------------------------
+// AN OWNER-LESS CARD IN A COLUMN THAT MEANS SOMEBODY IS HOLDING IT
+//
+// Serge, 2026-08-06 ~9:05 PM, catching one on his own screen. The real fix is
+// upstream -- vault-tools/task.py now stamps the owner from the running
+// session -- and this is the tell that the stamping failed. It is deliberately
+// LOUD rather than hidden: the board does not lie by showing a wrong card, it
+// lies by going quiet, and a card hidden for being owner-less is a missing row.
+//
+// NOTE ON THE FIXTURE: T() defaults owner to 'voice line', so every test here
+// overrides it explicitly. A test that relied on the default would silently
+// stop testing the moment that default changed.
+// ---------------------------------------------------------------------------
+
+test('an owner-less card IN PROGRESS says so', () => {
+  renderBoard([T('a', 'active', { owner: '' })]);
+  assert.ok(/no owner/.test(cols()), 'the unowned card is silent');
+});
+
+test('"unassigned" is the ABSENCE of an owner, not an owner', () => {
+  // The placeholder is what every card carried before the stamping existed.
+  // Reading it as a name would make the tell fire for nobody, ever.
+  renderBoard([T('a', 'active', { owner: 'unassigned' })]);
+  assert.ok(/no owner/.test(cols()), 'the placeholder passed as an owner');
+});
+
+test('case and padding do not smuggle the placeholder past', () => {
+  renderBoard([T('a', 'active', { owner: '  Unassigned ' })]);
+  assert.ok(/no owner/.test(cols()), 'a spelling of unassigned passed');
+});
+
+test('a missing owner FIELD is unowned, not undefined', () => {
+  const t = T('a', 'active'); delete t.owner;
+  renderBoard([t]);
+  assert.ok(/no owner/.test(cols()), 'a card with no owner key slipped past');
+});
+
+test('a real owner draws the NAME and no warning', () => {
+  renderBoard([T('a', 'active', { owner: 'voice line (pid 7)' })]);
+  const c = cols();
+  assert.ok(c.includes('voice line (pid 7)'), 'the owner name is missing');
+  assert.ok(!/no owner/.test(c), 'a held card was marked unowned');
+});
+
+test('EVERY owned column carries the tell, not just In Progress', () => {
+  for (const key of ['active', 'review', 'test']) {
+    reset();
+    renderBoard([T('a', key, { owner: '' })]);
+    assert.ok(/no owner/.test(cols()), key + ' does not carry the tell');
+  }
+});
+
+test('To Do is SILENT -- a backlog item is meant to have no owner', () => {
+  renderBoard([T('a', 'open', { owner: '' })]);
+  assert.ok(!/no owner/.test(cols()), 'the board nags about the backlog');
+});
+
+test('Waiting on You and Done are silent too', () => {
+  for (const key of ['waiting-on-serge', 'done']) {
+    reset();
+    renderBoard([T('a', key, { owner: '' })]);
+    assert.ok(!/no owner/.test(cols()), key + ' nags about the owner');
+  }
+});
+
+test('the tell wears the WARN token, never the bad red', () => {
+  // Three status states, and an unowned card is not BROKEN work -- it is work
+  // whose owner is unknown. Painting it red would say something false.
+  const m = src.match(/\.bcard \.bm \.noown \{([^}]*)\}/);
+  assert.ok(m, 'the .noown rule is gone from the page');
+  assert.ok(/var\(--warn\)/.test(m[1]), 'the tell is not the warn token');
+  assert.ok(!/--bad/.test(m[1]), 'the tell was painted as a failure');
+});
+
+test('every owned key is a column this board actually draws', () => {
+  // A key here that no column uses would be a tell that can never fire.
+  const keys = COLS.map(c => c.key);
+  for (const k of OWNED) {
+    assert.ok(keys.includes(k), k + ' is not a column on this board');
+  }
+});
+
+test('an unowned card is still DRAGGABLE and still COUNTED', () => {
+  // The whole point is that it stays a normal card wearing a mark. Hiding or
+  // freezing it would rebuild the missing-row failure in a quieter costume.
+  renderBoard([T('a', 'active', { owner: '' })]);
+  const c = cols();
+  assert.ok(/draggable="true"/.test(c), 'the unowned card lost its drag');
+  assert.ok(/In Progress<\/span><span class="n">1</i.test(c),
+    'the unowned card was not counted: ' + c.slice(0, 400));
+});
+
+test('the tell replaces the owner slot, it does not add a second one', () => {
+  renderBoard([T('a', 'active', { owner: 'unassigned' })]);
+  assert.ok(!/unassigned/i.test(cols()),
+    'the placeholder was drawn alongside the warning');
+});
+
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

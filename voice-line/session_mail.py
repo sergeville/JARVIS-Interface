@@ -540,15 +540,13 @@ def _self_identity(payload: dict) -> tuple[str, str, int] | None:
         except Exception:
             return None
     try:
-        table = reg.process_table()
-        me = reg.owning_session(os.getpid(), table)
-        if not me:
+        who = reg.whoami(cwd=payload.get("cwd") or "")
+        if not who:
             return None
-        channel = reg.classify(reg.channel_chain(me["pid"], table),
-                               payload.get("cwd") or "")
+        channel, pid = who
         if channel not in CHANNELS:
             return None
-        return sid, channel, me["pid"]
+        return sid, channel, pid
     except Exception:
         return None
 
@@ -626,15 +624,17 @@ def _cli_identity() -> tuple[str, str, int] | None:
         except Exception:
             return None
     try:
-        table = reg.process_table()
-        me = reg.owning_session(os.getpid(), table)
-        if not me:
+        # Delegated to the registry rather than re-derived: two answers to
+        # "which channel am I" would drift, and the board's task tool now
+        # asks the same question.
+        who = reg.whoami()
+        if not who:
             return None
-        sid = sid_for_pid(me["pid"], reg)
+        channel, pid = who
+        sid = sid_for_pid(pid, reg)
         if not sid:
             return None
-        channel = reg.classify(reg.channel_chain(me["pid"], table),
-                               os.getcwd())
+        me = {"pid": pid}
         if channel not in CHANNELS:
             return None
         return sid, channel, me["pid"]

@@ -190,6 +190,33 @@ def channel_chain(pid: int, table: dict[int, dict]) -> list[str]:
     return out or [r["cmd"] for r in chain]
 
 
+# THE SERVER IS A BOUNDARY, NOT A LINK IN THE CHAIN.
+#
+# A process running inside the web server is NOT inside a Claude Code
+# session, however many claudes happen to sit above the server. The live
+# case is Serge's approve button: the HUD calls task.py through the server,
+# and if the stack were ever launched from a session's own terminal, an
+# unbounded walk upward would find that terminal and stamp it as the owner
+# of a card it never touched.
+#
+# That was found by the test-adversary on 2026-08-07, and the point worth
+# keeping is HOW it was wrong: the behaviour was correct on this machine,
+# by the topology the stack happened to be launched with, while the
+# docstring stated it as a property. A guarantee that holds by luck of the
+# call site is not a guarantee -- so it is a rule here, and a test proves
+# it against a table built to break it.
+#
+# The voice BRAIN is deliberately unaffected: it is itself a claude process
+# BELOW the server, so the walk finds it before it ever reaches this
+# boundary. The boundary only bites when the server is met FIRST.
+SERVER_MARKERS = ("voice-web-server.py",)
+
+
+def is_server(cmd: str) -> bool:
+    """Is this command line the web server itself?"""
+    return bool(cmd) and any(m in cmd for m in SERVER_MARKERS)
+
+
 def owning_session(pid: int, table: dict[int, dict]) -> dict | None:
     """The nearest Claude Code process at or above `pid`.
 
@@ -246,6 +273,51 @@ def classify(chain_cmds: list[str], cwd: str = "") -> str:
         if real == os.path.realpath(JARVIS_ROOT):
             return "terminal (Jarvis root)"
     return "terminal"
+
+
+def whoami(pid: int | None = None,
+           table: dict[int, dict] | None = None,
+           cwd: str | None = None) -> tuple[str, int] | None:
+    """(channel, pid) of the Jarvis session this process is running inside.
+
+    ONE ANSWER TO "WHICH CHANNEL AM I", and it lives here because this is
+    where classify() lives. Three callers now need it -- the session bus,
+    the board's task tool, and the CLI -- and the project's own rule is
+    that where two surfaces report the same fact they read it from the
+    same place. Two independent derivations of a session's identity would
+    drift the way the hand-signed board drifts from the process table.
+
+    Returns None rather than guessing when the answer is not knowable:
+    the caller is not inside a Claude Code session at all (the server
+    calling task.py through the approve button is the live example), or
+    the process table cannot be read. A caller must treat None as "I do
+    not know who I am" and leave any owner field alone -- writing a wrong
+    owner is worse than writing none, because an empty field reads as
+    unknown while a wrong one reads as fact.
+    """
+    try:
+        table = process_table() if table is None else table
+        start = os.getpid() if pid is None else pid
+        # The boundary, applied BEFORE the search: if the server is met on
+        # the way up before any Claude session, this caller is running
+        # inside the server and has no session identity to report. Walked
+        # here rather than inside owning_session() because that function is
+        # also what the registry HOOKS use, and a hook genuinely does run
+        # under a session -- narrowing it there would change what the
+        # SESSIONS card reports.
+        for rec in ancestor_chain(start, table):
+            if is_claude(rec["cmd"]):
+                break
+            if is_server(rec["cmd"]):
+                return None
+        me = owning_session(start, table)
+        if not me:
+            return None
+        channel = classify(channel_chain(me["pid"], table),
+                           os.getcwd() if cwd is None else cwd)
+        return channel, me["pid"]
+    except Exception:
+        return None
 
 
 def build_record(event: str, payload: dict, session: dict | None,
