@@ -953,10 +953,32 @@ test('the footer no longer claims the board is read-only', () => {
   assert.ok(m, 'the board footer span is gone');
   const foot = m[1];
   assert.ok(!/read-only/.test(foot), 'the footer still says read-only');
-  assert.ok(/approve or send back a review/.test(foot),
+  // Reworded 2026-08-07: the walk-me-through button landed the same day and
+  // the footer still named two. INVERTED, not extended -- "it names two" and
+  // "it names three" cannot both guard this line. The real property is that
+  // the footer names every verdict button the board actually draws, so that
+  // is what this asserts, by reading the buttons out of renderBoard.
+  assert.ok(/approve, send back, or walk through a review/.test(foot),
     'the footer does not say what he can now do');
+  for (const verb of ['approve', 'send back', 'walk through']) {
+    assert.ok(foot.includes(verb), 'the footer no longer names: ' + verb);
+  }
   assert.ok(/every other status is set in Active Priorities/.test(foot),
     'the footer no longer says where the other statuses come from');
+});
+
+test('the footer names as many actions as the board draws buttons', () => {
+  // The defect this replaces was a COUNT drifting, not a wording preference:
+  // a third button shipped and the footer went on describing two. Counting the
+  // buttons rather than restating the sentence is what makes this fail the next
+  // time a button lands, instead of the next time someone remembers.
+  const foot = src.match(/<span id="board-note">([\s\S]*?)<\/span>/)[1];
+  const buttons = [...src.matchAll(/class="bv[^"]*"[^>]*>([^<]+)<\/button>/g)]
+                    .map(m => m[1].trim().toLowerCase());
+  assert.ok(buttons.length >= 3, 'expected the three verdict buttons, saw ' + buttons.length);
+  const commas = (foot.split(/,|\bor\b/).length - 1);
+  assert.ok(commas >= buttons.length - 1,
+    'the footer lists fewer actions than the ' + buttons.length + ' buttons drawn: ' + foot);
 });
 
 test('no DOM id is used twice on the page', () => {
