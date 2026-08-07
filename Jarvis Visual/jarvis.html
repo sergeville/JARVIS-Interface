@@ -1178,7 +1178,11 @@
            it would have been the board lying about itself in its own footer.
            Review is the one column Serge can move from; everything else is
            still set in the note. -->
-      <span id="board-foot">approve or send back a review &middot; every other status is set in Active Priorities</span>
+      <!-- id renamed board-foot -> board-note 2026-08-07: it duplicated the
+           wrapping div's id. getElementById returned the DIV, so the span was
+           unreachable by id -- and worse, the `#board-foot` CSS rule matched
+           BOTH, giving this span the footer's own top border and flex layout. -->
+      <span id="board-note">approve or send back a review &middot; every other status is set in Active Priorities</span>
       <span id="board-hint">esc to close</span>
     </div>
   </div>

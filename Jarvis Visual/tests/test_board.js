@@ -949,7 +949,7 @@ test('the footer no longer claims the board is read-only', () => {
   // fifth time in this project that grepping source has punished the prose
   // describing a decision rather than a breach of it. What ships to his eyes
   // is the span, so the span is what this reads.
-  const m = src.match(/<span id="board-foot">([\s\S]*?)<\/span>/);
+  const m = src.match(/<span id="board-note">([\s\S]*?)<\/span>/);
   assert.ok(m, 'the board footer span is gone');
   const foot = m[1];
   assert.ok(!/read-only/.test(foot), 'the footer still says read-only');
@@ -957,6 +957,30 @@ test('the footer no longer claims the board is read-only', () => {
     'the footer does not say what he can now do');
   assert.ok(/every other status is set in Active Priorities/.test(foot),
     'the footer no longer says where the other statuses come from');
+});
+
+test('no DOM id is used twice on the page', () => {
+  // The defect this replaces: a div and the span INSIDE it both carried
+  // id="board-foot". getElementById returns the first, so the span was
+  // unreachable by id -- and the #board-foot CSS rule matched both, handing
+  // the span the footer's own top border and flex layout.
+  //
+  // Written as a sweep of every id rather than a check on this one, because a
+  // test that pins the fix cannot catch the next duplicate. Found by the
+  // reviewer agent 2026-08-07 while auditing something else entirely.
+  const ids = [...src.matchAll(/\sid="([^"]+)"/g)].map(m => m[1]);
+  const seen = new Set(), dupes = new Set();
+  for (const id of ids) { if (seen.has(id)) dupes.add(id); seen.add(id); }
+  assert.strictEqual(dupes.size, 0, 'duplicate DOM ids: ' + [...dupes].join(', '));
+});
+
+test('the board footer span is not styled by the footer wrapper rule', () => {
+  // The half of the bug that was visible rather than merely wrong: whatever
+  // the span is called, it must not answer to the wrapper's own selector.
+  const wrapper = src.match(/<div id="([^"]+)">\s*(?:<!--[\s\S]*?-->\s*)*<span id="board-note"/);
+  assert.ok(wrapper, 'the footer wrapper/span pair moved -- re-point this test');
+  assert.notStrictEqual(wrapper[1], 'board-note',
+    'the span shares its wrapper id again, so the CSS rule styles both');
 });
 
 // Serge, 2026-08-06 ~11:40 AM: "it takes the whole screen and even it goes
