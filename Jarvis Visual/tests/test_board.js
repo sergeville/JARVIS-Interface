@@ -1553,6 +1553,33 @@ test('the walk button takes a full row of its own', () => {
     'the walk button no longer spans its own row: ' + m[1].trim());
 });
 
+test('a verdict label never breaks mid-phrase', () => {
+  // Serge's screenshot 2026-08-07 2:16 PM: SEND BACK wrapped onto two lines
+  // while APPROVE sat on one, so the pair came out lopsided. The two are
+  // OPPOSITE choices -- making one visually heavier weights a decision that is
+  // supposed to be even.
+  //
+  // Asserted on the sizing rule, found the same way the slim test finds it:
+  // `.bcard .bv {` appears twice and a first-match read grabs the drag guard.
+  const all = [...src.matchAll(/\.bcard \.bv \{([^}]*)\}/g)].map(x => x[1]);
+  const body = all.find(b => /font-size:/.test(b));
+  assert.ok(body, 'no .bcard .bv rule sizes the button any more');
+  assert.ok(/white-space:\s*nowrap/.test(body),
+    'a verdict label can break onto two lines again');
+});
+
+test('the verdict row can wrap, so nowrap cannot push a button off the card', () => {
+  // The two halves are load-bearing TOGETHER. nowrap alone in a column too
+  // narrow for both would overflow the card instead of wrapping; the row's
+  // flex-wrap is what turns that into each button taking a full row, still the
+  // same size as the other. Delete either one and the pair goes lopsided again
+  // in a different way, so both are pinned here.
+  const row = src.match(/\.bcard \.bverdict \{([^}]*)\}/);
+  assert.ok(row, 'the verdict row rule is gone');
+  assert.ok(/flex-wrap:\s*wrap/.test(row[1]),
+    'the verdict row no longer wraps, so a nowrap label can overflow the card');
+});
+
 test('the buttons are slim -- height is the label plus a hair', () => {
   // Serge, 2026-08-07 ~2:10 PM: "not as thick... maybe as just a bit bigger
   // than the font size." Asserted as a COMPUTED height, not as the padding

@@ -421,6 +421,17 @@
     flex: 1; font: inherit; font-size: 9px; letter-spacing: 0.06em;
     line-height: 1.35; padding: 1px 4px; cursor: pointer; border-radius: 3px;
     background: transparent; text-transform: uppercase;
+    /* A LABEL NEVER BREAKS MID-PHRASE. Serge's screenshot, 2026-08-07 2:16 PM:
+       SEND BACK wrapped onto two lines while APPROVE sat on one, so the pair
+       came out lopsided. That is not only untidy -- approve and send back are
+       OPPOSITE choices, and making one visually heavier quietly weights a
+       decision that should be even.
+       nowrap fixes it without a magic width: the label stays whole, and if the
+       two cannot sit side by side in a narrow column, the ROW wraps instead
+       (flex-wrap on .bverdict) and each takes a full row. Either way they stay
+       the same size as each other. Same principle as the walk button taking
+       its own row rather than being shrunk until it fit. */
+    white-space: nowrap;
   }
   .bcard .bv.ok {
     color: rgba(var(--ok-soft-rgb), 0.92);
