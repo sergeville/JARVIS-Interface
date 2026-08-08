@@ -197,10 +197,61 @@
     background: var(--bg-bar);
   }
   #instr-left, #instr-right { display: flex; align-items: center; gap: 16px; }
+  /* THE STACKED CLOCK (Phase 2). The concept's top-right block is a large
+     time over a small tracked date caption -- one glance for the hour, the
+     date available without taking a second line of the bar. Same 1 s tick as
+     before; only the shape changed, so no clock on this page can disagree. */
   #clock {
-    font-family: "Menlo", monospace; font-size: 11px;
-    letter-spacing: 0.1em; color: var(--text-soft);
+    font-family: "Menlo", monospace; letter-spacing: 0.1em;
+    color: var(--text-soft); text-align: right; line-height: 1.15;
   }
+  #clock .ctime { font-size: 17px; color: var(--text); letter-spacing: 0.06em; }
+  #clock .cdate { font-size: 8.5px; letter-spacing: 0.24em; opacity: 0.62; }
+
+  /* THE BRAND BLOCK (Phase 2). Two lines: what the page IS, and which
+     version of it is running. The version is NOT typed here -- it is written
+     from the SHIP_VERSION constant the version stamper owns, so the page can
+     only ever name a version the repo actually shipped. */
+  #brand { line-height: 1.2; }
+  #brand .bname {
+    font-size: 15px; letter-spacing: 0.3em; color: var(--text);
+  }
+  #brand .bsub {
+    font-size: 8.5px; letter-spacing: 0.28em; opacity: 0.6;
+  }
+
+  /* THE USER BADGE (Phase 2). Real data only: his name, the live session
+     count off `sessions`, the running model off `stats`. Nothing here is
+     hardcoded and nothing here is invented -- a badge that guesses is the
+     fake-instrument failure in a new corner. Fields read as placeholders
+     until the first payload arrives, never as a plausible wrong number. */
+  #badge {
+    display: flex; align-items: center; gap: 10px;
+    padding: 3px 11px; border-radius: 2px;
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    background: rgba(var(--accent-rgb), 0.05);
+  }
+  #badge .bwho { font-size: 11px; letter-spacing: 0.22em; color: var(--text); }
+  #badge .bmeta {
+    font-size: 8.5px; letter-spacing: 0.16em; opacity: 0.62;
+    text-transform: none; line-height: 1.3; text-align: right;
+  }
+
+  /* The idle welcome. Serge asked for it with the brand block. It is the one
+     piece of the concept's hero that survives, and it survives only because
+     it gets out of the way: visible while Jarvis is idle with nothing
+     pending, faded the instant any work starts. It never covers the waiting
+     banner -- that is the one thing on this stage that outranks everything. */
+  #welcome {
+    /* Sits UNDER the status line, which lives at top 5%. Sharing that line
+       would put two pieces of text on one row at two type scales. */
+    position: absolute; left: 50%; top: calc(5% + 24px);
+    transform: translateX(-50%);
+    font-size: 11px; letter-spacing: 0.42em; color: var(--text-soft);
+    opacity: 0; transition: opacity 900ms ease; pointer-events: none;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  #welcome.on { opacity: 0.5; }
   /* Usage moved up here from the left panel (Serge, 2026-08-05: the page "is
      starting to be crowded"). Three percentages are a glance, not a panel --
      the bars and reset clocks they used to carry are on the hover title, so
@@ -1453,14 +1504,21 @@
 <body>
 
 <div id="topbar">
-  <div>MARK III</div>
-  <div class="mid">
-    J.A.R.V.I.S &nbsp;INTERFACE
-    <!-- The board summary used to sit here, under the title. Serge, 2026-08-06
-         ~6:09 AM: "the Kanban header is still on top. It should be on top of
-         the active task." It moved into the ACTIVE TASKS card's own heading
-         row; see #tasks-head below. -->
+  <!-- PHASE 2 -- identity. "MARK III" and the spaced J.A.R.V.I.S line were
+       two separate flex children saying one thing between them. They are now
+       one brand block: the name, and under it the version the repo actually
+       shipped. MARK III is kept as the sub-line's tail rather than dropped --
+       it is what Serge calls this machine. -->
+  <div id="brand">
+    <div class="bname">JARVIS OS</div>
+    <div class="bsub"><span id="brand-version">v&hellip;</span> &middot; MARK III</div>
   </div>
+  <!-- The board summary used to sit in the middle slot, under the title.
+       Serge, 2026-08-06 ~6:09 AM: "the Kanban header is still on top. It
+       should be on top of the active task." It moved into the ACTIVE TASKS
+       card's own heading row; see #tasks-head below. The slot stays as a
+       spacer so the brand and the badge hold the two ends of the bar. -->
+  <div class="mid"></div>
   <!-- Rolls down over the stage on approach. Read-only in this pass. -->
   <!-- The IDEAS sheet. Same roll-down motion as the board, because it is
        the same gesture and Serge already knows it. What it is NOT is a
@@ -1489,7 +1547,17 @@
     </div>
   </div>
   <div id="topbar-right">
-    <div id="clock">--:--:--</div>
+    <div id="badge" title="">
+      <div class="bwho">SERGE</div>
+      <div class="bmeta">
+        <div id="badge-sessions">&mdash; sessions</div>
+        <div id="badge-model">model &hellip;</div>
+      </div>
+    </div>
+    <div id="clock">
+      <div class="ctime">--:--:--</div>
+      <div class="cdate">&mdash;</div>
+    </div>
   </div>
 </div>
 
@@ -1562,6 +1630,12 @@
 
   <div id="stage">
     <canvas id="cv"></canvas>
+    <!-- Phase 2, on Serge's ask with the brand block. The concept's hero
+         line, reduced to the only part that is true: he is here, and Jarvis
+         is not doing anything. It fades the instant work starts, and it never
+         shows while a question is pending -- the waiting banner owns the
+         stage then, and two things asking for his eye is one too many. -->
+    <div id="welcome">Welcome, Serge</div>
     <div id="status">CONNECTING</div>
     <div id="waiting">
       <div id="waiting-head">Waiting for your answer</div>
@@ -1738,9 +1812,13 @@ const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function tickClock(){
   const n = new Date(), p = (x) => String(x).padStart(2, '0');
-  document.getElementById('clock').textContent =
-    `${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}` +
-    `  ·  ${DAYS[n.getDay()]} ${n.getDate()} ${MONTHS[n.getMonth()]} ${n.getFullYear()}`;
+  // Two elements, one tick (Phase 2). Written separately so the date can
+  // carry its own type scale; both still come from ONE Date, so the time and
+  // the date can never straddle a midnight between two reads.
+  const tEl = document.querySelector('#clock .ctime');
+  const dEl = document.querySelector('#clock .cdate');
+  if (tEl) tEl.textContent = `${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}`;
+  if (dEl) dEl.textContent = `${DAYS[n.getDay()]} ${n.getDate()} ${MONTHS[n.getMonth()]} ${n.getFullYear()}`;
 }
 setInterval(tickClock, 1000); tickClock();
 
@@ -3508,6 +3586,37 @@ function sessSig(list){
 // the harmless order of the two.
 const SHIP_VERSION = 'v2.0.0';
 
+// Phase 2 reads it. The brand block's version is WRITTEN from the constant,
+// never typed into the markup -- so there is exactly one place a version can
+// come from, and it is the one the stamper edits at ship time. If this line
+// were markup instead, the page could name a version the repo never shipped.
+{
+  const bv = document.getElementById('brand-version');
+  if (bv) bv.textContent = SHIP_VERSION;
+}
+
+// ---- the user badge (Phase 2) --------------------------------------------
+// Real data only, from the payload the page already polls: how many Jarvis
+// sessions are live, and which model the brain is running. No name of a
+// count is written unless the count arrived -- a badge that guesses is the
+// fake-instrument failure wearing a different hat.
+function renderBadge(sessions, stats) {
+  const sEl = document.getElementById('badge-sessions');
+  const mEl = document.getElementById('badge-model');
+  if (sEl && Array.isArray(sessions)) {
+    const n = sessions.length;
+    sEl.textContent = n + (n === 1 ? ' session' : ' sessions');
+  }
+  if (mEl) mEl.textContent = (stats && stats.model) ? stats.model : 'model …';
+  const badge = document.getElementById('badge');
+  if (badge) {
+    const n = Array.isArray(sessions) ? sessions.length : null;
+    badge.title = 'Serge' +
+      (n === null ? '' : ' · ' + n + ' live Jarvis session' + (n === 1 ? '' : 's')) +
+      ((stats && stats.model) ? ' · brain on ' + stats.model : '');
+  }
+}
+
 // ---- the FACE dial (Phase 1) ---------------------------------------------
 // Style only. A face is one class on <body>; nothing else in the page knows
 // faces exist. Restored THROUGH VALIDATION -- junk in localStorage falls back
@@ -4474,6 +4583,7 @@ async function poll(){
     renderBoard(d.tasks || []);
     renderSessions(d.sessions || []);
     renderStats(d.stats);
+    renderBadge(d.sessions || [], d.stats);
     renderStack(d.stack);
     renderEvents(d.events);
     renderMail(d.mail);
@@ -5135,6 +5245,10 @@ function draw(){
     waitEl.style.display = 'none';
     statusEl.textContent = LABELS[state] || state.toUpperCase();
   }
+  // The welcome rides the same frame as the status it defers to: idle, no
+  // question pending, no turn open. Anything else and it is gone.
+  const wEl = document.getElementById('welcome');
+  if (wEl) wEl.classList.toggle('on', state === 'idle' && !showWait && !turnOpen);
   renderMicLine();
 
   ctx.clearRect(0, 0, W, H);
