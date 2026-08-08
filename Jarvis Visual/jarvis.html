@@ -77,6 +77,72 @@
   /* Alert: a permission request is pending and Jarvis is blocked on Serge.
      Same layout, same information -- only the mood changes, so the state is
      unmissable from across the room without anything moving. */
+
+  /* ================= THE FACE REGISTRY — Phase 1 of JarvisOS 5000 =========
+     Serge, 2026-08-08: a FACE is style only — colours, glow, mood. It never
+     changes what is shown; that is the JOB's dial (Phase 7).
+
+     The mechanism is the one `body.alert` already proves: one class on the
+     body redefines the complete chrome token set. Nothing else in the page
+     knows a face exists, which is what keeps a face from leaking into
+     behaviour.
+
+     THREE INVARIANTS, and they are load-bearing:
+
+     1. A face defines the COMPLETE set — every token `:root` defines. A
+        partial face inherits the previous world's colour for whatever it
+        forgot, and that reads as a rendering bug nobody can find.
+     2. THE STATUS COLOURS BELONG TO NO FACE. --ok/--warn/--bad mean up,
+        off-by-choice and broken in every world. A status that repaints with
+        the mood has stopped being a status. Each palette is chosen around
+        them, not over them.
+     3. body.alert BEATS EVERY FACE. A pending permission looks the same in
+        all four worlds, because that amber is the one colour that means
+        "he is being asked" — so the alert block is defined AFTER the faces
+        in source order, and tested in both class orders.
+
+     CIVILIAN is today's Mark III palette, promoted to a first-class face on
+     his word — the old look is one click away, not gone. It is expressed as
+     an explicit block rather than as "the absence of a class", so that all
+     four faces are the same kind of thing. */
+  body.face-civilian {
+    --accent-rgb: 0, 150, 255;
+    --bg-deep:     #050a14;
+    --bg-panel:    rgba(2, 12, 26, 0.85);
+    --bg-bar:      rgba(2, 12, 24, 0.85);
+    --bg-inset:    rgba(0, 20, 40, 0.5);
+    --bg-input:    #04101f;
+    --bg-track:    #04182e;
+    --text:        #9fd0ff;
+    --text-soft:   #7fc4ff;
+    --text-val:    #bfe6ff;
+    --text-bright: #eaf6ff;
+    --sec:         #35b6ff;
+    --stage-core:  #0a1830;
+    --fill-lo:     #0066aa;
+    --fill-hi:     #00ccff;
+  }
+  /* NAVY — navy and gold, the first new face. The accent stays a blue so the
+     instruments keep their contrast; the GOLD is the section voice
+     (--sec), which is where the branch reads without touching a status. */
+  body.face-navy {
+    --accent-rgb: 96, 150, 210;
+    --bg-deep:     #00060f;
+    --bg-panel:    rgba(4, 14, 30, 0.88);
+    --bg-bar:      rgba(3, 11, 24, 0.88);
+    --bg-inset:    rgba(6, 22, 44, 0.55);
+    --bg-input:    #030d1c;
+    --bg-track:    #06182c;
+    --text:        #b6cfe6;
+    --text-soft:   #93b6d4;
+    --text-val:    #d8e8f7;
+    --text-bright: #f2f8ff;
+    --sec:         #d8b25a;
+    --stage-core:  #04101f;
+    --fill-lo:     #1d4f86;
+    --fill-hi:     #8fc4f0;
+  }
+
   body.alert {
     --accent-rgb: 255, 176, 60;
     --bg-deep:     #0f0a02;
@@ -3429,6 +3495,37 @@ function sessSig(list){
                         s.doing || '',
                         sessBusy(s) ? 1 : 0].join(':')).join('|');
 }
+
+// The version this page was shipped at, STAMPED BY vault-tools/ship-version.py
+// at ship time -- never typed by hand (Serge, 2026-08-07: "the upgrade version
+// should increment automatically"). It is a label, and deliberately NOT
+// PAGE_VERSION, which is a raw file-mtime float driving the self-heal reload:
+// one is what the page CALLS itself, the other is how it notices it changed.
+//
+// It exists from Phase 1 rather than Phase 2 because the stamper refuses to
+// invent markup it was not shown -- so the constant has to precede the brand
+// block that will display it. Until then it is stamped and unread, which is
+// the harmless order of the two.
+const SHIP_VERSION = 'v1.1.0';
+
+// ---- the FACE dial (Phase 1) ---------------------------------------------
+// Style only. A face is one class on <body>; nothing else in the page knows
+// faces exist. Restored THROUGH VALIDATION -- junk in localStorage falls back
+// to civilian rather than to an unstyled page, the clampVol lesson.
+const FACES = ['civilian', 'navy'];
+function applyFace(name) {
+  const face = FACES.includes(name) ? name : 'civilian';
+  for (const f of FACES) document.body.classList.remove('face-' + f);
+  document.body.classList.add('face-' + face);
+  try { localStorage.setItem('jarvisFace', face); } catch (e) {}
+  return face;
+}
+function currentFace() {
+  for (const f of FACES) if (document.body.classList.contains('face-' + f)) return f;
+  return 'civilian';
+}
+try { applyFace(localStorage.getItem('jarvisFace')); } catch (e) { applyFace('civilian'); }
+
 function renderSessions(list){
   const card = document.getElementById('sessions');
   const body = document.getElementById('sessions-body');
