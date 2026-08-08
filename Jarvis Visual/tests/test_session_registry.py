@@ -510,6 +510,51 @@ for where, path in SETTINGS.items():
               any("question_hook.py" in (c or "")
                   for c in hook_commands(cfg, event)), True)
 
+# A Write(...) allow rule is DEAD: Claude Code's file-permission checks
+# consult only Edit(...) rules -- one Edit rule covers every file-editing
+# tool (Edit, Write, NotebookEdit) -- so a Write rule grants nothing while
+# reading as if it did. One sat beside the vault Edit rule in the template
+# and both rendered files until 2026-08-08, surfaced by Claude Code's own
+# doctor warning. The Edit rule is the one doing the work and must stay --
+# and "stay" means still pointing at the vault, not merely existing: the
+# adversary audit proved an Edit rule mangled to another path slid past a
+# bare startswith. The Write check strips first for the same reason (a
+# leading space fooled startswith), and stays a prefix match rather than
+# a substring so a legitimate mcp__*__Write(...) rule would not trip it.
+
+
+def allow_rules(cfg):
+    return cfg.get("permissions", {}).get("allow", [])
+
+
+def vault_edit_rule(rules):
+    return any(r.startswith("Edit(") and "Jarvis-brain/**" in r for r in rules)
+
+
+def dead_write_rule(rules):
+    return any(r.strip().startswith("Write(") for r in rules)
+
+
+check("the template's Edit rule still covers the vault",
+      vault_edit_rule(allow_rules(_tpl)), True)
+check("the template's allow list carries no dead Write rule",
+      dead_write_rule(allow_rules(_tpl)), False)
+
+# SETTINGS silently drops paths that do not exist -- right for a fresh
+# clone, where neither rendered file exists yet, but on an installed
+# machine ONE missing file is drift, not a clone: the audit proved a
+# deleted settings.json passed this whole section without a word. A pair
+# or nothing; never one.
+check("the rendered settings files exist as a pair or not at all",
+      len(SETTINGS) in (0, 2), True)
+
+for where, path in SETTINGS.items():
+    rules = allow_rules(json.loads(Path(path).read_text()))
+    check(f"{where} settings.json's Edit rule still covers the vault",
+          vault_edit_rule(rules), True)
+    check(f"{where} settings.json carries no dead Write rule",
+          dead_write_rule(rules), False)
+
 # ------------------------------------------------------- whoami: one answer
 # ONE ANSWER TO "WHICH CHANNEL AM I". The session bus and the board's task
 # tool both need it, and two independent derivations would drift the way the

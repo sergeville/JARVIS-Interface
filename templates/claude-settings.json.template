@@ -2,7 +2,6 @@
   "permissions": {
     "allow": [
       "Edit(/{{JARVIS_ROOT}}/Jarvis-brain/**)",
-      "Write(/{{JARVIS_ROOT}}/Jarvis-brain/**)",
       "Bash(ls *)",
       "Bash(find *)",
       "Bash(grep *)",
