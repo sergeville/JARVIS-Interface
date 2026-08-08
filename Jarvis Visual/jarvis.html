@@ -1174,22 +1174,44 @@
      UNREGISTERED. Amber here means "look at this", not "broken": it is the
      card refusing to hide a session it cannot name, which is the whole
      reason this panel exists. */
+  /* TWO ROWS PER SESSION, not one (Serge, 2026-08-08): "the title, then
+     underneath whatever it's running right now." On one flex line the name
+     and the doing-word competed for the same width, and the name lost --
+     this voice line rendered as "voic..." in his own screenshot while the
+     row still had space beneath it. A grid, not flex, because the two rows
+     must share ONE column edge: the name and the word under it line up on
+     the same left margin, which is what makes it read as a subtitle rather
+     than a second row of data. Explicit placement, never auto-flow -- the
+     DOM order is dot, who, doing, meta, so auto-placement would drop the
+     doing-word into the meta's slot on row one and put the clock under it. */
   #sessions .sess {
-    display: flex; align-items: baseline; gap: 8px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 8px; row-gap: 1px; align-items: baseline;
     padding: 3px 2px; font-size: 12px; line-height: 1.35;
     border-left: 2px solid rgba(var(--accent-rgb), 0.35); padding-left: 8px;
     margin-bottom: 3px;
   }
   #sessions .sess .dot {
+    grid-column: 1; grid-row: 1;
     width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
     background: rgba(var(--accent-rgb), 0.45);
   }
+  /* The NAME OWNS THE WHOLE TOP ROW (Serge, 2026-08-08, second pass). The
+     first version kept the up/idle clock beside the name, and the long
+     terminal names still trimmed -- the clock was holding the right edge of
+     the row the name needed. Sending the clock down to sit beside the
+     doing-word gives the name the full width, and pairs the two things that
+     are both about RIGHT NOW: what it is doing, and how long it has been
+     quiet. Row one is identity; row two is activity. */
   #sessions .sess .who {
+    grid-column: 2 / -1; grid-row: 1;
     color: var(--text); font-weight: 500;
-    flex: 1; min-width: 0;
+    min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   #sessions .sess .sess-meta {
+    grid-column: 3; grid-row: 2;
     font-size: 9.5px; letter-spacing: 0.06em;
     color: rgba(var(--accent-rgb), 0.7); flex-shrink: 0;
   }
@@ -1200,12 +1222,19 @@
      takes the accent at low weight so it reads as a subtitle to the name
      it sits beside, and it yields its width first when the row is tight:
      the WHO is the thing that must never be lost. */
+  /* Row two, starting under the NAME (column 2) and running to the end of
+     the row: it now has the whole width instead of whatever the name left
+     over, which is the entire point of the change. It still truncates
+     rather than wrapping -- a row that grows with the length of a sentence
+     would push the cards below it around every time a session changed
+     what it was doing, and this card sits above nothing that may move. */
   #sessions .sess .sess-doing {
+    grid-column: 2; grid-row: 2;
     font-size: 9.5px; letter-spacing: 0.05em;
     color: rgba(var(--accent-rgb), 0.55);
     font-style: italic;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    min-width: 0; flex-shrink: 1;
+    min-width: 0;
   }
   /* On a session that is mid-turn the word is the live one, so it brightens
      with the row rather than staying quiet -- same green as the pulse, but

@@ -328,6 +328,125 @@ test('the card sits under the task card, where Serge asked for it', () => {
             'sessions must come after tasks in the column');
 });
 
+// ---- 7. two rows per session, not one ------------------------------------
+//
+// Serge, 2026-08-08: "the title, then underneath whatever it's running right
+// now." His own screenshot showed this voice line as "voic..." while the row
+// had empty space beneath it -- the name and the doing-word were sharing one
+// flex line and the name lost.
+//
+// These read the CSS RULE the class resolves to, never the class name on the
+// element: a row can carry every right class and still render on one line.
+// Same lesson as the walk-button colour test, which read the class and missed
+// the styling entirely.
+
+function rule(selector) {
+  // Every occurrence, not the first -- `.sess` style selectors appear more
+  // than once in this file's history and the first-match trap has already
+  // cost this project three separate bugs.
+  const out = [];
+  const needle = selector + ' {';
+  let i = -1;
+  while ((i = src.indexOf(needle, i + 1)) !== -1) {
+    const end = src.indexOf('}', i);
+    out.push(src.slice(i + needle.length, end));
+  }
+  assert.ok(out.length, 'no CSS rule found for ' + selector);
+  return out.join('\n');
+}
+
+test('the row is a GRID, so it can have a second line at all', () => {
+  const r = rule('#sessions .sess');
+  assert.ok(/display:\s*grid/.test(r),
+            'a flex row cannot put the doing-word under the name');
+});
+
+test('the name and the doing-word are on DIFFERENT rows', () => {
+  const who = rule('#sessions .sess .who');
+  const doing = rule('#sessions .sess .sess-doing');
+  const rowOf = r => (r.match(/grid-row:\s*(\d+)/) || [])[1];
+  assert.strictEqual(rowOf(who), '1', 'the name must stay on the top row');
+  assert.strictEqual(rowOf(doing), '2',
+                     'the doing-word must sit UNDER the name, not beside it');
+});
+
+test('the doing-word starts under the NAME, not under the dot', () => {
+  // Column 2 is the name's column. Starting at 1 would tuck it under the
+  // status dot and break the subtitle read Serge asked for.
+  const doing = rule('#sessions .sess .sess-doing');
+  assert.ok(/grid-column:\s*2\s*;/.test(doing),
+            'row two must start at the name, not at the dot');
+});
+
+test('the NAME owns the whole top row', () => {
+  // Serge's second pass: with the clock beside it, a long terminal name
+  // still trimmed. The clock was holding the edge the name needed.
+  const who = rule('#sessions .sess .who');
+  assert.ok(/grid-column:\s*2\s*\/\s*-1/.test(who),
+            'the name must run to the end of its row, or it trims again');
+});
+
+test('every child is placed EXPLICITLY -- auto-flow would scramble them', () => {
+  // DOM order is dot, who, doing, meta. Under auto-placement the doing-word
+  // would land in the meta's slot on row one and the clock would drop below
+  // it -- the exact opposite of the change.
+  for (const sel of ['#sessions .sess .dot', '#sessions .sess .who',
+                     '#sessions .sess .sess-meta',
+                     '#sessions .sess .sess-doing']) {
+    const r = rule(sel);
+    assert.ok(/grid-column:/.test(r) && /grid-row:/.test(r),
+              sel + ' is left to auto-placement');
+  }
+});
+
+test('the clock sits on the SECOND row, beside what it is doing', () => {
+  // Changed on Serge's word, 2026-08-08: row one is identity, row two is
+  // activity -- what it is doing and how long it has been quiet belong
+  // together, and the name gets its width back.
+  const meta = rule('#sessions .sess .sess-meta');
+  assert.ok(/grid-row:\s*2/.test(meta), 'up/idle belongs with the doing-word');
+  assert.ok(/grid-column:\s*3/.test(meta), 'the clock holds the right edge');
+});
+
+test('the clock and the doing-word do NOT overlap', () => {
+  // Both are on row two now. If the doing-word ever spans to -1 again it
+  // would sit on top of the clock -- same cell, two children.
+  const doing = rule('#sessions .sess .sess-doing');
+  const meta = rule('#sessions .sess .sess-meta');
+  const col = r => (r.match(/grid-column:\s*([^;]+);/) || [])[1].trim();
+  assert.notStrictEqual(col(doing), col(meta),
+                        'row two must be two cells, not one stacked cell');
+  assert.ok(!/\/\s*-1/.test(col(doing)),
+            'the doing-word must stop before the clock, not run under it');
+});
+
+test('the name column can actually shrink -- minmax(0, 1fr), not 1fr', () => {
+  // A bare `1fr` track refuses to go below its content's minimum width, so a
+  // long session name would push the clock off the card instead of
+  // ellipsing. The zero minimum is what makes the ellipsis reachable.
+  const r = rule('#sessions .sess');
+  assert.ok(/grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+auto/.test(r),
+            'the middle track must be allowed to shrink to nothing');
+});
+
+test('the doing-word still truncates rather than wrapping', () => {
+  // A row that grows with the length of a sentence would shove every card
+  // below it around each time a session changed what it was doing.
+  const r = rule('#sessions .sess .sess-doing');
+  assert.ok(/white-space:\s*nowrap/.test(r), 'row two must stay one line');
+  assert.ok(/text-overflow:\s*ellipsis/.test(r), 'it must ellipse, not clip');
+});
+
+test('the doing-word is still drawn only when the server sent one', () => {
+  // The two-row layout must not tempt anyone into filling row two with
+  // "idle" or "unknown" -- the page cannot tell a quiet session from a
+  // server too old to send the field.
+  renderSessions([session({doing: undefined})]);
+  const drawn = walk(nodes['sessions-body'], []).filter(
+    n => (n.className || '').includes('sess-doing'));
+  assert.strictEqual(drawn.length, 0, 'an absent word must stay absent');
+});
+
 // ---- done -----------------------------------------------------------------
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);
