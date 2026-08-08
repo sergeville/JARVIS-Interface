@@ -114,10 +114,32 @@ check("the fenced legend is NOT counted", len(st), 2)
 # what keeps the two honest: both parsers, the REAL note, same answer.
 try:
     vws = _load("vws", f"{ROOT}/Jarvis Visual/voice-web-server.py")
+
+    # ONE READ, TWO PARSERS -- the fix for a real flake (2026-08-08).
+    #
+    # This check used to read the LIVE note twice, once through each parser.
+    # Serge runs several sessions at once and `task.py` writes that note, so
+    # a card moved BETWEEN the two reads made the counts disagree and turned
+    # the whole suite red for a reason that had nothing to do with the code.
+    # It went red once and green five times, which is the worst kind of gate:
+    # it will either block a good change or wave through a bad one.
+    #
+    # The property this check actually means to assert is that the two
+    # parsers agree about the SAME CONTENT -- not that the file held still
+    # for two reads. So the note is snapshotted ONCE and both parsers are
+    # pointed at the snapshot. (Same lesson as the walk-through race, where
+    # a guard read the file a second time and checked a different snapshot
+    # than the write used: ordering was never the property, single-read was.)
+    _snapdir = tempfile.mkdtemp()
+    _snap = os.path.join(_snapdir, "Active Priorities.md")
+    shutil.copyfile(f"{ROOT}/Jarvis-brain/Active Priorities.md", _snap)
+    vws.PRIORITIES_FILE = Path(_snap)
+    vws._TASK_CACHE = {"mtime": None, "tasks": []}
+
     real = {}
     for t in vws.read_tasks():
         real[t.get("status", "open")] = real.get(t.get("status", "open"), 0) + 1
-    mine = bg.statuses(f"{ROOT}/Jarvis-brain/Active Priorities.md")
+    mine = bg.statuses(_snap)
 
     # DONE IS COMPARED SEPARATELY, AND ON PURPOSE. (Serge, 2026-08-07 ~2:55 PM,
     # "fix everything" -- after this exact check went red at 7:35 AM and closed
