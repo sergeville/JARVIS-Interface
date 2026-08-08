@@ -85,7 +85,15 @@ def next_version(tags, part):
         return f"v{major}.{minor + 1}.0"
     if part == "patch":
         return f"v{major}.{minor}.{patch + 1}"
-    raise ValueError("part must be 'minor' or 'patch', got " + repr(part))
+    if part == "major":
+        # A NEW WORLD, not a new phase. Serge, 2026-08-08, on the redesign's
+        # first ship: "actually it should be v2.0.0." A major bump is the
+        # honest shape for a release that changes what the thing IS, and it
+        # has to live in the tool -- a version typed by hand is the rule
+        # enforced only by remembering, which is the whole reason this script
+        # exists.
+        return f"v{major + 1}.0.0"
+    raise ValueError("part must be 'major', 'minor' or 'patch', got " + repr(part))
 
 
 def stamp(text, version):
@@ -114,13 +122,15 @@ def main(argv=None):
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--minor", action="store_true", help="a phase shipped")
     g.add_argument("--patch", action="store_true", help="a fix shipped")
+    g.add_argument("--major", action="store_true",
+                   help="a new world -- resets minor and patch to zero")
     ap.add_argument("--ship", action="store_true",
                     help="actually stamp and tag (default: report only)")
     ap.add_argument("--push", action="store_true",
                     help="push the commit and the tag (implies --ship)")
     args = ap.parse_args(argv)
 
-    part = "patch" if args.patch else "minor"
+    part = "major" if args.major else "patch" if args.patch else "minor"
     tags = git("tag", "--list", "v*").splitlines()
     version = next_version(tags, part)
     cur = newest(tags)

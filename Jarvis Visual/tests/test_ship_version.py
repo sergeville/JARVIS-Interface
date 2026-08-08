@@ -40,6 +40,16 @@ class TestTheBumpIsPure(unittest.TestCase):
     def test_a_phase_bumps_the_minor_and_zeroes_the_patch(self):
         self.assertEqual(sv.next_version(["v1.2.3"], "minor"), "v1.3.0")
 
+    def test_a_major_starts_a_new_world_and_zeroes_the_rest(self):
+        # Serge, 2026-08-08: the redesign's first ship is v2.0.0, not v1.2.0.
+        # The bump must live in the tool -- a hand-typed version is the rule
+        # enforced only by remembering.
+        self.assertEqual(sv.next_version(["v1.9.3"], "major"), "v2.0.0")
+        self.assertEqual(sv.next_version(["v1.0.0"], "major"), "v2.0.0")
+
+    def test_a_major_still_beats_every_existing_tag(self):
+        self.assertEqual(sv.next_version(["v1.10.7", "v1.2.0"], "major"), "v2.0.0")
+
     def test_a_fix_bumps_the_patch_only(self):
         self.assertEqual(sv.next_version(["v1.2.3"], "patch"), "v1.2.4")
 
@@ -60,8 +70,9 @@ class TestTheBumpIsPure(unittest.TestCase):
         self.assertEqual(sv.next_version(tags, "minor"), "v1.3.0")
 
     def test_an_unknown_part_raises_rather_than_guessing(self):
-        with self.assertRaises(ValueError):
-            sv.next_version(["v1.0.0"], "major")
+        for bad in ("epoch", "MAJOR", "", None):
+            with self.assertRaises((ValueError, TypeError)):
+                sv.next_version(["v1.0.0"], bad)
 
     def test_parse_version_refuses_near_misses(self):
         # Surrounding whitespace is stripped on purpose -- `git tag` output is
