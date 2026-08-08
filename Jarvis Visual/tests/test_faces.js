@@ -44,7 +44,16 @@ function tokensIn(text) {
   return set;
 }
 
-const FACES = ['civilian', 'navy'];
+// DERIVED FROM THE CSS, never hand-typed. This was a list of two literals
+// until 2026-08-08, and the test below claimed it proved "the registry names
+// exactly the faces the CSS defines" while actually comparing the page's
+// registry against a constant in this file. Adding army and airforce made it
+// go red for the wrong reason — the CSS was there and the LIST here was not.
+// A cross-check with one hand-typed side is not a cross-check; it is two
+// copies of the same claim.
+const FACES = [...new Set([...src.matchAll(/body\.face-([a-z0-9-]+)\s*\{/g)]
+                            .map(m => m[1]))];
+assert.ok(FACES.length >= 2, 'no face blocks found in the CSS at all');
 const STATUS = ['--ok', '--ok-soft', '--ok-soft-rgb', '--warn', '--warn-rgb',
                 '--warn-soft', '--warn-soft-rgb', '--bad'];
 
@@ -79,10 +88,58 @@ for (const face of FACES) {
   });
 }
 
+test('no two faces are the same palette — four worlds, not four names', () => {
+  // Airforce is the reason this exists: by branch it is a blue, and civilian
+  // is a blue. Two faces that render alike are one face with two labels, and
+  // the switcher would then have a button that appears to do nothing.
+  const seen = new Map();
+  for (const f of FACES) {
+    const key = block('body.face-' + f).replace(/\s+/g, '');
+    const twin = seen.get(key);
+    assert.ok(!twin, f + ' is byte-identical to ' + twin);
+    seen.set(key, f);
+  }
+  // Byte-identity is too weak on its own, and an injection proved it: giving
+  // airforce civilian's accent left the rest of the block different, so the
+  // whole-block check stayed green while the page's dominant colour — the
+  // one every border and glow is drawn from — became a duplicate.
+  const accents = new Map();
+  for (const f of FACES) {
+    const a = /--accent-rgb:\s*([\d\s,]+);/.exec(block('body.face-' + f))[1].replace(/\s/g, '');
+    const twin = accents.get(a);
+    assert.ok(!twin, f + ' and ' + twin + ' share an accent — the page would read the same');
+    accents.set(a, f);
+  }
+});
+
+test('every face keeps its accent clear of the OK green', () => {
+  // Invariant 2 the other way round: a face may not redefine a status
+  // colour, AND it may not choose an accent that reads as one. An olive
+  // accent beside a green "up" dot makes a lit border and a healthy
+  // component look like the same thing.
+  const ok = /--ok:\s*([^;]+);/.exec(src);
+  assert.ok(ok, 'no --ok token to measure against');
+  for (const f of FACES) {
+    const m = /--accent-rgb:\s*([\d\s,]+);/.exec(block('body.face-' + f));
+    assert.ok(m, f + ' defines no accent');
+    const [r, g, b] = m[1].split(',').map(n => parseInt(n.trim(), 10));
+    // green must not dominate both other channels — that is the shape of a
+    // status green, whatever its exact value
+    assert.ok(!(g > r + 40 && g > b + 40),
+      f + "'s accent is a green and would read as a status");
+  }
+});
+
 test('ALERT is defined after every face, so it wins on equal specificity', () => {
-  const alertAt = src.indexOf('body.alert {');
+  // LAST occurrence, not the first. Found by injection 2026-08-08: appending
+  // a second `body.face-navy {` block below the alert theme left this green,
+  // because indexOf answered about the ORIGINAL block while the CSS cascade
+  // obeys the last one. The first-match trap, in the one test whose whole job
+  // is source ORDER — which is exactly where it does the most damage.
+  const alertAt = src.lastIndexOf('body.alert {');
   for (const face of FACES) {
-    assert.ok(src.indexOf('body.face-' + face + ' {') < alertAt,
+    const needle = 'body.face-' + face + ' {';
+    assert.ok(src.lastIndexOf(needle) < alertAt,
       'face-' + face + ' is defined after body.alert and would beat it');
   }
 });

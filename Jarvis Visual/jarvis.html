@@ -143,6 +143,51 @@
     --fill-hi:     #8fc4f0;
   }
 
+  /* ARMY — olive drab and sand. The accent is deliberately a SAND, not the
+     branch's green: --ok is green and means "up" in every world, and an
+     olive accent would sit close enough to it that a lit border and a
+     healthy dot start reading as the same thing. Invariant 2 says the
+     palette is chosen AROUND the status colours; this is what that costs.
+     The branch reads in --sec and in the field tint instead. */
+  body.face-army {
+    --accent-rgb: 176, 158, 106;
+    --bg-deep:     #080803;
+    --bg-panel:    rgba(20, 20, 10, 0.88);
+    --bg-bar:      rgba(17, 17, 8, 0.88);
+    --bg-inset:    rgba(32, 31, 14, 0.55);
+    --bg-input:    #12120a;
+    --bg-track:    #1e1d0e;
+    --text:        #d6cca6;
+    --text-soft:   #b8ad86;
+    --text-val:    #ece4c8;
+    --text-bright: #fbf7e8;
+    --sec:         #8a9a5b;
+    --stage-core:  #14150a;
+    --fill-lo:     #5c5a2e;
+    --fill-hi:     #c3bb84;
+  }
+  /* AIR FORCE — air-force blue and silver. Close to civilian by branch, and
+     kept apart from it on purpose: colder, greyer, and its section voice is
+     silver rather than civilian's bright cyan. Two faces that read the same
+     are one face with two names. */
+  body.face-airforce {
+    --accent-rgb: 122, 156, 190;
+    --bg-deep:     #05080d;
+    --bg-panel:    rgba(12, 18, 26, 0.88);
+    --bg-bar:      rgba(10, 15, 22, 0.88);
+    --bg-inset:    rgba(20, 30, 42, 0.55);
+    --bg-input:    #0a1018;
+    --bg-track:    #131e2a;
+    --text:        #c3d2e0;
+    --text-soft:   #a2b5c8;
+    --text-val:    #dde8f2;
+    --text-bright: #f4f9ff;
+    --sec:         #b9c6d2;
+    --stage-core:  #0b1420;
+    --fill-lo:     #3d5a76;
+    --fill-hi:     #a9c6e0;
+  }
+
   body.alert {
     --accent-rgb: 255, 176, 60;
     --bg-deep:     #0f0a02;
@@ -3709,7 +3754,10 @@ function renderBadge(sessions, stats) {
 // Style only. A face is one class on <body>; nothing else in the page knows
 // faces exist. Restored THROUGH VALIDATION -- junk in localStorage falls back
 // to civilian rather than to an unstyled page, the clampVol lesson.
-const FACES = ['civilian', 'navy'];
+// All four worlds. Army and airforce joined 2026-08-08 on his "yes"; their
+// department rows shipped with the switcher a phase earlier, so the naming
+// layer needed no change at all -- which is the registry doing its job.
+const FACES = ['civilian', 'navy', 'army', 'airforce'];
 function applyFace(name) {
   const face = FACES.includes(name) ? name : 'civilian';
   for (const f of FACES) document.body.classList.remove('face-' + f);
