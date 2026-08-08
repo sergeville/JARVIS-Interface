@@ -43,11 +43,23 @@ const box = { style: { display: 'none' } };
 const note = { textContent: '' };
 const head = { textContent: '' };
 const detail = { textContent: '' };
+// The why-box elements. answerApproval() and showApproval() now call the
+// page's real closeWhy(), so this harness has to stand up the DOM it touches
+// -- and it evaluates the REAL block below rather than stubbing closeWhy,
+// because a stub would keep this file green if closeWhy were ever deleted.
+const whyNodes = {};
+for (const id of ['why-wrap', 'why-text', 'why-note', 'why-speak',
+                  'denial-box', 'denial-head', 'denial-detail', 'denial-ask'])
+  whyNodes[id] = { style: {display: 'none'}, value: '', textContent: '',
+                   classList: { add(){}, remove(){} }, focus(){},
+                   addEventListener(){} };
+global.window = { addEventListener(){} };
 global.document = {
   getElementById: id =>
     id === 'approve-note' ? note :
     id === 'approve-head' ? head :
-    id === 'approve-detail' ? detail : { onclick: null },
+    id === 'approve-detail' ? detail :
+    whyNodes[id] ? whyNodes[id] : { onclick: null },
   body: { classList: {
     add: c => classes.add(c), remove: c => classes.delete(c),
     contains: c => classes.has(c) } },
@@ -71,14 +83,24 @@ let posted = [];
 let sent = [];
 let connectCalls = 0;
 let fetchImpl = null;
+// approvalPoll() draws the refusal card as well as the permission popup, so
+// the real showDenial is evaluated below and needs its two module-scope
+// handles standing up here -- same rule as approveBox above.
+let denialId = null;
+const denialBox = { style: { display: 'none' } };
 
 function connect(){ connectCalls++; }
 global.fetch = (...a) => fetchImpl(...a);
 
-eval(grab('approvalStatus') + '\n' + grab('retryWords') + '\n'
+const WHY_A = src.indexOf('const whyWrap  = document.getElementById');
+const WHY_B = src.indexOf("document.getElementById('approve-yes').onclick");
+if (!(WHY_A > 0 && WHY_B > WHY_A)) throw new Error('why-box block not found in jarvis.html');
+
+eval(src.slice(WHY_A, WHY_B) + '\n'
+   + grab('approvalStatus') + '\n' + grab('retryWords') + '\n'
    + grab('deliverApproval') + '\n' + grab('answerApproval') + '\n'
    + grab('flushApproval') + '\n' + grab('approvalPoll') + '\n'
-   + grab('showApproval'));
+   + grab('showApproval') + '\n' + grab('showDenial'));
 
 // ---- helpers --------------------------------------------------------------
 function okServer() {

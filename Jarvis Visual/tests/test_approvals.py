@@ -77,6 +77,11 @@ def fresh():
     vw.turn_lock = asyncio.Lock()
     vw.approvals = {}
     vw._approval_seq = 0
+    # The denial build (2026-08-07) put these on __init__ and ask_permission
+    # reads both before anything else -- a stand-in without them dies before
+    # the request is even registered.
+    vw.denied = None
+    vw.reinstated = None
     return vw
 
 

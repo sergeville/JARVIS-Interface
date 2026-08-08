@@ -187,9 +187,17 @@ test('the modal scrim is ONE token, repeated in every keyframe stop', () => {
   // box-shadow animates as a whole, so the backdrop must appear in all three
   // stops. Three hand-kept copies of one colour is what this token replaced --
   // and dropping it from a single stop strobes the entire page.
-  const uses = STYLE.split('var(--scrim)').length - 1;
-  assert.strictEqual(uses, 3,
-    'the scrim appears ' + uses + ' times; it must be in the rule and both keyframe stops');
+  // ⚠ THIS TEST USED TO PIN THE NUMBER 3, and the number was never the
+  // property -- it was true only while the page had exactly one modal. The
+  // refusal card is a second one, so a hardcoded count reports a correct page
+  // as broken and would do it again for the third modal. What actually
+  // matters is that EVERY full-page backdrop reads the token: a stop that
+  // hand-writes it, or omits it, strobes the whole page mid-animation.
+  const backdrops = STYLE.match(/box-shadow:[^;]*100vmax[^;]*/g) || [];
+  assert.ok(backdrops.length >= 3, 'expected at least one modal backdrop');
+  for (const b of backdrops)
+    assert.ok(b.includes('var(--scrim)'),
+      'a full-page backdrop does not read the scrim token: ' + b.trim());
   assert.ok(!/rgba\(\s*4\s*,\s*8\s*,\s*16\s*,/.test(STYLE.replace(/--scrim:[^;]+;/, '')),
     'a hand-written scrim literal is back');
 });

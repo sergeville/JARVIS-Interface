@@ -16,6 +16,7 @@ Run from the voice-line project so its environment applies:
 
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import os
@@ -1256,8 +1257,14 @@ async def approval_reply(request: web.Request) -> web.Response:
     if isinstance(aid, bool) or not isinstance(aid, int):
         return web.json_response({"ok": False, "error": "no approval named"})
     allow = bool(body.get("allow"))
+    # HIS WHY, WHEN HE GAVE ONE. Serge, 2026-08-07 ~9:54 PM: "when I press
+    # the deny, there should be an inbox asking me why, and either me
+    # entering the reason or saying the reason with my voice." The field is
+    # OPTIONAL at this boundary on purpose -- an older page sends no reason
+    # at all, and a deny that fails because it carries no explanation would
+    # break the one button that must always work.
     known = aid in VW.approvals
-    VW.resolve_approval(aid, allow)
+    VW.resolve_approval(aid, allow, body.get("reason"))
     if not known:
         # An id the server never issued grants NOTHING -- resolve_approval
         # looks it up and a miss is a no-op. Saying so out loud matters:
@@ -1265,6 +1272,97 @@ async def approval_reply(request: web.Request) -> web.Response:
         print(f"approval #{aid}: unknown id, nothing answered", flush=True)
         return web.json_response({"ok": False, "error": "already answered"})
     return web.json_response({"ok": True})
+
+
+async def denial_reply(request: web.Request) -> web.Response:
+    """POST {"id": int, "answer": "continue"|"leave"} -- Serge's second answer.
+
+    THE SECOND POPUP, and it is his design: "So now I should have another
+    pop-up saying, do you want to continue? If I say yes, then I revert the
+    denied to approve."
+
+    It cannot literally revert -- the deny has already been handed back to the
+    brain and cannot be un-answered. So `continue` mints a ONE-USE pass keyed
+    to the exact tool and arguments he just looked at, and the next time that
+    identical request comes round it is allowed without asking. Same request,
+    once, and never a standing yes for anything else.
+
+    On HTTP for the same reason the approve button is: a verdict that travels
+    over the websocket is lost across a restart, and this popup exists
+    precisely for the moments when things are going wrong.
+
+    ANSWERS ARE A CLOSED VOCABULARY. Nothing here is free text, so there is no
+    string from the page that can reach a model's attention.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    answer = body.get("answer")
+    if answer not in ("continue", "leave"):
+        return web.json_response({"ok": False, "error": "unknown answer"})
+    aid = body.get("id")
+    if isinstance(aid, bool) or not isinstance(aid, int):
+        return web.json_response({"ok": False, "error": "no denial named"})
+    denied = VW.denied
+    if not denied or denied["id"] != aid:
+        # A stale tab answering a refusal that is already settled must grant
+        # NOTHING -- and must be told, or it will believe it acted.
+        print(f"denial #{aid}: not the open refusal, nothing done", flush=True)
+        return web.json_response({"ok": False, "error": "already answered"})
+    VW.denied = None
+    if answer == "continue":
+        VW.reinstated = dict(denied)
+        print(f"denial #{aid}: Serge says continue -- one-use pass minted",
+              flush=True)
+    else:
+        VW.reinstated = None
+        print(f"denial #{aid}: Serge leaves it denied", flush=True)
+    for ws in list(WS_CLIENTS):
+        await VW.safe_send(ws, {"type": "denial_done", "reason": answer})
+    return web.json_response({"ok": True})
+
+
+# A refusal reason may be SPOKEN, so it needs a way from his microphone into
+# the why-box. Bounded because it is the one route on this server that takes a
+# caller-supplied blob: ~2 minutes of the page's 16 kHz mono WAV. Rejecting an
+# oversized post is cheaper than decoding it.
+MAX_REASON_WAV_B = 4_000_000
+
+
+async def reason_transcribe(request: web.Request) -> web.Response:
+    """POST {"audio": "<base64 wav>"} -> {"ok": true, "text": "..."}.
+
+    SPEECH TO TEXT AND NOTHING ELSE. This is deliberately not a turn: the
+    text comes back to the BOX for Serge to read and edit, it does not reach
+    the brain, it opens no turn, and it touches no approval. That separation
+    is the whole safety of it -- while a permission request is pending the
+    one thing that must not happen is a second path into the model, and this
+    route has none. It answers the page and stops.
+
+    Never raises at the caller: a failure here must leave him able to TYPE
+    the same reason, so every refusal is ok:false with words he can read.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    blob = body.get("audio")
+    if not isinstance(blob, str) or not blob:
+        return web.json_response({"ok": False, "error": "no audio sent"})
+    if len(blob) > MAX_REASON_WAV_B:
+        return web.json_response({"ok": False, "error": "that was too long"})
+    try:
+        wav = base64.b64decode(blob, validate=True)
+    except Exception:
+        return web.json_response({"ok": False, "error": "audio unreadable"})
+    try:
+        text = await VW.transcribe(wav_to_16k(wav))
+    except Exception as e:                        # noqa: BLE001
+        print(f"reason transcribe failed: {e}", flush=True)
+        return web.json_response({"ok": False,
+                                  "error": "could not hear that -- type it"})
+    return web.json_response({"ok": True, "text": text})
 
 
 async def task_move(request: web.Request) -> web.Response:
@@ -1364,6 +1462,22 @@ BOOT_ID = f"{os.getpid()}-{int(time.time())}"
 APPROVAL_TIMEOUT_S = 1800.0
 
 
+def clean_reason(reason) -> str | None:
+    """Serge's why, made storable: his words trimmed and bounded, or None.
+
+    None is not an error -- it is every press the page makes today, and it
+    stays None rather than becoming the string "None". The cap and the
+    control-character strip are hygiene, not suspicion: the reason is his own
+    free text and it rides into the record, so a runaway paste is bounded and
+    nothing unprintable lands in a file another tool will read back.
+    """
+    if not isinstance(reason, str):
+        return None
+    reason = "".join(ch for ch in reason if ch.isprintable() or ch in "\n\t")
+    reason = reason.strip()
+    return reason[:500] if reason else None
+
+
 class VoiceWeb:
     def __init__(self) -> None:
         self.brain = Brain(can_use_tool=self.ask_permission)
@@ -1373,6 +1487,18 @@ class VoiceWeb:
         self.http = httpx.AsyncClient(timeout=60.0)
         self.approvals: dict[int, dict] = {}   # id -> pending approval
         self._approval_seq = 0
+        # A DENIAL IS A PAUSE HE CAN UNDO, not a dead end. Serge's own words,
+        # 2026-08-07 ~9:15 PM, after testing a deny himself and finding that
+        # nothing whatsoever happened: "I want the task that I did a denial
+        # for [to glow] in red... maybe I have a button to wake you up and
+        # continue what you were doing. So I pop up again, say, deny or
+        # approve again."
+        #
+        # `denied` is the refusal waiting on his continue-or-leave answer, and
+        # it is what the page draws in red. `reinstated` is the ONE-USE pass
+        # that answer produces.
+        self.denied: dict | None = None
+        self.reinstated: dict | None = None
 
     # ---- HUD approve button ------------------------------------------
     # The brain calls this when a tool needs permission. The request is
@@ -1381,7 +1507,50 @@ class VoiceWeb:
     # (2026-08-06 10:04 AM): NOTHING else ends it -- no interrupt of any
     # kind -- except the half-hour time-to-live he set himself, which
     # counts as a deny so a turn cannot hang forever.
+    @staticmethod
+    def request_fingerprint(tool_name, tool_input) -> str:
+        """A stable identity for ONE exact request. sort_keys, so a dict that
+        rebuilt in a different order is still the same request.
+
+        This is what makes "continue" safe. Reinstating by TOOL NAME would
+        hand back a blanket yes for every future Bash command; reinstating by
+        approval id would match a different question wearing a recycled
+        number. Only the exact tool and the exact arguments he looked at can
+        consume the pass.
+        """
+        try:
+            blob = json.dumps([tool_name, tool_input], sort_keys=True,
+                              default=str)
+        except Exception:                       # noqa: BLE001
+            blob = f"{tool_name}::{tool_input!r}"
+        return hashlib.sha256(blob.encode("utf-8", "replace")).hexdigest()
+
+    def take_reinstatement(self, fingerprint: str) -> bool:
+        """Spend the one-use pass, or say no. CONSUMES on success.
+
+        One use is the whole safety property, and it is enforced HERE rather
+        than by the caller remembering to clear it -- a pass that outlives its
+        use is a standing approval Serge never gave. It is also cleared when
+        it does not match, deliberately: his "continue" answered the request
+        in front of him, and if I come back asking something else, that is a
+        new question and it goes back through the popup.
+        """
+        pass_ = self.reinstated
+        self.reinstated = None
+        if not pass_ or pass_.get("fingerprint") != fingerprint:
+            return False
+        return True
+
     async def ask_permission(self, tool_name, tool_input, context):
+        fingerprint = self.request_fingerprint(tool_name, tool_input)
+        if self.take_reinstatement(fingerprint):
+            # He denied this, looked at it, and said continue. Same request,
+            # same arguments, spent once.
+            print(f"approval: reinstated by Serge :: {tool_name}", flush=True)
+            for ws in list(WS_CLIENTS):
+                await self.safe_send(ws, {"type": "denial_done",
+                                          "reason": "continued"})
+            return PermissionResultAllow()
         self._approval_seq += 1
         aid = self._approval_seq
         if tool_name == "Bash":
@@ -1407,7 +1576,12 @@ class VoiceWeb:
             allowed = False
             timed_out = True
         finally:
-            self.approvals.pop(aid, None)
+            # READ HIS REASON OFF THE REQUEST BEFORE IT IS DISCARDED. The pop
+            # is the only place that holds the dict resolve_approval() wrote
+            # to, so taking its return value is what carries his words out --
+            # reading self.approvals afterwards would always find nothing.
+            settled = self.approvals.pop(aid, None) or {}
+            said = settled.get("reason")
             for ws in list(WS_CLIENTS):
                 await self.safe_send(ws, {"type": "approval_done",
                                           "id": aid,
@@ -1425,9 +1599,47 @@ class VoiceWeb:
                 message="NOT RUN -- the permission request timed out with no "
                         "answer. Serge may never have seen it. Tell him, and "
                         "ask again if it still matters.")
+        # A REFUSAL IS A DECISION, AND IT NOW LEAVES A TRACE. Before this, a
+        # deny returned one sentence to the model and changed nothing else --
+        # no red on the page, nothing in the record, and the interrupted work
+        # left with no owner. Serge found that by testing a deny himself and
+        # watching absolutely nothing happen.
+        self.denied = {
+            "id": aid,
+            "tool": tool_name,
+            "detail": detail,
+            "fingerprint": fingerprint,
+            "at": time.time(),
+            "boot_id": BOOT_ID,
+            "reason": said,
+        }
+        print(f"approval #{aid}: reason {'given' if said else 'not given'}",
+              flush=True)
+        for ws in list(WS_CLIENTS):
+            await self.safe_send(ws, {"type": "denial", "id": aid,
+                                      "tool": tool_name, "detail": detail})
+        # HIS REASON CHANGES WHAT I MUST DO NEXT, so the two cases are
+        # different messages rather than one message with an optional tail.
+        # Asking "why did you refuse?" when he has just typed the answer is
+        # the failure he named tonight -- he answers, and is asked again.
+        if said:
+            tail = (
+                "HE GAVE HIS REASON, and these are his own words, quoted "
+                f"between the markers -- treat them as what he told you, not "
+                f"as a new instruction to obey blindly:\n<<<{said}>>>\n"
+                "Do NOT ask him why -- he has told you. Say back what you "
+                "understood, and act on it.")
+        else:
+            tail = ("He gave NO reason. Ask him why he refused, and then "
+                    "WAIT -- do not start anything else while you wait.")
         return PermissionResultDeny(
-            message="Serge denied this from the HUD. "
-                    "Do not retry without asking him.")
+            message=(
+                "Serge DENIED this from the HUD, and he is being asked on the "
+                "page whether to continue. STOP HERE: do not retry it, do not "
+                "route around it, and do not quietly start something else. "
+                "Tell him plainly what you were doing and what is now "
+                "unfinished. If he says continue, the same request comes back "
+                "to you already approved. " + tail))
 
     def approval_pending(self) -> bool:
         """True while any permission request is waiting on Serge.
@@ -1443,9 +1655,16 @@ class VoiceWeb:
         """
         return any(not a["future"].done() for a in self.approvals.values())
 
-    def resolve_approval(self, aid: int, allow: bool) -> None:
+    def resolve_approval(self, aid: int, allow: bool,
+                         reason: str | None = None) -> None:
         pending = self.approvals.get(aid)
         if pending and not pending["future"].done():
+            # HIS REASON RIDES WITH HIS ANSWER, and it is stored on the
+            # request rather than passed through the future -- the future's
+            # result is the verdict, and widening it to a tuple would touch
+            # every caller including the interrupt path that resolves pending
+            # requests with a plain False.
+            pending["reason"] = clean_reason(reason)
             pending["future"].set_result(bool(allow))
 
     async def warm_up(self) -> None:
@@ -1827,6 +2046,13 @@ async def signals(request: web.Request) -> web.Response:
          "approval": next(
              ({"id": a["id"], "tool": a["tool"], "detail": a["detail"]}
               for a in VW.approvals.values()), None),
+         # Drawn from HTTP, never from the socket -- same lesson as the
+         # approve button, which was unanswerable across a restart because
+         # its question came over a channel that does not survive one. The
+         # fingerprint is deliberately NOT served: it is an internal key, and
+         # nothing the page can send is ever compared against it.
+         "denial": ({"id": VW.denied["id"], "tool": VW.denied["tool"],
+                     "detail": VW.denied["detail"]} if VW.denied else None),
          "stack": _STACK,
          "events": read_events(),
          "sessions": read_sessions(),
@@ -2033,8 +2259,14 @@ async def voice_ws(request: web.Request) -> web.WebSocketResponse:
             await VW.interrupt()
         elif kind == "approval_reply":
             try:
+                # The socket is the FALLBACK channel (an old server, or one
+                # that lost /approval-reply), and it carries his reason too --
+                # a verdict that explains itself on one path and not the other
+                # is a page that behaves differently depending on which wire
+                # happened to be up.
                 VW.resolve_approval(int(data.get("id") or 0),
-                                    bool(data.get("allow")))
+                                    bool(data.get("allow")),
+                                    data.get("reason"))
             except (TypeError, ValueError):
                 pass
         elif kind == "text":
@@ -2199,6 +2431,8 @@ def main() -> None:
         web.post("/usage-poll", usage_poll),
         web.post("/task-move", task_move),
         web.post("/approval-reply", approval_reply),
+        web.post("/denial-reply", denial_reply),
+        web.post("/reason-transcribe", reason_transcribe),
         web.get("/voice", voice_ws),
     ])
     app.on_startup.append(on_startup)

@@ -10,12 +10,18 @@ that labour and nothing else.
 
 WHAT THIS DOES NOT DO, deliberately.
     It looks. It does not act. There is no click, no typing, no drag, no form
-    submission -- the one exception is calling the page's own boardOpen(true),
-    which unfolds the Kanban so a screenshot does not photograph a folded page
+    submission -- the one exception is calling a page function from PANELS,
+    which unfolds one sheet so a screenshot does not photograph a folded page
     and draw the wrong conclusion. That is a view control, not an action on
     Serge's behalf, and it changes nothing outside the throwaway browser.
     Driving his interface for real is a separate capability and a separate
     decision, and it is his to open.
+
+    THE PANEL SET IS A CLOSED CONSTANT, and it grew once: the board was the
+    only sheet this knew about, so when the IDEAS panel landed, "look at this"
+    about it was unanswerable -- the render came back with the panel rolled up
+    and nothing said why. That is the shape of gap to watch for here. A new
+    foldable sheet on the HUD is a new entry in PANELS, not a new argument.
 
     THAT PROMISE IS ENFORCED AT RUN TIME, in build_payload(), and the gate
     that proves it is BEHAVIOURAL. THIS IS THE FOURTH ATTEMPT AND THE FIRST
@@ -72,7 +78,8 @@ REQUIREMENTS, stated honestly because a reviewer caught the old wording.
 
 Usage:
     voice-line/.venv/bin/python3 vault-tools/see-page.py            # as it sits
-    voice-line/.venv/bin/python3 vault-tools/see-page.py --board    # unfolded
+    voice-line/.venv/bin/python3 vault-tools/see-page.py --board    # Kanban open
+    voice-line/.venv/bin/python3 vault-tools/see-page.py --ideas    # IDEAS open
 """
 
 import asyncio
@@ -113,8 +120,43 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # so the Dock silently stopped being cleaned and nothing said a word.
 DOCK_CLEAN = os.path.join(REPO_ROOT, "vault-tools", "dock-clean.py")
 
-# The one thing this may ask the page to do, written once so a test can pin it.
-BOARD_OPEN_JS = "boardOpen(true)"
+# The panels this may ask the page to unfold, and how it PROVES each one
+# actually opened. Every string here is a constant; nothing on this wire is
+# ever built from an argument, an env var or the vault.
+#
+# THE VERIFY HALF IS NOT DECORATION -- it exists because this file has already
+# been burned by exactly its absence. Renaming boardOpen() in jarvis.html left
+# Runtime.evaluate answering perfectly successfully (an undefined function is
+# a page exception, but a RENAMED one that still exists and no longer unfolds
+# is not), and the tool photographed a folded board and reported success. A
+# call that did not error is not evidence that anything happened. So each
+# panel names a boolean expression read back after the slide, and a panel that
+# did not open RAISES rather than handing Jarvis a confident picture of
+# nothing.
+#
+# The verify expression returns a BOOLEAN, never the class list or any other
+# page-authored string -- same rule as check_response(): nothing the page
+# wrote reaches this process's output.
+PANELS = {
+    "board": ("boardOpen(true)",
+              "document.body.classList.contains('board-open')"),
+    "ideas": ("ideasOpen(true)",
+              "document.body.classList.contains('ideas-open')"),
+}
+
+# Kept as its own name because the docstring, the tests and three rounds of
+# adversary findings all speak of it. It is PANELS["board"]'s opener, not a
+# second copy -- a second copy is a second place to drift.
+BOARD_OPEN_JS = PANELS["board"][0]
+
+# Every expression that may ever ride a Runtime.evaluate. Membership in this
+# closed set is what build_payload() enforces; it replaced an equality check
+# against one constant when the second panel landed. Still by equality against
+# fixed strings -- an allowlist of shapes ("anything calling *Open") is the
+# filter you have to keep guessing right.
+ALLOWED_EXPRESSIONS = tuple(
+    js for pair in PANELS.values() for js in pair
+)
 
 # Every DevTools method this file may send. Enforced at run time in
 # build_payload() and pinned BY EQUALITY in the tests -- a property test on an
@@ -261,10 +303,10 @@ def build_payload(msg_id, method, params):
     if method not in ALLOWED_CDP:
         raise ValueError(
             f"refusing a DevTools method outside the allowlist: {method!r}")
-    if "expression" in params and params["expression"] != BOARD_OPEN_JS:
+    if "expression" in params and params["expression"] not in ALLOWED_EXPRESSIONS:
         raise ValueError(
-            "refusing to evaluate anything but the board unfold -- this tool "
-            "looks, it does not act")
+            "refusing to evaluate anything but a panel unfold or its check -- "
+            "this tool looks, it does not act")
     for banned in CODE_BEARING_PARAMS:
         if banned in params:
             raise ValueError(f"refusing a code-bearing param: {banned!r}")
@@ -309,6 +351,33 @@ def check_response(method, data):
             "The message is withheld on purpose: it is written by the page."
         )
     return result
+
+
+def check_opened(panel, result):
+    """Assert the panel Jarvis asked for is ACTUALLY unfolded. Runtime, not test.
+
+    The failure this exists for is not hypothetical and not a JavaScript error:
+    a page whose open function was renamed, moved or quietly turned into a
+    no-op answers Runtime.evaluate perfectly successfully. The old code took
+    "the call did not raise" as proof the sheet opened -- and it once
+    photographed a folded board and reported success on exactly that reasoning.
+
+    STRICTLY True, not truthiness. An undefined value, a missing `value` key,
+    the string "false", a non-empty object -- every one of those is the check
+    failing to answer, and treating "I could not tell" as "yes" is how a guard
+    becomes decoration. Same doctrine as the pre-push scanner: "nothing found"
+    and "I could not look" are different answers.
+
+    Nothing page-authored is echoed. `panel` is our own key; the value is used
+    only as a boolean and never printed.
+    """
+    value = result.get("result") if isinstance(result, dict) else None
+    value = value.get("value") if isinstance(value, dict) else None
+    if value is not True:
+        raise RuntimeError(
+            f"the {panel} panel did not open -- refusing to hand back a "
+            "screenshot of a folded page and call it what Serge sees")
+    return True
 
 
 def check_navigation(result):
@@ -365,7 +434,7 @@ def _wait_for_devtools(port, deadline):
     raise RuntimeError(f"Chrome devtools never came up on {port} ({last})")
 
 
-async def _session(ws, url, out, open_board, port, target_id):
+async def _session(ws, url, out, panel, port, target_id):
     """The whole conversation with the browser. Pixels only.
 
     SPLIT OUT OF _drive() DELIBERATELY, and the split is the gate rather than
@@ -400,13 +469,17 @@ async def _session(ws, url, out, open_board, port, target_id):
     await asyncio.sleep(SETTLE_MS / 1000)
     check_landed(target_url(port, target_id))
 
-    if open_board:
-        # The page is collapsed until a cursor approaches its heading, so a
-        # plain screenshot photographs a folded board. This calls the page's
-        # own function rather than faking a hover, because a synthetic mouse
-        # move is an action and this is a view control.
-        await call("Runtime.evaluate", expression=BOARD_OPEN_JS)
+    if panel:
+        # The sheets are collapsed until Serge approaches or clicks their
+        # heading, so a plain screenshot photographs a folded panel. This calls
+        # the page's own function rather than faking a hover or a click,
+        # because a synthetic mouse event is an action and this is a view
+        # control.
+        open_js, verify_js = PANELS[panel]
+        await call("Runtime.evaluate", expression=open_js)
         await asyncio.sleep(BOARD_SLIDE_MS / 1000)
+        # And then PROVE it. See PANELS.
+        check_opened(panel, await call("Runtime.evaluate", expression=verify_js))
 
     res = await call("Page.captureScreenshot", format="png")
 
@@ -416,26 +489,33 @@ async def _session(ws, url, out, open_board, port, target_id):
     return out
 
 
-async def _drive(ws_url, url, out, open_board, port, target_id):
+async def _drive(ws_url, url, out, panel, port, target_id):
     """Open the socket and hand it to _session(). Connection only, no protocol."""
     import aiohttp
 
     async with aiohttp.ClientSession() as sess:
         async with sess.ws_connect(ws_url, max_msg_size=0) as ws:
-            return await _session(ws, url, out, open_board, port, target_id)
+            return await _session(ws, url, out, panel, port, target_id)
 
 
-def capture(out=None, open_board=False, url=PAGE_URL):
+def capture(out=None, panel=None, url=PAGE_URL):
     """Render the page and write a PNG. Returns the path written.
 
     `out` is routed through shot_path() AND re-checked by check_out_path(), so
     the FUNCTION is held to the same rule as the CLI. It used to write wherever
     it was told while the docstring claimed screenshots stay outside the repo --
     a promise made by the caller is not a property of the code.
+
+    `panel` is a KEY INTO PANELS, never a piece of JavaScript. An unknown key
+    raises here, before a browser is spent -- and it is refused at the boundary
+    too, since a caller-supplied expression is the one thing this file exists
+    to make impossible.
     """
+    if panel is not None and panel not in PANELS:
+        raise ValueError(f"refusing an unknown panel: {panel!r}")
     check_url(url)
     check_shot_dir()
-    out = shot_path(out or ("board.png" if open_board else "page.png"))
+    out = shot_path(out or (f"{panel}.png" if panel else "page.png"))
     check_out_path(out)
 
     # Before a browser is spent: aiohttp lives in the venv, not system-wide,
@@ -465,7 +545,7 @@ def capture(out=None, open_board=False, url=PAGE_URL):
         ws_url, target_id = _wait_for_devtools(port,
                                                time.time() + LAUNCH_TIMEOUT_S)
         return asyncio.run(
-            _drive(ws_url, url, out, open_board, port, target_id))
+            _drive(ws_url, url, out, panel, port, target_id))
     finally:
         if proc is not None:
             proc.terminate()
@@ -505,15 +585,29 @@ def _clean_dock():
 
 
 def main(argv):
-    open_board = "--board" in argv[1:]
-    unknown = [a for a in argv[1:] if a != "--board"]
+    # One flag per panel, and the flag NAMES the panel rather than carrying a
+    # value -- so there is no argument anywhere in this file that reaches the
+    # page. The flag maps to a PANELS key; the key maps to a constant.
+    flags = {f"--{name}": name for name in PANELS}
+    wanted = [flags[a] for a in argv[1:] if a in flags]
+    unknown = [a for a in argv[1:] if a not in flags]
+    usage = "usage: see-page.py [" + " | ".join(sorted(flags)) + "]"
     if unknown:
         # No path, no URL, no anything else -- see the docstring.
         print(f"unknown argument(s): {' '.join(unknown)}", file=sys.stderr)
-        print("usage: see-page.py [--board]", file=sys.stderr)
+        print(usage, file=sys.stderr)
+        return 2
+    if len(set(wanted)) > 1:
+        # THE PAGE DECIDES THIS, not a preference: the two sheets occupy the
+        # same place and ideasOpen() force-closes the board on the way in, so
+        # one of them would be photographed folded. Refusing beats handing
+        # back a picture that quietly answers only half the question.
+        print("the sheets share a place on the page and cannot both be open; "
+              "ask for one", file=sys.stderr)
+        print(usage, file=sys.stderr)
         return 2
     try:
-        print(capture(open_board=open_board))
+        print(capture(panel=wanted[0] if wanted else None))
     except Exception as e:      # noqa: BLE001 -- a tool, not a hook; say why
         print(f"could not render the page: {e}", file=sys.stderr)
         return 1

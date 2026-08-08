@@ -68,6 +68,11 @@
     --off-soft:    rgba(190, 175, 110, 0.85);
     --off:         #6b5a1f;
     --bad:         #ff5f57;
+    /* The rgba companion, added when the refusal card landed 2026-08-07 --
+       same pattern as --warn-soft-rgb, and it must stay the same colour as
+       --bad above. A test pins the two together, because a companion that
+       drifts one digit is a bug nobody can see. */
+    --bad-rgb:     255, 95, 87;
   }
   /* Alert: a permission request is pending and Jarvis is blocked on Serge.
      Same layout, same information -- only the mood changes, so the state is
@@ -838,6 +843,72 @@
     padding: 0 2px; flex-shrink: 0;
   }
   #approve-lost-x:hover { color: var(--warn-soft); }
+  /* THE REFUSAL CARD. Serge, 2026-08-07 ~9:15 PM, having tested a deny and
+     watched nothing at all happen: "I want the task that I did a denial for
+     [to glow] in red... maybe I have a button to wake you up and continue."
+
+     RED, NOT AMBER, and the distinction is the whole point. Amber on this
+     page means Jarvis is BLOCKED ON HIM -- a question waiting. Red means he
+     already answered and STOPPED something. Painting a refusal amber would
+     say a question is pending when the opposite is true.
+
+     It reuses #approve-box's geometry and pulse; only the colour and the
+     wording differ, so the two cannot drift apart in shape. */
+  /* The whole frame glows red while something he stopped is waiting on him.
+     Deliberately NOT a theme repaint like body.alert: the refusal card is
+     already modal, and recolouring every panel underneath it would say the
+     machine is in a fault state when what happened is that Serge made a
+     decision. An edge is enough to carry the room. */
+  body.denied::after {
+    content: ''; position: fixed; inset: 0; z-index: 199;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 2px rgba(var(--bad-rgb), 0.55),
+                inset 0 0 90px rgba(var(--bad-rgb), 0.18);
+  }
+  #denial-box {
+    display: none;
+    position: fixed; z-index: 201;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(520px, 72vw); padding: 18px 20px;
+    border: 1px solid rgba(var(--bad-rgb), 0.8); border-radius: 4px;
+    background: rgba(48, 10, 8, 0.96);
+    box-shadow: 0 0 0 100vmax var(--scrim),
+                0 18px 60px rgba(0, 0, 0, 0.55);
+    animation: denial-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes denial-pulse {
+    0%, 100% { box-shadow: 0 0 0 100vmax var(--scrim),
+                           0 0 10px rgba(var(--bad-rgb), 0.3); }
+    50%      { box-shadow: 0 0 0 100vmax var(--scrim),
+                           0 0 30px rgba(var(--bad-rgb), 0.7); }
+  }
+  #denial-head {
+    font-size: 12px; letter-spacing: 0.22em; color: #ffb3a6;
+    text-align: center; margin-bottom: 12px;
+  }
+  #denial-detail {
+    font-family: "Menlo", monospace; font-size: 12px; color: #ffd9d2;
+    line-height: 1.5; margin-bottom: 10px; word-break: break-word;
+    max-height: 34vh; overflow-y: auto;
+  }
+  #denial-ask {
+    font-size: 12px; letter-spacing: .08em; color: #ffd9d2;
+    margin-bottom: 14px; line-height: 1.5;
+  }
+  #denial-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  #denial-row button {
+    flex: 1; padding: 11px 6px; font-size: 12px; letter-spacing: 0.16em;
+    border-radius: 2px; cursor: pointer; background: transparent;
+    font-family: inherit; white-space: nowrap;
+  }
+  #denial-go {
+    border: 1px solid rgba(120, 255, 190, 0.7); color: #7dffc4;
+  }
+  #denial-go:hover { background: rgba(0, 255, 150, 0.12); }
+  #denial-stop {
+    border: 1px solid rgba(var(--bad-rgb), 0.7); color: #ff9c8a;
+  }
+  #denial-stop:hover { background: rgba(var(--bad-rgb), 0.12); }
   #approve-box {
     display: none;
     position: fixed; z-index: 200;
@@ -889,6 +960,57 @@
     border: 1px solid rgba(255, 120, 100, 0.6); color: #ff9c8a;
   }
   #approve-no:hover { background: rgba(255, 90, 60, 0.12); }
+
+  /* ---- the why box (opens on DENY) ---- */
+  /* Hidden until he refuses. Shown by script, so the closed state is the
+     one the markup ships with -- a box that flashes on every permission
+     request would train him to ignore it. */
+  #why-wrap { display: none; margin-top: 14px; }
+  #why-ask {
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--warn); margin-bottom: 8px;
+  }
+  #why-text {
+    width: 100%; box-sizing: border-box; resize: vertical;
+    background: rgba(0, 0, 0, 0.35); color: var(--text);
+    border: 1px solid rgba(var(--warn-rgb), 0.45); border-radius: 2px;
+    font-family: inherit; font-size: 12px; line-height: 1.5; padding: 8px;
+  }
+  #why-text:focus { outline: none; border-color: var(--warn); }
+  #why-row { display: flex; gap: 8px; margin-top: 10px; }
+  #why-row button {
+    flex: 1; padding: 10px 0; font-size: 11px; letter-spacing: 0.14em;
+    border-radius: 2px; cursor: pointer; background: transparent;
+    font-family: inherit; white-space: nowrap;
+  }
+  /* NEUTRAL until it is listening, and deliberately not --accent: the popup
+     only ever appears while the HUD is amber, and body.alert repaints
+     --accent amber too -- so an accent-coloured button would be the same
+     colour idle as it is recording. The one state that must be unmistakable
+     is LISTENING, so idle is quiet and hot is loud. */
+  #why-speak {
+    border: 1px solid rgba(150, 170, 190, 0.45); color: var(--text-soft);
+  }
+  #why-speak:hover { border-color: rgba(150, 170, 190, 0.75); }
+  /* The one state that must be unmistakable at a glance: it is LISTENING to
+     him right now. Same amber the whole HUD wears while it waits on him. */
+  #why-speak.hot {
+    border-color: var(--warn); color: var(--warn);
+    background: rgba(var(--warn-rgb), 0.16);
+  }
+  #why-send {
+    border: 1px solid rgba(var(--bad-rgb), 0.6); color: var(--bad);
+  }
+  #why-send:hover { background: rgba(var(--bad-rgb), 0.12); }
+  /* Deliberately the quietest thing in the box -- it is the way out, not the
+     way through. It must exist (he is never trapped) without inviting. */
+  #why-skip {
+    display: block; width: 100%; margin-top: 8px; padding: 7px 0;
+    background: transparent; border: 1px dashed rgba(150, 170, 190, 0.35);
+    color: var(--text-soft); font-family: inherit; font-size: 10px;
+    letter-spacing: 0.12em; border-radius: 2px; cursor: pointer;
+  }
+  #why-skip:hover { border-color: rgba(150, 170, 190, 0.6); }
 
   /* ===== center stage ===== */
   #stage {
@@ -1444,6 +1566,26 @@
     <button id="approve-yes">APPROVE</button>
     <button id="approve-no">DENY</button>
   </div>
+  <!-- THE WHY BOX. Serge, 2026-08-07 ~9:54 PM: "when I press the deny,
+       there should be an inbox asking me why, and either me entering the
+       reason or saying the reason with my voice. That's what I'm always
+       waiting for."
+       It opens on DENY and the refusal is not sent until he answers it --
+       nothing is running while a permission waits, so waiting for his words
+       costs him nothing. NO REASON is always there so he is never trapped in
+       a box he cannot leave; that is the same rule as the popup that could
+       not be cancelled, pointed the other way. -->
+  <div id="why-wrap">
+    <div id="why-ask">Why are you refusing this?</div>
+    <textarea id="why-text" rows="3"
+      placeholder="type your reason — or hold SPEAK and say it"></textarea>
+    <div id="why-note" class="approve-note"></div>
+    <div id="why-row">
+      <button id="why-speak">HOLD TO SPEAK</button>
+      <button id="why-send">SEND REFUSAL</button>
+    </div>
+    <button id="why-skip">DENY WITHOUT A REASON</button>
+  </div>
 </div>
 
 <!-- A permission that went away WITHOUT an answer. Serge, 2026-08-06:
@@ -1456,6 +1598,24 @@
 <div id="approve-lost">
   <span id="approve-lost-text"></span>
   <button id="approve-lost-x" title="dismiss">&#10005;</button>
+</div>
+
+<!-- THE REFUSAL CARD. Serge denied a request to see what would happen and
+     found the answer was "nothing" -- the turn carried on, the page stayed
+     calm, and the interrupted work had no owner. This is his fix: the thing
+     he stopped glows red and names itself, and he is asked whether to
+     continue. CONTINUE hands the SAME request back approved, exactly once.
+     There is no dismiss and no ✕: an answer is the only way out, because a
+     refusal that can be waved away is the silence being fixed. -->
+<div id="denial-box">
+  <div id="denial-head">YOU STOPPED THIS</div>
+  <div id="denial-detail"></div>
+  <div id="denial-ask">Jarvis has stopped and is waiting. Continue with this
+    exact request, or leave it refused?</div>
+  <div id="denial-row">
+    <button id="denial-go">CONTINUE IT</button>
+    <button id="denial-stop">LEAVE IT REFUSED</button>
+  </div>
 </div>
 
 <script>
@@ -1610,6 +1770,12 @@ function connect(){
       // server queued the message behind a pending approval -- say so,
       // or the wait reads as Jarvis ignoring him
       showLine('jarvis', '(holding that until you answer the approval above)');
+    } else if (ev.type === 'denial') {
+      // Pushed the instant he denies, so the red card does not wait for the
+      // next poll -- the whole complaint was that nothing happened.
+      showDenial(ev);
+    } else if (ev.type === 'denial_done') {
+      showDenial(null);
     } else if (ev.type === 'approval') {
       showApproval(ev);
     } else if (ev.type === 'approval_done') {
@@ -2041,6 +2207,11 @@ async function ensureMic(){
       let s = 0;
       for (let i = 0; i < ch.length; i += 16) s += ch[i] * ch[i];
       micLevel = Math.min(1, Math.sqrt(s / (ch.length / 16)) * 6);
+    } else if (whyCapturing) {
+      // A SEPARATE BUFFER, and deliberately not `capBufs`. This audio becomes
+      // text in the why-box and nothing else; sharing the turn's buffer is
+      // how a refusal reason would end up spoken into the brain.
+      whyBufs.push(new Float32Array(e.inputBuffer.getChannelData(0)));
     }
   };
   src.connect(proc);
@@ -2075,6 +2246,10 @@ function b64enc(buf){
 
 async function press(){
   if (capturing || lineAlive) return;   // terminal line owns the talk key
+  // While he is speaking a refusal reason, the talk button stands down. The
+  // microphone is already his and pointed somewhere else; taking it would
+  // both truncate the reason and open a turn under a pending permission.
+  if (whyCapturing || whyBusy) return;
   pressT = Date.now();
   stopPlayback();
   // Unlock audio inside a real user gesture (Chrome autoplay policy).
@@ -2158,16 +2333,27 @@ talkBtn.addEventListener('mouseleave', () => { if (capturing) release(); });
 talkBtn.addEventListener('touchstart', (e) => { e.preventDefault(); press(); });
 talkBtn.addEventListener('touchend', (e) => { e.preventDefault(); release(); });
 // Right Command -- the same talk key as the Terminal voice line.
+// WHILE THE WHY BOX IS OPEN THE KEY BELONGS TO THE BOX (Serge, 2026-08-07
+// ~10:50 PM: "Right command did not work, but if I press the button, then I
+// speak, then the text went in the input"). It was worse than not wired: the
+// key still drove press()/release(), so holding it under a pending refusal
+// opened a spoken TURN and his reason arrived as a message to Jarvis instead
+// of as text in the box. The talk key's own guard only excuses the typed
+// input, and the box's textarea is a different element. Routing it here sends
+// that audio to /reason-transcribe, which returns text and opens nothing.
 addEventListener('keydown', (e) => {
   if (lineAlive) return;                // terminal line owns Right Command
-  if (e.code === 'MetaRight' && !e.repeat && document.activeElement !== typedEl) {
-    e.preventDefault(); press();
-  }
+  if (e.code !== 'MetaRight' || e.repeat || document.activeElement === typedEl) return;
+  e.preventDefault();
+  if (whyIsOpen()) whyStartSpeaking(); else press();
 });
 addEventListener('keyup', (e) => {
-  if (e.code === 'MetaRight' && document.activeElement !== typedEl) {
-    e.preventDefault(); release();
-  }
+  if (e.code !== 'MetaRight' || document.activeElement === typedEl) return;
+  e.preventDefault();
+  // Asked of the box first, and unconditionally: a box that CLOSED mid-hold
+  // must still stop its own capture, or the microphone stays live with no
+  // way back. release() is a no-op unless it is genuinely capturing.
+  if (whyCapturing) whyStopSpeaking(false); else release();
 });
 // Window lost focus mid-hold (e.g. cmd-Tab): discard, don't send.
 addEventListener('blur', () => {
@@ -3315,6 +3501,7 @@ function showApproval(a){
     approvalId = null;
     approvalQueued = null;
     approvalStatus('');
+    closeWhy();
     approveBox.style.display = 'none';
     document.body.classList.remove('alert');   // back to blue
     return;
@@ -3323,6 +3510,10 @@ function showApproval(a){
   approvalId = a.id;
   approvalQueued = null;      // a NEW request; a queued answer to the old
   approvalStatus('');         // one is stale and must never be delivered
+  // A reason typed against the PREVIOUS request must never ride out on this
+  // one. Same rule as the queued verdict directly above, and for the same
+  // reason: a new question is not the one he was answering.
+  closeWhy();
   document.getElementById('approve-head').textContent =
     'PERMISSION · ' + (a.tool || 'TOOL').toUpperCase();
   document.getElementById('approve-detail').textContent = a.detail || '';
@@ -3375,7 +3566,7 @@ function retryWords(e){
   return 'the server did not accept that: ' + why + ' — retrying';
 }
 
-async function deliverApproval(id, allow){
+async function deliverApproval(id, allow, reason){
   // An old server has no /approval-reply route, so POSTing would 404 --
   // which would look exactly like the loop being fixed. Fall back to the
   // socket, and only when it is genuinely open.
@@ -3392,7 +3583,11 @@ async function deliverApproval(id, allow){
       r = await fetch('/approval-reply', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({id: id, allow: allow}),
+        // His reason travels WITH the verdict, in the one post. A second
+        // request carrying it would be a second thing that can fail, and it
+        // would arrive after the deny was already handed back -- too late to
+        // be part of the refusal, which is the whole point of it.
+        body: JSON.stringify({id: id, allow: allow, reason: reason || null}),
         signal: ctl.signal,
       });
     } finally {
@@ -3406,12 +3601,15 @@ async function deliverApproval(id, allow){
     throw new Error('not connected');
   }
   ws.send(JSON.stringify(
-    {type: 'approval_reply', id: id, allow: allow}));
+    {type: 'approval_reply', id: id, allow: allow, reason: reason || null}));
 }
 
-async function answerApproval(allow){
+async function answerApproval(allow, reason){
   if (approvalId === null) return;
   const id = approvalId;
+  // The box has done its job the moment the verdict is on its way; leaving
+  // it open would invite him to type into a refusal already sent.
+  closeWhy();
 
   // HIS CLICK IS NEVER DISCARDED. Two reviewers, run independently, found
   // the same bug in the previous round: this used to early-return while a
@@ -3425,7 +3623,8 @@ async function answerApproval(allow){
   // and the in-flight delivery is marked stale so its result cannot be
   // reported as his. The next poll sends the verdict he actually chose.
   if (approvalSending) {
-    approvalQueued = {id: id, allow: allow, boot: serverBoot};
+    approvalQueued = {id: id, allow: allow, reason: reason || null,
+                      boot: serverBoot};
     approvalStale = true;
     approvalStatus('changed to ' + (allow ? 'approve' : 'deny') + ' — sending');
     return;
@@ -3435,7 +3634,7 @@ async function answerApproval(allow){
   approvalStale = false;
   approvalStatus('sending…');
   try {
-    await deliverApproval(id, allow);
+    await deliverApproval(id, allow, reason);
     // If he changed his mind while this was in flight, the queue now holds
     // the verdict he actually wants -- do not clear it, and do not tell him
     // this one was the answer.
@@ -3450,7 +3649,11 @@ async function answerApproval(allow){
     // server boot, so "id 1" is not a question -- "id 1 asked by THIS
     // process" is. Without it a stale ALLOW can answer a request Serge
     // never read, which is the one thing this whole page must not do.
-    approvalQueued = {id: id, allow: allow, boot: serverBoot};
+    // HIS WORDS ARE KEPT WITH HIS CLICK. A retry that dropped the reason
+    // would deliver a refusal he explained as one he did not -- and he
+    // would have no way to tell, because the box is gone.
+    approvalQueued = {id: id, allow: allow, reason: reason || null,
+                      boot: serverBoot};
     approvalStatus(retryWords(e));
     if (!approvalHttp && ws && ws.readyState !== WebSocket.OPEN) connect();
   } finally {
@@ -3487,6 +3690,10 @@ function approvalPoll(d){
   serverBoot = boot;
 
   showApproval(d.approval || null);
+  // DRAWN FROM HTTP, like the approval above it and for the same reason: a
+  // question that arrives only over the socket is unanswerable across a
+  // restart, and this card exists for exactly the moments things go wrong.
+  showDenial(d.denial || null);
 
   // Retry on the POLL rather than on reconnect alone, because the poll is
   // the channel that always works -- the whole lesson of this bug. It runs
@@ -3504,7 +3711,7 @@ async function flushApproval(){
   approvalSending = true;
   approvalStale = false;
   try {
-    await deliverApproval(q.id, q.allow);
+    await deliverApproval(q.id, q.allow, q.reason);
     if (!approvalStale) {
       approvalQueued = null;
       approvalStatus('answered — waiting for Jarvis');
@@ -3519,8 +3726,192 @@ async function flushApproval(){
   }
 }
 
+// ===== THE REFUSAL CARD =====
+// Serge, 2026-08-07 ~9:15 PM, after testing a deny and finding nothing
+// happened at all: the stopped work must glow red, say what it was, and give
+// him a way back in. CONTINUE mints a one-use pass on the server for that
+// exact request; it is never a standing yes.
+let denialId = null;
+let denialSending = false;
+const denialBox = document.getElementById('denial-box');
+
+function showDenial(d){
+  if (!d) {
+    denialId = null;
+    denialBox.style.display = 'none';
+    document.body.classList.remove('denied');
+    return;
+  }
+  if (denialId === d.id) return;   // already drawn; do not restart the pulse
+  denialId = d.id;
+  document.getElementById('denial-head').textContent =
+    'YOU STOPPED · ' + String(d.tool || 'TOOL').toUpperCase();
+  // textContent, never innerHTML: `detail` is the tool's own arguments and
+  // this page must not render them as markup.
+  document.getElementById('denial-detail').textContent = d.detail || '';
+  denialBox.style.display = 'block';
+  document.body.classList.add('denied');
+}
+
+async function answerDenial(answer){
+  // THE CARD NEVER HIDES ON AN UNCONFIRMED CLICK -- the same rule the
+  // approve button had to learn the hard way. It goes away when the SERVER
+  // says the refusal is settled, via the denial_done push or the next poll
+  // serving no denial.
+  if (denialId === null || denialSending) return;
+  denialSending = true;
+  try {
+    const r = await fetch('/denial-reply', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: denialId, answer: answer}),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || 'server refused');
+  } catch (e) {
+    // Not silent. An empty catch here would hide his answer failing, which
+    // is the exact bug the approve button shipped twice.
+    document.getElementById('denial-ask').textContent =
+      'that did not reach Jarvis (' + (e.message || 'unknown') + ') — click again';
+  } finally {
+    denialSending = false;
+  }
+}
+
+document.getElementById('denial-go').onclick = () => answerDenial('continue');
+document.getElementById('denial-stop').onclick = () => answerDenial('leave');
+
+// ===== THE WHY BOX =====
+// Serge, 2026-08-07 ~9:54 PM: "The deny did not work as it should. When I
+// press the deny, there should be an inbox asking me why, and either me
+// entering the reason or saying the reason with my voice. That's what I'm
+// always waiting for."
+//
+// DENY NO LONGER SENDS THE REFUSAL BY ITSELF -- it opens this. The refusal
+// goes with his reason, in one post, so the reason is part of the refusal
+// rather than a message that arrives after Jarvis has already been told no
+// and has already started asking why.
+const whyWrap  = document.getElementById('why-wrap');
+const whyText  = document.getElementById('why-text');
+const whyNote  = document.getElementById('why-note');
+const whySpeak = document.getElementById('why-speak');
+
+function whySay(msg){ whyNote.textContent = msg || ''; }
+
+// A FUNCTION DECLARATION on purpose -- it hoists, so the Right Command
+// handlers far above can ask it. Reads the live style rather than a second
+// boolean: one source of truth for "is the box open" cannot drift from it.
+function whyIsOpen(){ return whyWrap.style.display === 'block'; }
+
+function openWhy(){
+  if (approvalId === null) return;
+  whyWrap.style.display = 'block';
+  whySay('');
+  whyText.focus();
+}
+
+function closeWhy(){
+  // Clears the text as well as hiding the box. A reason left sitting in a
+  // hidden field is the shape of every stale-state bug on this page: the
+  // NEXT refusal would silently carry the last one's words.
+  whyStopSpeaking(true);
+  whyWrap.style.display = 'none';
+  whyText.value = '';
+  whySay('');
+}
+
+function sendWhy(){
+  const said = whyText.value.trim();
+  if (!said) {
+    // Not a silent no-op: an empty SEND is him expecting something to
+    // happen. Say which button does that instead of ignoring the press.
+    whySay('nothing typed yet — say why, or use DENY WITHOUT A REASON');
+    return;
+  }
+  answerApproval(false, said);
+}
+
+document.getElementById('why-send').onclick = sendWhy;
+document.getElementById('why-skip').onclick = () => answerApproval(false, null);
+// Cmd/Ctrl+Enter sends. A bare Enter must NOT -- his reason is free text and
+// may run to several lines, and this page has already cost him one popup to
+// a stray Enter key.
+whyText.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendWhy(); }
+});
+
+// ---- speaking the reason --------------------------------------------
+// A SEPARATE CAPTURE PATH FROM THE TALK BUTTON, on purpose. This audio goes
+// to /reason-transcribe, which returns text and nothing else -- it opens no
+// turn and never reaches the brain. Sharing `capturing` with press()/release()
+// would mean a stray key-up could turn his refusal reason into a spoken turn
+// while a permission is pending, which is the one thing that must not happen.
+let whyCapturing = false, whyBufs = [], whyBusy = false;
+
+async function whyStartSpeaking(){
+  if (whyCapturing || whyBusy || capturing) return;
+  try { await ensureMic(); } catch(e) { whySay('microphone blocked — type it instead'); return; }
+  if (micCtx.state === 'suspended') await micCtx.resume();
+  whyBufs = [];
+  whyCapturing = true;
+  whySpeak.classList.add('hot');
+  whySpeak.textContent = 'LISTENING…';
+  whySay('');
+}
+
+async function whyStopSpeaking(discard){
+  if (!whyCapturing) return;
+  whyCapturing = false;
+  whySpeak.classList.remove('hot');
+  whySpeak.textContent = 'HOLD TO SPEAK';
+  const bufs = whyBufs;
+  whyBufs = [];
+  if (discard) return;
+  // Same rule as the talk button: count SAMPLES, not milliseconds. A capture
+  // with no audio makes whisper answer 400, and he gets nothing back with no
+  // idea why.
+  const n = bufs.reduce((t, b) => t + b.length, 0);
+  if (n < micCtx.sampleRate * MIN_CAP_S) {
+    whySay("didn't catch any audio — hold the button while you speak");
+    return;
+  }
+  whyBusy = true;
+  whySay('transcribing…');
+  try {
+    const r = await fetch('/reason-transcribe', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({audio: b64enc(encodeWav(bufs, micCtx.sampleRate))}),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || 'server refused');
+    const heard = (d.text || '').trim();
+    if (!heard) { whySay('heard only silence — try again, or type it'); return; }
+    // APPENDED, NEVER REPLACED, and he can edit it before sending. Speech to
+    // text is the one input on this page that is routinely almost-right, so
+    // overwriting what he already had would lose words he cannot get back.
+    whyText.value = whyText.value ? (whyText.value.trim() + ' ' + heard) : heard;
+    whySay('');
+    whyText.focus();
+  } catch (e) {
+    // Never silent, and it always names the way through: he can still type.
+    whySay((e.message || 'could not transcribe') + ' — type it instead');
+  } finally {
+    whyBusy = false;
+  }
+}
+
+whySpeak.addEventListener('pointerdown', (e) => { e.preventDefault(); whyStartSpeaking(); });
+// pointerup on the WINDOW, not the button: releasing with the cursor dragged
+// off the button would otherwise leave it capturing forever with no way back.
+whySpeak.addEventListener('pointerleave', () => { if (whyCapturing) whyStopSpeaking(false); });
+window.addEventListener('pointerup', () => { if (whyCapturing) whyStopSpeaking(false); });
+
 document.getElementById('approve-yes').onclick = () => answerApproval(true);
-document.getElementById('approve-no').onclick = () => answerApproval(false);
+// DENY OPENS THE BOX -- it does not send. Nothing is running while a
+// permission waits, so his words cost no time, and the refusal that reaches
+// Jarvis carries them.
+document.getElementById('approve-no').onclick = openWhy;
 
 // ---- a permission that went away without an answer -------------------
 //
