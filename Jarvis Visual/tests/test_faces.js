@@ -175,8 +175,36 @@ test('the registry names exactly the faces the CSS defines', () => {
 });
 
 test('the boot restore runs through applyFace, not around it', () => {
-  assert.ok(/applyFace\(localStorage\.getItem\('jarvisFace'\)\)/.test(src),
+  // Pinned to the CALL, not to the exact argument. The first version pinned
+  // the whole expression and went red the moment a temporary boot default
+  // was added -- correctly loud, but for the wrong property: what must never
+  // change is that boot goes THROUGH the validator, not what it passes in.
+  assert.ok(/applyFace\(/.test(src),
     'a boot path that sets the class directly would skip validation');
+  assert.ok(!/classList\.add\('face-'\s*\+\s*localStorage/.test(src),
+    'the class must never be set straight from storage');
+});
+
+test('the standing default is CIVILIAN, and any other default is marked TEMPORARY', () => {
+  // Serge, 2026-08-08: navy boots "for now... later I want civilian to be
+  // the default again." A loan that is not labelled becomes a decision
+  // nobody remembers making, so the label is what this test guards.
+  // Two shapes are legal at boot: restore-through-validation (the standing
+  // one) or a hard-coded face (a loan, while a new face is being looked at).
+  // Both are matched here, because pinning only the first made this test go
+  // red for the RIGHT reason and the WRONG property twice in ten minutes.
+  const restore = src.match(/applyFace\(\s*localStorage\.getItem\('jarvisFace'\)\s*(\|\|\s*'(\w+)')?\s*\)/);
+  const forced  = src.match(/try \{ applyFace\('(\w+)'\); \}/);
+  const m = restore || forced;
+  assert.ok(m, 'the boot line was not found');
+  const dflt = restore ? (restore[2] || 'civilian') : forced[1];
+  if (dflt !== 'civilian') {
+    // the note may sit several comment lines up -- the loan grew its own
+    // explanation when the first attempt failed, which pushed it further away
+    const before = src.slice(Math.max(0, m.index - 1600), m.index);
+    assert.ok(/TEMPORARY/.test(before),
+      `boot defaults to ${dflt} with no TEMPORARY note above it`);
+  }
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

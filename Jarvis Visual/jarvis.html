@@ -3524,6 +3524,15 @@ function currentFace() {
   for (const f of FACES) if (document.body.classList.contains('face-' + f)) return f;
   return 'civilian';
 }
+// Restored through validation: junk in storage falls back to civilian rather
+// than to an unstyled page (the clampVol lesson). CIVILIAN is the standing
+// default and it is today's look -- Serge, 2026-08-08, after seeing navy in
+// his own tab: "later I want civilian to be the default again."
+//
+// The loan that briefly forced navy is gone. What it taught stays in the
+// tests: the boot line PERSISTS what it applies, so a default can be vetoed
+// by the previous run's own save -- and any non-civilian default must carry
+// a TEMPORARY note or the suite goes red.
 try { applyFace(localStorage.getItem('jarvisFace')); } catch (e) { applyFace('civilian'); }
 
 function renderSessions(list){
