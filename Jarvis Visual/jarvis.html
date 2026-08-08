@@ -280,6 +280,42 @@
     text-transform: uppercase; white-space: nowrap;
   }
   #welcome.on { opacity: 0.5; }
+
+  /* The offer card. Bottom-right of the stage, deliberately away from the
+     talk button and clear of the waiting banner -- it must never sit where
+     his hand or his eye is already going. */
+  #offer {
+    position: absolute; right: 18px; bottom: 96px; z-index: 40;
+    width: 236px; padding: 11px 13px;
+    background: var(--bg-panel);
+    border: 1px solid rgba(var(--accent-rgb), 0.42);
+    border-radius: 2px;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity 420ms ease, visibility 0s linear 420ms;
+  }
+  #offer.on {
+    opacity: 1; visibility: visible; pointer-events: auto;
+    transition: opacity 420ms ease;
+  }
+  #offer .of-head {
+    font-size: 8.5px; letter-spacing: 0.28em; opacity: 0.5;
+    text-transform: uppercase;
+  }
+  #offer .of-job {
+    font-size: 14px; letter-spacing: 0.16em; color: var(--text);
+    text-transform: uppercase; margin-top: 4px;
+  }
+  /* The réplique -- his word for it. A suggestion with no case is a nag. */
+  #offer .of-why { font-size: 10px; opacity: 0.66; margin-top: 3px; }
+  #offer .of-btns { display: flex; gap: 6px; margin-top: 9px; }
+  #offer .of-btns button {
+    font: inherit; font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; cursor: pointer; flex: 1;
+    padding: 4px 0; border-radius: 2px;
+    color: var(--text-soft); background: transparent;
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+  }
+  #offer .of-btns button:hover { background: rgba(var(--accent-rgb), 0.14); }
   /* Usage moved up here from the left panel (Serge, 2026-08-05: the page "is
      starting to be crowded"). Three percentages are a glance, not a panel --
      the bars and reset clocks they used to carry are on the hover title, so
@@ -1676,6 +1712,18 @@
          shows while a question is pending -- the waiting banner owns the
          stage then, and two things asking for his eye is one too many. -->
     <div id="welcome">Welcome, Serge</div>
+    <!-- THE OFFER (Phase 7). It suggests; it never switches. Both buttons are
+         real answers: SWITCH takes it, STAY refuses it AND mutes that
+         suggestion for a long stretch, so the page can never nag. -->
+    <div id="offer" aria-hidden="true">
+      <div class="of-head">Suggestion</div>
+      <div class="of-job"></div>
+      <div class="of-why"></div>
+      <div class="of-btns">
+        <button id="offer-yes">Switch</button>
+        <button id="offer-no">Stay</button>
+      </div>
+    </div>
     <div id="status">CONNECTING</div>
     <div id="waiting">
       <div id="waiting-head">Waiting for your answer</div>
@@ -3744,6 +3792,68 @@ function applyJob(name) {
 }
 function currentJob() { return job; }
 
+// ---- THE OFFER (Phase 7, slice two) --------------------------------------
+// The page may SUGGEST a job. It may never take one. Serge, decision 2:
+// "Jarvis offers and I decide, but Jarvis can réplique" -- so the card carries
+// its one-line case, and SWITCH / STAY are the only two ways it resolves.
+//
+// Decision 14 ranks the trigger, and the ranking is structural even though
+// every number below is tunable: SILENCE beats PATIENCE beats EVIDENCE.
+//   silence  -- never while he speaks or types, never while a permission
+//               pends. An offer on top of a question he is being asked is
+//               the page interrupting its own interruption.
+//   patience -- not until the page has been quiet a while (his number: five
+//               minutes), and not until the signal itself has held steady.
+//   evidence -- only then does what the data says matter at all.
+const OFFER = {
+  QUIET_MS: 5 * 60 * 1000,   // his number, after I argued for one minute
+  HOLD_MS: 60 * 1000,        // a signal must mean it
+  MUTE_MS: 45 * 60 * 1000,   // a STAY is not a "ask me again in a minute"
+};
+
+// PURE. Given a snapshot, name the job the data argues for and the one-line
+// case for it -- or null when the data argues for nothing, which is the
+// common answer and must stay cheap to say.
+//
+// Every signal below is read from something the page ALREADY polls. Nothing
+// here infers a mood, and nothing invents a reading: the board-never-lies
+// doctrine applies to a suggestion exactly as it applies to a gauge.
+function suggestJob(sig) {
+  const tasks = sig.tasks || [];
+  const busy = tasks.filter(t => t.status === 'active' || t.status === 'test').length;
+  const waiting = tasks.filter(t => t.status === 'review').length;
+  const queued = tasks.filter(t => t.status === 'open').length;
+  // Ranked, most specific first. The order IS the design: two signals can be
+  // true at once, and the page must not oscillate between them.
+  if (busy > 0)
+    return { job: 'workshop', because: busy + (busy === 1 ? ' card is' : ' cards are') + ' in flight' };
+  if (waiting > 0)
+    return { job: 'briefing', because: waiting + ' waiting for your eyes' };
+  if (sig.ideasChanged)
+    return { job: 'brainstorm', because: 'the ideas note has changed' };
+  if (queued > 0 && (sig.sessionsBusy || 0) > 0)
+    return { job: 'watch', because: 'sessions working, nothing needs you' };
+  return null;
+}
+
+// PURE. Everything that can refuse an offer, in the order decision 14 ranks
+// them. Written as one function precisely so no caller can honour three of
+// the four rules -- the failure this project keeps paying for is a guard that
+// exists and is never consulted.
+function offerGate(g) {
+  if (!g.suggestion) return false;
+  if (g.suggestion === g.currentJob) return false;
+  // SILENCE
+  if (g.speaking || g.typing) return false;
+  if (g.permissionPending || g.questionPending) return false;
+  // PATIENCE
+  if ((g.quietMs || 0) < OFFER.QUIET_MS) return false;
+  if ((g.heldMs || 0) < OFFER.HOLD_MS) return false;
+  if ((g.mutedMsLeft || 0) > 0) return false;
+  // EVIDENCE has already spoken -- suggestion is its output.
+  return true;
+}
+
 // The switcher draws itself from the registries, never from markup. A button
 // can therefore only ever offer a face or a department that really exists.
 function renderSwitcher() {
@@ -4726,6 +4836,7 @@ async function poll(){
     // hidden until the route is really there. See verdictButtons().
     taskMoveOK = !!d.task_move;
     approvalPoll(d);
+    offerTick(d);
     // Stale-tab self-heal: the server stamps each served copy with its
     // file version and reports the live one here; a mismatch means this
     // tab missed a reload push -- reload between turns like any push.
@@ -5323,6 +5434,82 @@ const viewBtn = document.getElementById('viewbtn');
 const hintEl = document.getElementById('graph-hint');
 const labelEl = document.getElementById('label');
 let graphTimer = null, dragging = false, dragX = 0, dragY = 0;
+// ---- the offer's wiring (Phase 7) ---------------------------------------
+// The two pure functions above decide; this only measures and draws. Keeping
+// the measuring out of them is what makes the ranking testable at all.
+let offerHeldSince = 0, offerHeldJob = null, offerShown = null;
+let lastBusyAt = Date.now();          // the "quiet" clock
+const offerMuted = {};                 // job -> epoch ms until which it is muted
+let ideasSig = null, ideasChangedAt = 0;
+
+function offerTick(d) {
+  const now = Date.now();
+  // QUIET is measured from the last thing HE or Jarvis actually did. A page
+  // polling itself is not activity; that is the whole point of the clock.
+  if (webActive() || state === 'listening' || state === 'speaking'
+      || state === 'thinking' || capturing) lastBusyAt = now;
+
+  // The ideas signal, derived rather than announced: the note's own content
+  // is what changed, so its shape is the signal. A count would miss an edit.
+  const sig = JSON.stringify((d.ideas || []).map(i => i.title || i));
+  if (ideasSig !== null && sig !== ideasSig) ideasChangedAt = now;
+  ideasSig = sig;
+
+  const suggestion = suggestJob({
+    tasks: d.tasks || [],
+    ideasChanged: (now - ideasChangedAt) < 10 * 60 * 1000 && ideasChangedAt > 0,
+    sessionsBusy: (d.sessions || []).filter(s => s.busy).length,
+  });
+
+  // A signal only counts once it has HELD. Restarting the clock whenever the
+  // suggestion changes is what stops the page flickering between two jobs.
+  if (!suggestion || suggestion.job !== offerHeldJob) {
+    offerHeldJob = suggestion ? suggestion.job : null;
+    offerHeldSince = now;
+  }
+
+  const typedEl2 = document.getElementById('typed');
+  const show = offerGate({
+    suggestion: suggestion ? suggestion.job : null,
+    currentJob: job,
+    speaking: state === 'speaking' || state === 'listening' || capturing,
+    typing: !!(typedEl2 && document.activeElement === typedEl2 && typedEl2.value),
+    permissionPending: document.body.classList.contains('alert'),
+    questionPending: !!waitingQ,
+    quietMs: now - lastBusyAt,
+    heldMs: now - offerHeldSince,
+    mutedMsLeft: Math.max(0, (offerMuted[suggestion ? suggestion.job : ''] || 0) - now),
+  });
+
+  const card = document.getElementById('offer');
+  if (!card) return;
+  if (show && suggestion) {
+    if (offerShown !== suggestion.job) {
+      card.querySelector('.of-job').textContent = deptName(currentFace(), suggestion.job);
+      card.querySelector('.of-why').textContent = suggestion.because;
+      offerShown = suggestion.job;
+    }
+    card.classList.add('on');
+    card.setAttribute('aria-hidden', 'false');
+  } else {
+    card.classList.remove('on');
+    card.setAttribute('aria-hidden', 'true');
+    offerShown = null;
+  }
+}
+
+function offerAnswer(take) {
+  const j = offerShown;
+  const card = document.getElementById('offer');
+  if (card) { card.classList.remove('on'); card.setAttribute('aria-hidden', 'true'); }
+  offerShown = null;
+  if (!j) return;
+  // A STAY is a real answer, not a dismissal: it mutes THAT suggestion for a
+  // long stretch, so the page cannot ask again in a minute. Nothing switches
+  // without this click.
+  if (take) applyJob(j); else offerMuted[j] = Date.now() + OFFER.MUTE_MS;
+}
+
 // Extracted from the button's handler in Phase 7 so the JOB dial can reach
 // the stage WITHOUT a second code path. The plan's own rule for jobs is that
 // a job may only invoke a control that already exists; a job that reimplemented
@@ -5350,6 +5537,13 @@ viewBtn.onclick = () => setView(view === 'avatar' ? 'graph' : 'avatar');
 // Restored THROUGH VALIDATION, the clampVol lesson: junk in storage restores
 // to `watch`, never to an unarranged page.
 try { applyJob(localStorage.getItem('jarvisJob')); } catch (e) { applyJob('watch'); }
+
+{
+  const y = document.getElementById('offer-yes');
+  const n = document.getElementById('offer-no');
+  if (y) y.onclick = () => offerAnswer(true);
+  if (n) n.onclick = () => offerAnswer(false);
+}
 cv.addEventListener('mousedown', (e) => {
   if (view !== 'graph') return;
   dragging = true; dragX = e.clientX; dragY = e.clientY;
