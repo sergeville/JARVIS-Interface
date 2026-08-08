@@ -1582,12 +1582,25 @@
   #lines .you    { color: rgba(var(--accent-rgb), 0.92); }
   #lines .jarvis { color: var(--text-bright); opacity: 0.88; }
 
-  #cmd-sec { flex-shrink: 0; margin-top: auto; }
+  /* PHASE 3. The bar spans the page under #main. `margin-top: auto` went
+     with the move -- it was the trick that pinned the group to the bottom of
+     the right column, and it has nothing to do here. */
+  #cmdbar {
+    padding: 8px 20px;
+    border-top: 1px solid rgba(var(--accent-rgb), 0.18);
+    background: var(--bg-bar);
+  }
+  #cmd-sec { flex-shrink: 0; }
+  #cmd-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 5px;
+  }
+  #cmd-wave { flex: none; width: 200px; height: 26px; opacity: 0.85; }
   #cmd-hint {
     font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
     color: rgba(var(--accent-rgb), 0.4); margin-top: 7px;
   }
-  #cmd { display: flex; gap: 6px; }
+  #cmd { display: flex; gap: 6px; align-items: center; }
   #typed {
     flex: 1; min-width: 0;
     background: var(--bg-input);
@@ -1871,23 +1884,47 @@
     </div>
     <!-- The activity log used to live here. It is now an overlay on the
          stage (see #log in the stylesheet) -- this column is state only. -->
-    <div id="cmd-sec">
-      <div class="sec-title">Command Input</div>
-      <div id="cmd">
-        <input id="typed" placeholder="Type a command or question..." autocomplete="off">
-        <button id="send">&#9654;</button>
-      </div>
-      <!-- One row per attached image, built by renderAttachments(). It was a
-           single fixed chip until 2026-08-05, which is why a second image
-           replaced the first instead of joining it. -->
-      <div id="attach"></div>
+    <!-- THE COMMAND GROUP MOVED OUT in Phase 3, to the full-width bar below
+         #main. It sat here because the right column was where state lived;
+         it is not state, it is the way in. See #cmdbar. -->
+  </div>
+
+</div>
+
+<!-- PHASE 3 -- THE COMMAND BAR. The plan's one structural move: the typed
+     input, send, the attach queue, the hint and the mic line leave the right
+     column for a full-width strip above the status bar.
+     WHY IT IS SAFE TO MOVE: every binding in the script reaches these by id
+     or by element reference, and the Right-Command focus guard compares
+     `document.activeElement !== typedEl`, which is position-independent. What
+     the old page tests CANNOT prove is placement -- they slice JS out of the
+     source and are blind to where the markup sits -- so this phase carries
+     its own placement tests and a live walkthrough of every behaviour that
+     lives in this code: images riding a spoken turn, the old-server
+     degradation ladder, tap-vs-hold, interrupt suppression under a pending
+     approval, the held-behind-approval message, and terminal-line routing. -->
+<div id="cmdbar">
+  <div id="cmd-sec">
+    <div id="cmd">
+      <input id="typed" placeholder="How can I assist you today, Serge?" autocomplete="off">
+      <button id="send">&#9654;</button>
+      <!-- Driven by the level data the stage already computes -- no second
+           meter, no new source of truth. It is the concept's waveform strip,
+           and it says the one thing this bar cannot otherwise show: the
+           microphone is hearing you. -->
+      <canvas id="cmd-wave" width="200" height="26"></canvas>
+    </div>
+    <!-- One row per attached image, built by renderAttachments(). It was a
+         single fixed chip until 2026-08-05, which is why a second image
+         replaced the first instead of joining it. -->
+    <div id="attach"></div>
+    <div id="cmd-foot">
       <!-- The hint sits with the thing it describes, not in the far bottom
            corner of the page where it used to duplicate the talk button. -->
       <div id="cmd-hint">Enter to send &nbsp;&middot;&nbsp; hold Right &#8984; to talk</div>
       <div id="micline" class="dim">&#9679; standing by</div>
     </div>
   </div>
-
 </div>
 
 <!-- The bottom bar is the status bar now (Serge, 2026-08-05). AI CORE and
@@ -5687,6 +5724,34 @@ cv.addEventListener('wheel', (e) => {
   gZoom = Math.max(0.35, Math.min(3, gZoom * (e.deltaY < 0 ? 1.08 : 0.92)));
 }, {passive: false});
 
+// The command bar's waveform (Phase 3). It is fed the SAME smoothed level the
+// stage ring is drawn from -- passed in rather than re-read, so the two can
+// never disagree about how loud he is. A second meter with its own source is
+// how two instruments start telling different stories about one microphone.
+const cmdWave = document.getElementById('cmd-wave');
+const cmdWaveHist = [];
+function drawCmdWave(lv) {
+  if (!cmdWave) return;
+  const g = cmdWave.getContext('2d');
+  const W2 = cmdWave.width, H2 = cmdWave.height;
+  cmdWaveHist.push(lv);
+  while (cmdWaveHist.length > W2 / 3) cmdWaveHist.shift();
+  g.clearRect(0, 0, W2, H2);
+  const style = getComputedStyle(document.body);
+  g.strokeStyle = 'rgba(' + style.getPropertyValue('--accent-rgb').trim() + ', 0.75)';
+  g.lineWidth = 1;
+  g.beginPath();
+  // Right-anchored, like the sparklines: the newest sample is always at the
+  // same edge, so a glance at the same pixel always means "now".
+  for (let i = 0; i < cmdWaveHist.length; i++) {
+    const x = W2 - (cmdWaveHist.length - i) * 3;
+    const a = Math.min(1, cmdWaveHist[i] * 3) * (H2 / 2 - 1);
+    g.moveTo(x, H2 / 2 - a);
+    g.lineTo(x, H2 / 2 + a);
+  }
+  g.stroke();
+}
+
 let t = 0, smooth = 0;
 function draw(){
   requestAnimationFrame(draw);
@@ -5721,6 +5786,7 @@ function draw(){
     const avS = document.getElementById('avcard-state');
     if (avS) avS.textContent = capturing ? 'LISTENING' : (LABELS[state] || state);
   }
+  drawCmdWave(smooth);
   renderMicLine();
 
   ctx.clearRect(0, 0, W, H);
