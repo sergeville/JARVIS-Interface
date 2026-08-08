@@ -69,6 +69,11 @@
             "type": "command",
             "command": "python3 {{JARVIS_ROOT}}/voice-line/question_hook.py stop",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "python3 {{JARVIS_ROOT}}/vault-tools/session_record.py",
+            "timeout": 15
           }
         ]
       }

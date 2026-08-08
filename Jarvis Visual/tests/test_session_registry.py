@@ -501,6 +501,31 @@ if len(SETTINGS) == 2:
                 for p in SETTINGS.values()]
         check(f"both files run the identical {event} command", cmds[0], cmds[1])
 
+# THE WHOLE HOOK SET, not a list of the ones anyone remembered (2026-08-08).
+#
+# The drift this catches actually happened: both rendered files ran
+# `vault-tools/session_record.py` on Stop -- the hook that writes a terminal
+# session's transcript -- and the TEMPLATE did not. Every check above passed,
+# because each one names the hooks it is looking for, and nothing named that
+# one. A fresh install from this repo would have produced a Jarvis whose
+# terminal sessions were never recorded, and nothing would have said so.
+#
+# So this compares the SETS, in both directions: a hook the machine has and
+# the template lacks means the next install loses it, and a hook the template
+# has that the machine lacks means this machine is behind its own installer.
+# An enumerated guard is defeated by the first thing nobody thought of; a
+# set comparison fails closed on anything either side gains or loses.
+def hook_sets(cfg):
+    return {event: sorted(filter(None, hook_commands(cfg, event)))
+            for event in cfg.get("hooks", {})}
+
+
+_tpl_rendered = json.loads(_tpl_text.replace("{{JARVIS_ROOT}}", ROOT))
+for where, path in SETTINGS.items():
+    check(f"{where} settings.json and the template carry the SAME hooks",
+          hook_sets(json.loads(Path(path).read_text())),
+          hook_sets(_tpl_rendered))
+
 # The registry hooks were ADDED alongside the question_hook ones, never in
 # place of them -- losing those costs the page's permission card.
 for where, path in SETTINGS.items():
