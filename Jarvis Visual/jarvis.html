@@ -197,6 +197,34 @@
     background: var(--bg-bar);
   }
   #instr-left, #instr-right { display: flex; align-items: center; gap: 16px; }
+
+  /* THE TWO DIALS (Phase 7). Deliberately quiet: they are settings, not
+     instruments, and this row is already the page's busiest strip. */
+  #switcher { display: flex; align-items: center; gap: 6px; }
+  #switcher .sw-label {
+    font-size: 8.5px; letter-spacing: 0.24em; opacity: 0.45;
+    text-transform: uppercase;
+  }
+  #switcher .sw-label + span { display: flex; gap: 4px; margin-right: 8px; }
+  button.sw {
+    font: inherit; font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; cursor: pointer;
+    padding: 2px 7px; border-radius: 2px;
+    color: var(--text-soft); background: transparent;
+    border: 1px solid rgba(var(--accent-rgb), 0.22);
+  }
+  button.sw:hover { background: rgba(var(--accent-rgb), 0.12); }
+  /* The current one is stated, not merely lit -- a dial you cannot read at a
+     glance costs a click to find out where you are. */
+  button.sw.on {
+    color: var(--text); border-color: rgba(var(--accent-rgb), 0.65);
+    background: rgba(var(--accent-rgb), 0.16);
+  }
+
+  /* THE TYPE SCALE rides the JOB, never the face (decision 1). One multiplier
+     on the panels' text so a job can make the page easier to read across the
+     room without moving a single element. */
+  #left, #right { font-size: calc(12px * var(--type-scale, 1)); }
   /* THE STACKED CLOCK (Phase 2). The concept's top-right block is a large
      time over a small tracked date caption -- one glance for the hour, the
      date available without taking a second line of the bar. Same 1 s tick as
@@ -1575,6 +1603,18 @@
     <div id="topbar-usage" title=""></div>
   </div>
   <div id="instr-right">
+    <!-- PHASE 7 -- the two dials. FACE is style, JOB is arrangement; they sit
+         side by side because they are peers, and they are labelled with the
+         face's own language: DEPT in the service faces, JOB in civilian, so
+         the vocabulary is never a riddle. Both are filled by renderSwitcher()
+         from the registries -- no name is written into this markup, or the
+         page could offer a face or a department that does not exist. -->
+    <div id="switcher">
+      <span class="sw-label" id="face-label">FACE</span>
+      <span id="face-dial"></span>
+      <span class="sw-label" id="job-label">JOB</span>
+      <span id="job-dial"></span>
+    </div>
     <button id="usage-toggle" class="paused" title="Polling costs tokens -- each poll asks Claude Code directly">PAUSED</button>
     <!-- Silences the SPEAKERS only: Jarvis keeps going and the text keeps
          writing, so nothing is lost while someone is talking to Serge. -->
@@ -3644,6 +3684,96 @@ function currentFace() {
 // a TEMPORARY note or the suite goes red.
 try { applyFace(localStorage.getItem('jarvisFace')); } catch (e) { applyFace('civilian'); }
 
+// ---- the JOB dial (Phase 7) ----------------------------------------------
+// The second dial, and it does the OTHER thing: a face changes how the page
+// looks, a job changes how it is arranged. Neither does the other's work
+// (decision 1) -- which is why the type scale rides the JOB and no face may
+// touch layout.
+//
+// A job may only SHOW, HIDE or EMPHASISE instruments that already exist. It
+// never invents data, and it reaches the stage through setView(), the same
+// function the Vault Graph button calls -- one code path, per the plan.
+//
+// THE ONE EXEMPTION, decision 9: no job may hide the avatar. It is furniture
+// (decision 12), and furniture that moves is a screen that rearranges itself.
+const JOBS = {
+  briefing:   { stage: 'avatar', typeScale: 1.08 },
+  workshop:   { stage: 'avatar', typeScale: 1.00 },
+  brainstorm: { stage: 'avatar', typeScale: 1.00 },
+  // WATCH IS AVATAR, NOT GRAPH -- and this is a deliberate deferral, not the
+  // plan being ignored. The plan gives watch the vault-graph stage; decision 9
+  // says NO job may hide the avatar, at worst demoting it to its own card. The
+  // graph replaces the avatar outright, and that card exists only in the
+  // prototype. Serge ruled on the conflict, 2026-08-08 ~6:45 PM: "Keep the
+  // avatar." So watch keeps it, and the graph stage comes back the day the
+  // avatar card ships -- one word in this line, guarded by the test below.
+  watch:      { stage: 'avatar', typeScale: 0.96 },
+};
+const JOB_NAMES = Object.keys(JOBS);
+
+// DEPARTMENTS -- the naming layer, decision 7's approved table, exactly.
+// Names only: no behaviour attaches to a department beyond its job's. The
+// three service faces call the four universal jobs by their own language;
+// civilian says the plain word, which is why its column repeats the job name.
+const DEPTS = {
+  navy:      { briefing: 'COMMS',   workshop: 'ENGINEERING', brainstorm: 'CHART ROOM', watch: 'BRIDGE' },
+  army:      { briefing: 'SIGNALS', workshop: 'MOTOR POOL',  brainstorm: 'WAR ROOM',   watch: 'COMMAND POST' },
+  airforce:  { briefing: 'FLIGHT BRIEF', workshop: 'HANGAR', brainstorm: 'PLANNING',   watch: 'TOWER' },
+  civilian:  { briefing: 'BRIEFING', workshop: 'WORKSHOP',   brainstorm: 'BRAINSTORM', watch: 'WATCH' },
+};
+// A face with no table falls back to the universal job name rather than to an
+// empty button -- a switcher with a blank label is unusable, and army and
+// airforce are faces that do not exist yet.
+function deptName(face, job) {
+  const row = DEPTS[face];
+  const name = row && row[job];
+  return name || job.toUpperCase();
+}
+
+let job = 'watch';
+function applyJob(name) {
+  const j = JOB_NAMES.includes(name) ? name : 'watch';
+  for (const n of JOB_NAMES) document.body.classList.remove('job-' + n);
+  document.body.classList.add('job-' + j);
+  document.body.style.setProperty('--type-scale', String(JOBS[j].typeScale));
+  job = j;
+  setView(JOBS[j].stage);
+  try { localStorage.setItem('jarvisJob', j); } catch (e) {}
+  renderSwitcher();
+  return j;
+}
+function currentJob() { return job; }
+
+// The switcher draws itself from the registries, never from markup. A button
+// can therefore only ever offer a face or a department that really exists.
+function renderSwitcher() {
+  const fd = document.getElementById('face-dial');
+  const jd = document.getElementById('job-dial');
+  if (!fd || !jd) return;
+  const face = currentFace();
+  const build = (host, items, active, label, onPick) => {
+    host.textContent = '';
+    for (const it of items) {
+      const b = document.createElement('button');
+      b.className = 'sw' + (it === active ? ' on' : '');
+      b.textContent = label(it);
+      b.title = label(it) + (it === active ? ' — current' : '');
+      b.onclick = () => onPick(it);
+      host.appendChild(b);
+    }
+  };
+  build(fd, FACES, face, (f) => f.toUpperCase(), (f) => { applyFace(f); renderSwitcher(); });
+  // Hovering a department names the universal job underneath, so the two
+  // vocabularies never have to be memorised against each other.
+  build(jd, JOB_NAMES, job, (j) => deptName(face, j), (j) => applyJob(j));
+  for (const b of jd.children) {
+    const j = JOB_NAMES[[...jd.children].indexOf(b)];
+    b.title = deptName(face, j) + ' · the ' + j + ' job';
+  }
+  const jl = document.getElementById('job-label');
+  if (jl) jl.textContent = (face === 'civilian') ? 'JOB' : 'DEPT';
+}
+
 function renderSessions(list){
   const card = document.getElementById('sessions');
   const body = document.getElementById('sessions-body');
@@ -5193,8 +5323,12 @@ const viewBtn = document.getElementById('viewbtn');
 const hintEl = document.getElementById('graph-hint');
 const labelEl = document.getElementById('label');
 let graphTimer = null, dragging = false, dragX = 0, dragY = 0;
-viewBtn.onclick = () => {
-  view = view === 'avatar' ? 'graph' : 'avatar';
+// Extracted from the button's handler in Phase 7 so the JOB dial can reach
+// the stage WITHOUT a second code path. The plan's own rule for jobs is that
+// a job may only invoke a control that already exists; a job that reimplemented
+// the view swap would be a second place for the graph timer to leak.
+function setView(v) {
+  view = (v === 'graph') ? 'graph' : 'avatar';
   viewBtn.textContent = view === 'graph' ? 'Avatar' : 'Vault Graph';
   labelEl.textContent = view === 'graph' ? 'V A U L T' : 'J A R V I S';
   hintEl.style.display = view === 'graph' ? 'block' : 'none';
@@ -5205,7 +5339,17 @@ viewBtn.onclick = () => {
     loadGraph();
     graphTimer = setInterval(loadGraph, 30000);
   } else if (graphTimer) { clearInterval(graphTimer); graphTimer = null; }
-};
+}
+viewBtn.onclick = () => setView(view === 'avatar' ? 'graph' : 'avatar');
+
+// The job is restored HERE rather than beside the registry, and the reason is
+// mechanical: applyJob() calls setView(), which closes over `viewBtn` -- a
+// const declared just above. Restoring at the registry would run inside its
+// temporal dead zone and throw at boot.
+//
+// Restored THROUGH VALIDATION, the clampVol lesson: junk in storage restores
+// to `watch`, never to an unarranged page.
+try { applyJob(localStorage.getItem('jarvisJob')); } catch (e) { applyJob('watch'); }
 cv.addEventListener('mousedown', (e) => {
   if (view !== 'graph') return;
   dragging = true; dragX = e.clientX; dragY = e.clientY;
