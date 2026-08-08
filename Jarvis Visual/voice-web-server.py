@@ -279,6 +279,16 @@ def read_ideas() -> list[dict]:
         stripped = line.strip()
         if not stripped:
             continue
+        # AN EMBEDDED IMAGE IS NOT A PARAGRAPH. `![[concept.png]]` is a
+        # picture in Obsidian and nothing at all on this panel -- the strip
+        # below would turn it into the bare line "!concept.png", which reads
+        # as though Serge's thinking contained a filename. Better to say
+        # nothing than to read the plumbing out loud. (Serge, 2026-08-07
+        # ~8:10 PM, on putting the concept images beside the words that
+        # introduce them: the note is now the human-readable one, and the
+        # panel is a different reader with different limits.)
+        if stripped.startswith("![["):
+            continue
         for mark in ("**", "*", "`", "[[", "]]", "> "):
             stripped = stripped.replace(mark, "")
         if stripped.startswith("- "):
@@ -286,6 +296,193 @@ def read_ideas() -> list[dict]:
         cur["body"].append(stripped)
     _IDEA_CACHE.update({"mtime": mtime, "ideas": ideas})
     return ideas
+
+
+# --- the spoken words behind an idea ------------------------------------
+#
+# Serge, 2026-08-07 ~6:12 PM, right after the expand landed: "and then we
+# figured it would be transcript." The note holds the WRITTEN-UP thinking; this
+# hands back what was actually SAID at the moment the idea came up.
+#
+# THE ANCHOR ALREADY EXISTS AND WAS NOT INVENTED FOR THIS. Every idea's prose
+# cites its own moment -- "Serge's, 2026-08-07 ~7:56 AM", "came off the board
+# ~4:40 PM" -- because a session writing an idea down records when it was said.
+# So the times are read out of the body rather than stored in a new field: a
+# second place to keep the same fact is a second place for it to go wrong.
+#
+# TWO THINGS ARE STRUCTURAL, NOT STYLE:
+#   1. NO PATH IS EVER BUILT FROM PARSED TEXT. The transcripts directory is
+#      listed and a date only ever LOOKS UP an already-existing file. A date
+#      that matches nothing yields nothing -- there is no filename to poison,
+#      because no filename is ever constructed.
+#   2. The route takes ONE INTEGER, an index into the ideas already served.
+#      The date, the window and the file are all resolved server-side. Same
+#      rule the ambient routes are built on: the caller names no file.
+#
+# And the honest limit, said out loud rather than hidden: the times in the note
+# are APPROXIMATE ("~4:40 PM"), so this is a WINDOW around a remembered moment,
+# not an exact citation. The window is labelled on the page for that reason.
+IDEA_TX_BEFORE_S = 5 * 60      # a little lead-in -- the ask has a run-up
+IDEA_TX_AFTER_S = 20 * 60      # the talking-it-through that follows it
+IDEA_TX_MAX_ANCHORS = 4
+IDEA_TX_MAX_LINES = 60
+# A date, or a clock time. Ordered alternation on purpose: whichever comes
+# first in the prose wins, so a time inherits the date most recently named.
+_IDEA_WHEN_RE = re.compile(
+    r"(\d{4}-\d{2}-\d{2})|(\d{1,2}):(\d{2})\s*([AaPp])\.?[Mm]\.?")
+_TX_LINE_RE = re.compile(
+    r"^\s*-\s*\*\*(\d{2}):(\d{2}):(\d{2})\s+([^:*]+):\*\*\s*(.*)$")
+
+
+def _idea_anchors(idea: dict) -> list[tuple[str, int]]:
+    """(date, seconds-into-the-day) for every moment an idea's prose names.
+
+    `raised` is the fallback date, and it is the right one: an idea written up
+    without a date in its prose was said on the day it was raised.
+    """
+    day = (idea.get("raised") or "").strip()
+    out: list[tuple[str, int]] = []
+    for line in idea.get("body", []):
+        for m in _IDEA_WHEN_RE.finditer(line):
+            if m.group(1):
+                day = m.group(1)
+                continue
+            if not day:
+                continue
+            hour, minute = int(m.group(2)), int(m.group(3))
+            if hour > 12 or minute > 59:
+                continue
+            hour %= 12                       # 12 AM is hour 0, 12 PM is 12
+            if m.group(4).lower() == "p":
+                hour += 12
+            at = (day, hour * 3600 + minute * 60)
+            if at not in out:
+                out.append(at)
+    out.sort()
+    return out[:IDEA_TX_MAX_ANCHORS]
+
+
+def _transcript_days() -> dict[str, list[Path]]:
+    """The transcript files that actually exist, by date. A date may have several.
+
+    THIS IS THE WHOLE SECURITY MODEL and it is deliberately dull: the directory
+    is listed, and a parsed date can only ever match a key that is already
+    here. Nothing concatenates a date onto a path, so there is no string to
+    escape and no `..` to defend against.
+
+    A DAY HAS MORE THAN ONE CHANNEL. `2026-08-07.md` is what was said out loud
+    and `2026-08-07-terminal.md` is what was typed, and Serge had both
+    conversations at once all that day. Keying on the leading date rather than
+    the whole filename is what lets one window show the day he actually had
+    instead of half of it -- his own words, 2026-08-07 ~7:20 PM, on why the
+    typed side had to be recorded at all: "so we don't lose anything."
+    """
+    out: dict[str, list[Path]] = {}
+    try:
+        found = list(voice_signals.TRANSCRIPTS_DIR.glob("*.md"))
+    except OSError:
+        return {}
+    for p in found:
+        if not p.is_file():
+            continue
+        day = p.stem[:10]
+        # A stem that is not a date is not a day's transcript. It is skipped
+        # rather than filed under something -- a note dropped into that folder
+        # must not become a "day" nobody can explain.
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            continue
+        out.setdefault(day, []).append(p)
+    for paths in out.values():
+        paths.sort()
+    return out
+
+
+def read_idea_transcript(index: int) -> dict:
+    """The spoken lines around the moments one idea's prose names."""
+    ideas = read_ideas()
+    if not isinstance(index, int) or not 0 <= index < len(ideas):
+        return {"ok": False, "why": "no such idea"}
+    idea = ideas[index]
+    anchors = _idea_anchors(idea)
+    if not anchors:
+        return {"ok": True, "title": idea.get("title", ""), "windows": [],
+                "why": "this idea's write-up names no time, so there is "
+                       "nothing to look up"}
+
+    days = _transcript_days()
+    # Overlapping windows are MERGED rather than served twice -- two nearby
+    # anchors otherwise repeat the same conversation under two headings, which
+    # reads as two separate discussions of the idea when it was one.
+    spans: list[list] = []
+    for day, sec in anchors:
+        lo, hi = sec - IDEA_TX_BEFORE_S, sec + IDEA_TX_AFTER_S
+        if spans and spans[-1][0] == day and lo <= spans[-1][2]:
+            spans[-1][2] = max(spans[-1][2], hi)
+            continue
+        spans.append([day, lo, hi])
+
+    windows, shown, dropped, missing = [], 0, 0, []
+    for day, lo, hi in spans:
+        paths = days.get(day)
+        if not paths:
+            missing.append(day)
+            continue
+        # Both channels of the day, INTERLEAVED BY THE CLOCK rather than shown
+        # as two blocks. He was in both conversations at once, so the order he
+        # lived them in is the order that reads true.
+        found = []
+        for path in paths:
+            try:
+                text = path.read_text()
+            except OSError:
+                continue
+            for raw in text.splitlines():
+                m = _TX_LINE_RE.match(raw)
+                if not m:
+                    continue
+                sec = (int(m.group(1)) * 3600 + int(m.group(2)) * 60
+                       + int(m.group(3)))
+                if not lo <= sec <= hi:
+                    continue
+                found.append((sec, {
+                    "t": f"{m.group(1)}:{m.group(2)}",
+                    "who": m.group(4).strip(), "text": m.group(5).strip(),
+                    # Which conversation it was. The page marks the typed side,
+                    # because "he said this" and "he typed this" are different
+                    # facts and the record should not blur them.
+                    "channel": "terminal" if path.stem.endswith("-terminal")
+                               else "voice"}))
+        found.sort(key=lambda x: x[0])
+        lines = []
+        for _sec, item in found:
+            if shown >= IDEA_TX_MAX_LINES:
+                dropped += 1
+                continue
+            shown += 1
+            lines.append(item)
+        if lines:
+            windows.append({"date": day, "from": _clock(lo), "to": _clock(hi),
+                            "lines": lines})
+    out = {"ok": True, "title": idea.get("title", ""), "windows": windows}
+    # NO SILENT CAPS. If a line was left out, the page is told how many, so a
+    # partial answer can never read as the whole conversation.
+    if dropped:
+        out["dropped"] = dropped
+    if missing:
+        out["missing"] = sorted(set(missing))
+    if not windows and not missing:
+        out["why"] = "nothing was recorded in that stretch of the day"
+    elif not windows:
+        out["why"] = "no transcript was kept for " + ", ".join(sorted(set(missing)))
+    return out
+
+
+def _clock(sec: int) -> str:
+    """Seconds-into-the-day as Serge reads a clock, not as a machine does."""
+    sec = max(0, min(24 * 3600 - 1, sec))
+    hour, minute = sec // 3600, (sec % 3600) // 60
+    suffix = "AM" if hour < 12 else "PM"
+    return f"{hour % 12 or 12}:{minute:02d} {suffix}"
 
 
 def scan_vault_graph() -> dict:
@@ -1691,6 +1888,28 @@ async def history(request: web.Request) -> web.Response:
                              headers={"Cache-Control": "no-store"})
 
 
+async def idea_transcript(request: web.Request) -> web.Response:
+    """The spoken words behind one idea. Fetched on click, never polled.
+
+    Deliberately NOT folded into /signals: the panel is polled continuously and
+    five ideas' worth of raw conversation on every tick would be paying, all
+    day, for something Serge looks at occasionally.
+
+    The ONLY thing the caller supplies is an integer. A non-integer is not a
+    lookup that misses -- it is a request that was never valid, so it is
+    refused rather than quietly treated as idea zero.
+    """
+    raw = request.query.get("i", "")
+    try:
+        index = int(raw)
+    except (TypeError, ValueError):
+        return web.json_response({"ok": False, "why": "no such idea"},
+                                 status=400,
+                                 headers={"Cache-Control": "no-store"})
+    return web.json_response(read_idea_transcript(index),
+                             headers={"Cache-Control": "no-store"})
+
+
 async def graph(request: web.Request) -> web.Response:
     return web.json_response(scan_vault_graph(),
                              headers={"Cache-Control": "no-store"})
@@ -1973,6 +2192,7 @@ def main() -> None:
         web.get("/signals", signals),
         web.get("/history", history),
         web.get("/graph", graph),
+        web.get("/idea-transcript", idea_transcript),
         web.get("/ambient-list", ambient_list),   # remove with the AMBIENT block
         *[web.get(u, _serve_ambient(f)) for u, f, _t in AMBIENT_TRACKS],
         web.get("/usage-poll", usage_poll),

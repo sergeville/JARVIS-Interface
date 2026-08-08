@@ -209,6 +209,24 @@ class ItNeverCountsHowLongAnIdeaHasWaited(Base):
                              f"read_ideas consults the clock ({call}) -- the "
                              "only date here is the one Serge said out loud")
 
+    def test_an_embedded_image_is_not_read_out_as_thinking(self):
+        # Obsidian renders `![[concept.png]]` as a picture; this panel cannot,
+        # and the markup strip would leave the bare line "!concept.png" sitting
+        # in the middle of his reasoning. Saying nothing beats reading the
+        # plumbing aloud. Caught on the live page the moment the JarvisOS
+        # concept images were embedded beside the words that introduced them.
+        ideas = self.parse("## Open ideas\n\n### T\n- raised: 2026-08-07\n\n"
+                           "the argument\n\n![[JarvisOS5000-concept.png]]\n\n"
+                           "and the rest of it\n")
+        self.assertEqual(ideas[0]["body"], ["the argument",
+                                            "and the rest of it"])
+
+    def test_a_wikilink_in_prose_is_still_kept(self):
+        # The embed skip must not swallow ordinary links -- those ARE thinking.
+        ideas = self.parse("## Open ideas\n\n### T\n- raised: 2026-08-07\n\n"
+                           "see [[Engineering Lessons]] for why\n")
+        self.assertEqual(ideas[0]["body"], ["see Engineering Lessons for why"])
+
     def test_the_reason_is_written_where_the_next_person_will_look(self):
         body = vws.read_ideas.__doc__ or ""
         self.assertIn("nag", body.lower(),

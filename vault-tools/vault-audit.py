@@ -56,6 +56,30 @@ TYPE = {"index", "reference", "guide", "plan", "log"}
 ROOT_INDEX = "VAULT-INDEX"
 
 WIKILINK = re.compile(r"\[\[([^\]|#]+)")
+
+# THE MIRRORED ASSETS -- vault copy, working original.
+#
+# Serge, 2026-08-07 ~8:00 PM, on the tradeoff being named out loud rather than
+# waved past: "do what needs to be done so I don't lose track... that's going
+# to be a reference point in a near future discussion."
+#
+# The concept images exist TWICE on purpose. Obsidian cannot embed a file
+# outside the vault, so a vault copy is the only way the picture is visible
+# where the idea is read; and the originals stay in `Jarvis Visual/references/`
+# because CLAUDE.md names that folder as the home for design references and
+# several notes cite that path as a record of what was filed where.
+#
+# TWO COPIES DRIFT. That is not a maybe, it is what copies do -- and the whole
+# point of these images is to be a reference point in a LATER conversation, by
+# which time nobody will remember which one was revised. So the rule ("revise
+# in references/, re-copy to the vault") is not left to memory: this checks it.
+# A rule enforced only by remembering is not enforced.
+MIRRORED_ASSETS = [
+    ("02 - Learning AI/JarvisOS5000-concept.png",
+     "Jarvis Visual/references/JarvisOS5000.png"),
+    ("02 - Learning AI/JarvisOS5000-concept-v2.png",
+     "Jarvis Visual/references/JarvisOS5000-concept-v2.png"),
+]
 FENCE = re.compile(r"```.*?```", re.S)
 INLINE_CODE = re.compile(r"`[^`\n]*`")
 
@@ -137,6 +161,17 @@ def audit(vault: Path) -> list[tuple[str, str]]:
             # which is how two notes sharing a name are told apart. Resolve to
             # the final segment before calling it broken.
             target = target.rstrip("/").split("/")[-1]
+            # AN EMBED IS NOT A NOTE LINK. `![[picture.png]]` points at a FILE
+            # in the vault, and it resolves if that file is there -- checking
+            # it against note stems would report every image as broken, which
+            # is the fastest way to teach someone to ignore this tool.
+            if "." in target and not target.endswith(".md"):
+                if not any(f.name == target for f in vault.rglob("*")
+                           if f.is_file()):
+                    problems.append(("missing file",
+                                     f"{p.relative_to(vault)} embeds "
+                                     f"{target}, which is not in the vault"))
+                continue
             if target and target not in stems:
                 problems.append(("phantom link",
                                  f"{p.relative_to(vault)} links to "
@@ -158,7 +193,40 @@ def audit(vault: Path) -> list[tuple[str, str]]:
                 problems.append(("bad field",
                                  f"{p.relative_to(vault)} {key}: {val!r} is "
                                  f"not one of {sorted(allowed)}"))
+    problems += mirror_drift(vault)
     return problems
+
+
+def mirror_drift(vault: Path) -> list[tuple[str, str]]:
+    """Report any vault copy that has stopped matching its working original.
+
+    Compared BYTE FOR BYTE, not by size or timestamp: a re-export of the same
+    picture changes both of those without changing anything that matters, and
+    an edit can leave the size identical. The question being asked is "are
+    these still the same file", and only the bytes answer it.
+    """
+    import hashlib
+    root = vault.parent
+    out: list[tuple[str, str]] = []
+    for vault_rel, origin_rel in MIRRORED_ASSETS:
+        copy, origin = vault / vault_rel, root / origin_rel
+        # A MISSING FILE IS REPORTED, NEVER SKIPPED. "It isn't there, so
+        # there's nothing to compare" is how a check quietly stops checking.
+        if not copy.exists():
+            out.append(("mirror missing", f"{vault_rel} is gone from the vault "
+                                          f"(original still at {origin_rel})"))
+            continue
+        if not origin.exists():
+            out.append(("mirror missing", f"{origin_rel} is gone -- the vault "
+                                          f"copy is now the only one left"))
+            continue
+        digest = [hashlib.sha256(f.read_bytes()).hexdigest()
+                  for f in (copy, origin)]
+        if digest[0] != digest[1]:
+            out.append(("mirror drift",
+                        f"{vault_rel} no longer matches {origin_rel} -- "
+                        f"revise in references/ and re-copy to the vault"))
+    return out
 
 
 def main() -> int:

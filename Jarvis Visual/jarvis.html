@@ -282,6 +282,39 @@
     letter-spacing: 0.02em; text-transform: none; color: var(--text-soft);
   }
   .icard.has-more { cursor: pointer; }
+  /* THE SPOKEN WORDS, and they live OUTSIDE .ib on purpose: .ib is capped at
+     1400px so its fold can animate, and a conversation does not fit under a
+     cap built for prose. Clipping the transcript is exactly the "a line you
+     cannot read is a line never said" failure. */
+  .icard .itxwrap { display: none; cursor: auto; }
+  .icard.open .itxwrap { display: block; }
+  .icard .itxbtn {
+    margin-top: 8px; font-size: 8.5px; letter-spacing: 0.1em;
+    color: rgba(var(--accent-rgb), 0.62); cursor: pointer;
+    text-transform: uppercase; display: inline-block;
+  }
+  .icard .itxbtn:hover { color: var(--accent); }
+  .icard .itx { margin-top: 6px; }
+  .icard .itx .txw {
+    font-size: 8.5px; letter-spacing: 0.1em; opacity: 0.45; margin: 9px 0 4px;
+    text-transform: uppercase;
+  }
+  .icard .itx .txl {
+    display: flex; gap: 7px; margin: 5px 0; font-size: 10px; line-height: 1.5;
+    text-transform: none; letter-spacing: 0.02em;
+  }
+  .icard .itx .txt { opacity: 0.4; flex: 0 0 auto; font-size: 9px; }
+  /* Serge's own words are the ones he came here to find -- they read at full
+     strength, and mine sit back. */
+  .icard .itx .txl.serge .txb { color: var(--text-val); }
+  .icard .itx .txl.jarvis .txb { color: var(--text-soft); opacity: 0.82; }
+  .icard .itx .txc {
+    font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase;
+    opacity: 0.5; margin-right: 6px;
+  }
+  .icard .itx .txn {
+    font-size: 9px; opacity: 0.5; text-transform: none; letter-spacing: 0.02em;
+  }
   .icard .imore {
     margin-top: 6px; font-size: 8.5px; letter-spacing: 0.1em;
     color: rgba(var(--accent-rgb), 0.5);
@@ -302,6 +335,18 @@
   .icard .ir {
     font-size: 9px; letter-spacing: 0.10em; opacity: 0.45; margin-top: 6px;
   }
+  /* The way OUT of the panel and into the note the panel is quoting.
+     Deliberately drawn like the transcript button and NOT like a board
+     control -- it is another way to READ, which is the only verb this
+     panel has. It sits outside .ib on purpose, so it is reachable from a
+     folded card: a link you have to unfold something to find is a link
+     that gets used once. */
+  .icard .iobs {
+    display: inline-block; margin-top: 6px; font-size: 8.5px;
+    letter-spacing: 0.1em; text-transform: uppercase; text-decoration: none;
+    color: rgba(var(--accent-rgb), 0.62);
+  }
+  .icard .iobs:hover { color: var(--accent); }
   .isheet-foot {
     margin-top: 10px; font-size: 9px; letter-spacing: 0.10em;
     opacity: 0.42; text-transform: uppercase;
@@ -2357,6 +2402,31 @@ let lastTasksJson = '';
 let ideasLatched = false;
 let lastIdeasJson = '';
 
+// Serge, 2026-08-07 ~8:35 PM: "maybe there should be a link to Obsidian and
+// the exact point... I'm reading the idea and I click a word."
+//
+// THE VAULT AND THE NOTE ARE CONSTANTS IN THIS PAGE AND ARE NEVER READ FROM
+// THE NOTE ITSELF. The only caller-derived part of this URL is the heading,
+// and it goes through encodeURIComponent -- so a title cannot introduce a
+// second parameter, cannot add an action, and cannot escape the value it
+// sits in. That discipline matters more here than anywhere else on this
+// page: every other string we render lands in the DOM, where esc() is the
+// answer. This one is handed to the OPERATING SYSTEM, which hands it to an
+// application -- and Ideas.md is hand-editable. `&` and `#` in a title are
+// ordinary punctuation; percent-encoded they stay punctuation, and raw they
+// would become structure.
+const OBS_VAULT = 'Jarvis-brain';
+const OBS_NOTE  = 'Ideas';
+function obsidianHref(title){
+  // An idea's title IS its heading in the note -- read_ideas() takes the
+  // `### ` line verbatim, so there is no second copy to drift. A card with
+  // no title still gets a working link to the note itself rather than a
+  // broken one to a heading that does not exist.
+  const target = title ? (OBS_NOTE + '#' + title) : OBS_NOTE;
+  return 'obsidian://open?vault=' + encodeURIComponent(OBS_VAULT)
+       + '&file=' + encodeURIComponent(target);
+}
+
 function renderIdeas(ideas){
   const json = JSON.stringify(ideas || []);
   if (json === lastIdeasJson) return;   // rebuild only on change
@@ -2387,6 +2457,9 @@ function renderIdeas(ideas){
     + '<div class="it">' + esc(i.title || '') + '</div>'
     + (i.gist ? '<div class="ig">' + esc(i.gist) + '</div>' : '')
     + (i.raised ? '<div class="ir">raised ' + esc(i.raised) + '</div>' : '')
+    // Outside the .ib fold on purpose -- see the .iobs rule for why.
+    + '<a class="iobs" href="' + esc(obsidianHref(i.title || '')) + '">'
+      + 'open in the vault &#8599;</a>'
     + ((i.body && i.body.length)
         ? '<div class="ib">'
             + i.body.map(par => '<p>' + esc(par) + '</p>').join('')
@@ -2394,6 +2467,12 @@ function renderIdeas(ideas){
           + '<div class="imore" data-shut="' + i.body.length
             + ' more &middot; click to read">'
             + i.body.length + ' more &middot; click to read</div>'
+          // The words he actually said, one click further in. It appears only
+          // once the thinking is unfolded, because it answers a question you
+          // only have after reading the write-up: "what was actually said?"
+          + '<div class="itxwrap"><div class="itxbtn" data-tx="' + n + '">'
+            + 'what was said &middot; click</div>'
+          + '<div class="itx"></div></div>'
         : '')
     + '</div>').join('');
 }
@@ -2418,12 +2497,79 @@ function renderIdeas(ideas){
     if (more) more.textContent = open ? 'click to fold'
                                       : (more.getAttribute('data-shut') || '');
   };
-  list.addEventListener('click', (e) => toggle(e.target.closest('.icard')));
+  // A click anywhere in the transcript block is NOT a fold. Without this the
+  // act of opening the words -- or selecting a line to read it -- would shut
+  // the card that contains them. Nor is a click on the way OUT to the vault:
+  // following the link would otherwise fold the card behind you, so you come
+  // back from Obsidian to a card that has shut itself.
+  list.addEventListener('click', (e) => {
+    if (e.target.closest('.itxwrap') || e.target.closest('.iobs')) return;
+    toggle(e.target.closest('.icard'));
+  });
   list.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       toggle(e.target.closest('.icard'));
     }
+  });
+
+  // Serge, 2026-08-07 ~6:12 PM: "and then we figured it would be transcript."
+  // Fetched on the click, never polled -- see idea_transcript() for why this
+  // is not a field on /signals.
+  list.addEventListener('click', (e) => {
+    const btn = e.target.closest('.itxbtn');
+    if (!btn) return;
+    const box = btn.parentElement.querySelector('.itx');
+    if (!box) return;
+    if (box.dataset.loaded === '1') {          // second click folds it away
+      box.innerHTML = '';
+      box.dataset.loaded = '';
+      btn.textContent = 'what was said · click';
+      return;
+    }
+    btn.textContent = 'reading the day…';
+    fetch('/idea-transcript?i=' + encodeURIComponent(btn.dataset.tx))
+      .then(r => r.json())
+      .then(d => {
+        const w = (d && d.windows) || [];
+        let html = '';
+        for (const win of w) {
+          // The window is LABELLED, never implied. The note's times are
+          // approximate, so this is a stretch of the day around a remembered
+          // moment -- saying so is the difference between a citation and a
+          // guess wearing a timestamp.
+          html += '<div class="txw">' + esc(win.date) + ' &middot; '
+                + esc(win.from) + ' – ' + esc(win.to) + '</div>';
+          for (const ln of win.lines) {
+            const who = (ln.who || '').toLowerCase() === 'serge'
+                        ? 'serge' : 'jarvis';
+            // "He said this" and "he typed this" are different facts. The
+            // typed side is marked rather than blended in -- a record that
+            // blurs the two is a record you have to second-guess.
+            const chan = ln.channel === 'terminal'
+                       ? '<span class="txc">typed</span>' : '';
+            html += '<div class="txl ' + who + '">'
+                  + '<span class="txt">' + esc(ln.t) + '</span>'
+                  + '<span class="txb">' + chan + esc(ln.text) + '</span></div>';
+          }
+        }
+        // No silent caps and no blank answer: a shortfall says what it is.
+        if (d && d.dropped)
+          html += '<div class="txn">' + d.dropped
+                + ' further line(s) not shown — the transcript itself has '
+                + 'all of them.</div>';
+        if (!html)
+          html = '<div class="txn">' + esc((d && d.why)
+                 || 'nothing came back') + '</div>';
+        box.innerHTML = html;
+        box.dataset.loaded = '1';
+        btn.textContent = 'fold the words away';
+      })
+      .catch(() => {
+        box.innerHTML = '<div class="txn">could not reach the transcript</div>';
+        box.dataset.loaded = '1';
+        btn.textContent = 'fold the words away';
+      });
   });
 })();
 
