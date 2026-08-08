@@ -326,6 +326,41 @@
   }
   #welcome.on { opacity: 0.5; }
 
+  /* THE DEMOTED AVATAR CARD. Small, quiet, and pressable -- a border says
+     pressable on this page, and this one genuinely is. */
+  #avcard {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 11px; margin-bottom: 10px; cursor: pointer;
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    border-radius: 2px; background: rgba(var(--accent-rgb), 0.05);
+    user-select: none;
+  }
+  #avcard-ring {
+    width: 26px; height: 26px; border-radius: 50%; flex: none;
+    border: 1px solid rgba(var(--accent-rgb), 0.55);
+    display: flex; align-items: center; justify-content: center;
+    /* It BREATHES, like the stage avatar -- a still portrait would read as a
+       screenshot of Jarvis rather than as Jarvis. */
+    animation: avbreathe 3.4s ease-in-out infinite;
+  }
+  #avcard-core {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--fill-hi);
+    box-shadow: 0 0 8px 1px rgba(var(--accent-rgb), 0.7);
+  }
+  @keyframes avbreathe {
+    0%, 100% { transform: scale(1); opacity: 0.75; }
+    50%      { transform: scale(1.12); opacity: 1; }
+  }
+  #avcard-state {
+    font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--text-soft);
+  }
+  /* Hot means the microphone is open, and it is the SAME word the talk
+     button uses so the two can never disagree about what hot means. */
+  #avcard.hot { border-color: var(--warn); background: rgba(var(--warn-rgb), 0.12); }
+  #avcard.hot #avcard-core { background: var(--warn); }
+
   /* The offer card. Bottom-right of the stage, deliberately away from the
      talk button and clear of the waiting banner -- it must never sit where
      his hand or his eye is already going. */
@@ -1782,6 +1817,18 @@
   </div>
 
   <div id="right" class="panel">
+    <!-- THE DEMOTED AVATAR (decisions 9 and 10). It appears only when the
+         stage is showing something else, so the avatar is never off screen:
+         "the avatar should be on every page and also all jobs."
+         AND IT IS A WORKING MICROPHONE. Serge: "Make the avatar reachable at
+         all time so we can talk to it." Hold it to talk, tap it to bring the
+         avatar back full stage -- the page's existing tap-vs-hold rule, and
+         it calls press()/release() directly rather than growing a second mic
+         path, so every rule those carry travels with it untouched. -->
+    <div id="avcard" style="display:none" title="Hold to talk · tap for the full avatar">
+      <div id="avcard-ring"><span id="avcard-core"></span></div>
+      <div id="avcard-state">IDLE</div>
+    </div>
     <!-- Serge, 2026-08-06 ~6:09 AM: "It should be on top of the active task."
          So the board's summary is not top-bar chrome sitting near the title --
          it IS this card's heading row, and the board rolls down from it. The
@@ -2631,6 +2678,34 @@ function release(){
     }
     ws.send(JSON.stringify(msg));
   } else { state = 'offline'; }
+}
+
+// ---- the demoted avatar card is a second ENTRY POINT, never a second path --
+// It calls press() and release() exactly as the talk button does, so every
+// rule those carry -- pickMic, the min-capture guard, the approval-interrupt
+// suppression, the terminal-line stand-down -- travels with it untouched. A
+// card that opened its own microphone would be a second place for all four to
+// be forgotten.
+//
+// Decision 10: HOLD talks, TAP brings the avatar back full stage. That is the
+// page's existing gesture, not a new one -- release() already treats a
+// sub-250 ms press as interrupt-only, so the tap costs no spoken turn.
+{
+  const av = document.getElementById('avcard');
+  if (av) {
+    let avT = 0;
+    const down = (e) => { if (e.cancelable) e.preventDefault(); avT = Date.now(); press(); };
+    const up = () => {
+      const tap = Date.now() - avT < 250;
+      release();
+      if (tap) setView('avatar');
+    };
+    av.addEventListener('mousedown', down);
+    av.addEventListener('mouseup', up);
+    av.addEventListener('mouseleave', () => { if (capturing) release(); });
+    av.addEventListener('touchstart', down);
+    av.addEventListener('touchend', (e) => { if (e.cancelable) e.preventDefault(); up(); });
+  }
 }
 
 talkBtn.addEventListener('mousedown', press);
@@ -3796,14 +3871,15 @@ const JOBS = {
   briefing:   { stage: 'avatar', typeScale: 1.08 },
   workshop:   { stage: 'avatar', typeScale: 1.00 },
   brainstorm: { stage: 'avatar', typeScale: 1.00 },
-  // WATCH IS AVATAR, NOT GRAPH -- and this is a deliberate deferral, not the
-  // plan being ignored. The plan gives watch the vault-graph stage; decision 9
-  // says NO job may hide the avatar, at worst demoting it to its own card. The
-  // graph replaces the avatar outright, and that card exists only in the
-  // prototype. Serge ruled on the conflict, 2026-08-08 ~6:45 PM: "Keep the
-  // avatar." So watch keeps it, and the graph stage comes back the day the
-  // avatar card ships -- one word in this line, guarded by the test below.
-  watch:      { stage: 'avatar', typeScale: 0.96 },
+  // WATCH TAKES THE GRAPH, and it may do so ONLY because the demoted avatar
+  // card now exists. The history is worth keeping: the plan gives watch the
+  // vault-graph stage, decision 9 forbids any job from hiding the avatar, and
+  // for one version those two contradicted each other. Serge ruled "Keep the
+  // avatar", so watch held the avatar stage until the card was built -- and
+  // the card is what resolved the contradiction rather than either decision
+  // giving way. The guard below is now the real invariant: a job may take the
+  // graph only while the card is there to hold the avatar.
+  watch:      { stage: 'graph', typeScale: 0.96 },
 };
 const JOB_NAMES = Object.keys(JOBS);
 
@@ -5635,6 +5711,16 @@ function draw(){
   // question pending, no turn open. Anything else and it is gone.
   const wEl = document.getElementById('welcome');
   if (wEl) wEl.classList.toggle('on', state === 'idle' && !showWait && !turnOpen);
+  // THE AVATAR IS NEVER OFF SCREEN (decision 9). The card appears exactly
+  // when the stage is showing something else, so between the two the avatar
+  // is always somewhere -- and it is a microphone in both places.
+  const avEl = document.getElementById('avcard');
+  if (avEl) {
+    avEl.style.display = (view === 'avatar') ? 'none' : 'flex';
+    avEl.classList.toggle('hot', capturing);
+    const avS = document.getElementById('avcard-state');
+    if (avS) avS.textContent = capturing ? 'LISTENING' : (LABELS[state] || state);
+  }
   renderMicLine();
 
   ctx.clearRect(0, 0, W, H);

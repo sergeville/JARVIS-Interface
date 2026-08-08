@@ -212,15 +212,49 @@ test('no job hides the stage or the avatar', () => {
     'a job is hiding the avatar — decision 9 exempts it everywhere');
 });
 
-test('NO job takes the graph stage while the avatar has no card of its own', () => {
-  // Serge's ruling, 2026-08-08 ~6:45 PM: "Keep the avatar." Decision 9 says no
-  // job may hide it; the graph stage replaces it outright, and the demoted
-  // avatar card exists only in the prototype. The day that card ships on the
-  // real page, this test is what has to be changed on purpose — which is the
-  // point: the deferral cannot be undone by someone editing one word.
+test('a job may take the graph ONLY while the avatar card exists to hold it', () => {
+  // The real invariant, and the one that outlived the deferral. Decision 9
+  // says no job may hide the avatar; the graph stage replaces it outright.
+  // For one version watch held the avatar stage because the demoted card
+  // existed only in the prototype — Serge: "Keep the avatar." The card is
+  // what resolved it, and this is what keeps it resolved: delete the card and
+  // every graph job becomes illegal again, loudly.
   const onGraph = JOB_NAMES.filter(j => JOBS[j].stage === 'graph');
-  assert.deepStrictEqual(onGraph, [],
-    onGraph.join(', ') + ' hides the avatar, and no avatar card exists to keep it');
+  if (onGraph.length) {
+    assert.ok(/id="avcard"/.test(src),
+      onGraph.join(', ') + ' hides the avatar and there is no card to hold it');
+  }
+});
+
+test('the card appears EXACTLY when the stage is not the avatar', () => {
+  // Not "when watch is chosen" — the Vault Graph button can take the stage
+  // from any job, and the avatar must not vanish because he pressed it.
+  assert.ok(/avEl\.style\.display = \(view === 'avatar'\) \? 'none' : 'flex'/.test(src),
+    'the card follows the job rather than the stage, so the button can hide the avatar');
+});
+
+test('the card is a MICROPHONE, through the existing handlers only', () => {
+  const at = src.indexOf("const av = document.getElementById('avcard')");
+  assert.ok(at !== -1, 'the avatar card is not wired at all');
+  const block = src.slice(at, at + 1200);
+  assert.ok(/press\(\);/.test(block) && /release\(\);/.test(block),
+    'the card does not drive the real talk handlers');
+  assert.ok(!/ensureMic|getUserMedia|capBufs|micCtx/.test(block),
+    'the card opened its own microphone — a second path drops every mic rule');
+});
+
+test('HOLD talks and TAP brings the avatar back — the page\'s own gesture', () => {
+  const at = src.indexOf("const av = document.getElementById('avcard')");
+  const block = src.slice(at, at + 1200);
+  assert.ok(/Date\.now\(\) - avT < 250/.test(block), 'the tap threshold is not the page\'s 250 ms');
+  assert.ok(/if \(tap\) setView\('avatar'\)/.test(block), 'a tap does not restore the avatar');
+  assert.ok(/release\(\);\n\s*if \(tap\)/.test(block),
+    'the tap must still go through release(), or the capture is left open');
+});
+
+test('the card and the talk button agree on what HOT means', () => {
+  assert.ok(/avEl\.classList\.toggle\('hot', capturing\)/.test(src),
+    'the card shows hot from something other than the real capture flag');
 });
 
 test('the graph is still reachable — the deferral costs no feature', () => {
