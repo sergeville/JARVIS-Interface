@@ -870,6 +870,28 @@
     fill: none; stroke: rgba(var(--accent-rgb), 0.55); stroke-width: 1;
     vector-effect: non-scaling-stroke;
   }
+  /* THE HEALTH RING (Phase 4). Status colours, deliberately: this is the one
+     instrument whose whole job is to say up / degraded / down, and those
+     three colours mean the same thing in every face. */
+  #health { display: flex; align-items: center; gap: 11px; }
+  #health-ring { width: 44px; height: 44px; flex: none; transform: rotate(-90deg); }
+  #health-ring .hr-track {
+    fill: none; stroke: var(--bg-track); stroke-width: 3;
+  }
+  #health-ring .hr-arc {
+    fill: none; stroke: var(--ok); stroke-width: 3; stroke-linecap: butt;
+    /* 2πr for r=19, rounded — the dash pattern IS the percentage. */
+    stroke-dasharray: 119.4; stroke-dashoffset: 119.4;
+    transition: stroke-dashoffset 0.6s ease, stroke 0.3s ease;
+  }
+  #health.degraded #health-ring .hr-arc { stroke: var(--warn); }
+  #health.down     #health-ring .hr-arc { stroke: var(--bad); }
+  /* Unknown is NOT green. A ring with nothing to measure must not look
+     healthy -- that is the fake-instrument failure in its purest form. */
+  #health.unknown  #health-ring .hr-arc { stroke: var(--off); }
+  #health-word { font-size: 11px; letter-spacing: 0.2em; color: var(--text); }
+  #health-sub { font-size: 9px; letter-spacing: 0.12em; opacity: 0.6; }
+
   .bar {
     height: 5px; background: var(--bg-track);
     border: 1px solid rgba(var(--accent-rgb), 0.45);
@@ -1758,6 +1780,27 @@
 
   <div id="left" class="panel">
     <div>
+      <!-- PHASE 4 -- SYSTEM STATUS. One ring, and the only number on this
+           page that is a JUDGEMENT rather than a reading: how much of the
+           stack that is SUPPOSED to be up actually is.
+           The denominator is the honest half. A component that is off BY
+           CHOICE is not a failure and is excluded, matching ./jarvis.sh's own
+           "off -- not in use" wording; counting it would make a healthy
+           machine read as broken every time Serge turns the terminal line
+           off. The tooltip names every component so the ring is never a
+           number he has to take on faith. -->
+      <div class="sec-title">System Status</div>
+      <div id="health" title="">
+        <svg id="health-ring" viewBox="0 0 44 44">
+          <circle class="hr-track" cx="22" cy="22" r="19"></circle>
+          <circle class="hr-arc" cx="22" cy="22" r="19"></circle>
+        </svg>
+        <div class="h-txt">
+          <div id="health-word">&mdash;</div>
+          <div id="health-sub">&mdash;</div>
+        </div>
+      </div>
+
       <div class="sec-title">Sys Monitor</div>
       <div class="mon">
         <div class="mon-label"><span>CPU</span><span class="val" id="cpu-v">--</span></div>
@@ -4734,6 +4777,51 @@ function tickLogIdle(){
 setInterval(tickAges, 1000);
 
 let stackSig = '';
+// ---- SYSTEM STATUS (Phase 4) --------------------------------------------
+// PURE. The up-fraction over the components that are SUPPOSED to be up.
+//
+// The denominator is the whole design. A component that is off BY CHOICE is
+// not a failure: ./jarvis.sh says "off -- not in use" and means it, and the
+// terminal line is off most of the day. Counting it would make a healthy
+// machine read DEGRADED forever, and an instrument that cries wolf gets
+// ignored, which is worse than not having it.
+//
+// NO PATH RETURNS 100% WITHOUT HAVING COUNTED SOMETHING. Nothing to measure
+// is `unknown`, never OPTIMAL -- a ring that looks healthy because the
+// payload was empty is exactly the lie this page's whole doctrine forbids.
+function stackHealth(components) {
+  if (!Array.isArray(components)) return { up: 0, expected: 0, pct: null, word: 'UNKNOWN' };
+  const expected = components.filter(c => c && c.state !== 'off');
+  const up = expected.filter(c => c.state === 'up');
+  if (expected.length === 0) return { up: 0, expected: 0, pct: null, word: 'UNKNOWN' };
+  const pct = up.length / expected.length;
+  const word = pct === 1 ? 'OPTIMAL' : (pct === 0 ? 'DOWN' : 'DEGRADED');
+  return { up: up.length, expected: expected.length, pct, word };
+}
+
+function renderHealth(sk) {
+  const box = document.getElementById('health');
+  if (!box) return;
+  const h = stackHealth(sk && sk.components);
+  box.classList.remove('degraded', 'down', 'unknown');
+  if (h.pct === null) box.classList.add('unknown');
+  else if (h.pct === 0) box.classList.add('down');
+  else if (h.pct < 1) box.classList.add('degraded');
+  const arc = document.querySelector('#health-ring .hr-arc');
+  if (arc) arc.style.strokeDashoffset = String(119.4 * (1 - (h.pct === null ? 0 : h.pct)));
+  const w = document.getElementById('health-word');
+  const s = document.getElementById('health-sub');
+  if (w) w.textContent = h.word;
+  if (s) s.textContent = h.pct === null ? 'nothing to measure'
+                                        : h.up + ' of ' + h.expected + ' up';
+  // The tooltip names every component, so the ring is never a number he has
+  // to take on faith -- including the ones excluded from the denominator,
+  // said out loud rather than silently dropped.
+  const comps = (sk && sk.components) || [];
+  box.title = comps.map(c => c.label + ' — ' +
+    (c.state === 'off' ? 'off, not counted' : c.state)).join('\n');
+}
+
 function renderStack(sk){
   if (!sk || !sk.components) return;
   const sig = JSON.stringify(sk);
@@ -4986,6 +5074,7 @@ async function poll(){
     renderStats(d.stats);
     renderBadge(d.sessions || [], d.stats);
     renderStack(d.stack);
+    renderHealth(d.stack);
     renderEvents(d.events);
     renderMail(d.mail);
     renderUsage(d.usage || null);
