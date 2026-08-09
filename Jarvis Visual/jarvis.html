@@ -3896,6 +3896,10 @@ function renderBadge(sessions, stats) {
     sEl.textContent = n + (n === 1 ? ' session' : ' sessions');
   }
   if (mEl) mEl.textContent = (stats && stats.model) ? stats.model : 'model …';
+  // The globe's callouts read the same values as the badge, from the same
+  // payload, so the two can never disagree about how many sessions are up.
+  calloutSessions = Array.isArray(sessions) ? sessions.length : null;
+  calloutModel = (stats && stats.model) ? stats.model : null;
   const badge = document.getElementById('badge');
   if (badge) {
     const n = Array.isArray(sessions) ? sessions.length : null;
@@ -5974,6 +5978,22 @@ function draw(){
     ctx.stroke();
   }
 
+  // ---- PHASE 6: ATMOSPHERE ------------------------------------------------
+  // A rim glow OUTSIDE the limb, brightest on the lit side. It is drawn
+  // additively over the synapse field, so the globe stops sitting flat on
+  // the background and starts having an edge that catches light.
+  {
+    const rimIn = emberR * 0.98, rimOut = emberR * 1.22;
+    const rim = ctx.createRadialGradient(cx, cy, rimIn, cx, cy, rimOut);
+    rim.addColorStop(0, `rgba(120,190,255,${0.16 + smooth * 0.22})`);
+    rim.addColorStop(0.45, `rgba(90,150,235,${0.06 + smooth * 0.10})`);
+    rim.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rim;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rimOut, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // white-hot core: pulled toward the light source and kept tighter than
   // the ring version so the globe's shading still reads underneath
   const coreR = emberR * (0.38 + smooth * 0.4);
@@ -5988,6 +6008,69 @@ function draw(){
   ctx.fill();
 
   ctx.globalCompositeOperation = 'source-over';
+
+  // ---- PHASE 6: THE TERMINATOR --------------------------------------------
+  // Drawn in source-over, AFTER the additive pass, because a shadow that is
+  // added to what is under it is not a shadow. It is clipped to the sphere so
+  // it darkens the globe's far side without touching the field behind it --
+  // the light comes from up-left, as the body gradient and the core already
+  // assume, so all three agree about where the sun is.
+  {
+    const lx = cx - emberR * 0.30, ly = cy - emberR * 0.32;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, emberR, 0, Math.PI * 2);
+    ctx.clip();
+    const term = ctx.createRadialGradient(lx, ly, emberR * 0.35, lx, ly, emberR * 1.75);
+    term.addColorStop(0, 'rgba(0,0,0,0)');
+    term.addColorStop(0.55, 'rgba(0,0,0,0.22)');
+    term.addColorStop(1, 'rgba(0,2,8,0.62)');
+    ctx.fillStyle = term;
+    ctx.fillRect(cx - emberR, cy - emberR, emberR * 2, emberR * 2);
+    ctx.restore();
+  }
+
+  drawGlobeCallouts(emberR);
+}
+
+// ---- PHASE 6: THE CALLOUTS -----------------------------------------------
+// The concept annotates its Earth. Ours annotates with TRUE numbers or with
+// nothing at all -- the board-never-lies doctrine, in the one place on this
+// page where a decorative number would be easiest to forgive.
+//
+// Each line is drawn ONLY when its value is really known. The vault count in
+// particular is unknown until the graph has been loaded once, and "0 notes"
+// beside a full vault is a worse lie than saying nothing.
+let calloutSessions = null, calloutModel = null;
+function drawGlobeCallouts(r) {
+  const lines = [];
+  if (gNodes.length > 0) lines.push(gNodes.length + ' notes');
+  if (calloutSessions !== null)
+    lines.push(calloutSessions + (calloutSessions === 1 ? ' session' : ' sessions'));
+  if (calloutModel) lines.push(calloutModel);
+  if (!lines.length) return;
+  ctx.save();
+  ctx.font = '9px Menlo, monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const style = getComputedStyle(document.body);
+  const rgb = style.getPropertyValue('--accent-rgb').trim();
+  // Anchored off the globe's lower-right, with a short leader line each --
+  // the concept's own gesture, and it keeps the text clear of the core.
+  let y = cy + r * 0.42;
+  for (const line of lines) {
+    const x0 = cx + r * 0.72, x1 = cx + r * 1.02;
+    ctx.strokeStyle = `rgba(${rgb}, 0.35)`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+    ctx.stroke();
+    ctx.fillStyle = `rgba(${rgb}, 0.62)`;
+    ctx.fillText(line, x1 + 6, y);
+    y += 15;
+  }
+  ctx.restore();
 }
 draw();
 </script>
