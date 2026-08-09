@@ -33,6 +33,9 @@
     --accent-rgb: 0, 150, 255;   /* every rgba() border and glow keys off this */
     --bg-deep:     #050a14;
     --bg-panel:    rgba(2, 12, 26, 0.85);
+    --bg-card:     #000d1b;
+    --chrome-line: 137, 164, 187;
+    --chrome-peak: 110, 235, 250;
     --bg-bar:      rgba(2, 12, 24, 0.85);
     --bg-inset:    rgba(0, 20, 40, 0.5);
     --bg-input:    #04101f;
@@ -109,6 +112,9 @@
     --accent-rgb: 0, 150, 255;
     --bg-deep:     #050a14;
     --bg-panel:    rgba(2, 12, 26, 0.85);
+    --bg-card:     #000d1b;
+    --chrome-line: 137, 164, 187;
+    --chrome-peak: 110, 235, 250;
     --bg-bar:      rgba(2, 12, 24, 0.85);
     --bg-inset:    rgba(0, 20, 40, 0.5);
     --bg-input:    #04101f;
@@ -129,6 +135,9 @@
     --accent-rgb: 96, 150, 210;
     --bg-deep:     #00060f;
     --bg-panel:    rgba(4, 14, 30, 0.88);
+    --bg-card:     #000a17;
+    --chrome-line: 120, 152, 190;
+    --chrome-peak: 142, 200, 255;
     --bg-bar:      rgba(3, 11, 24, 0.88);
     --bg-inset:    rgba(6, 22, 44, 0.55);
     --bg-input:    #030d1c;
@@ -153,6 +162,9 @@
     --accent-rgb: 176, 158, 106;
     --bg-deep:     #080803;
     --bg-panel:    rgba(20, 20, 10, 0.88);
+    --bg-card:     #0d0d05;
+    --chrome-line: 176, 165, 122;
+    --chrome-peak: 240, 226, 170;
     --bg-bar:      rgba(17, 17, 8, 0.88);
     --bg-inset:    rgba(32, 31, 14, 0.55);
     --bg-input:    #12120a;
@@ -174,6 +186,9 @@
     --accent-rgb: 122, 156, 190;
     --bg-deep:     #05080d;
     --bg-panel:    rgba(12, 18, 26, 0.88);
+    --bg-card:     #070b11;
+    --chrome-line: 150, 172, 194;
+    --chrome-peak: 205, 228, 250;
     --bg-bar:      rgba(10, 15, 22, 0.88);
     --bg-inset:    rgba(20, 30, 42, 0.55);
     --bg-input:    #0a1018;
@@ -884,15 +899,112 @@
   }
   #left  { border-right: 1px solid rgba(var(--accent-rgb), 0.28); overflow-y: auto; }
   #right { border-left:  1px solid rgba(var(--accent-rgb), 0.28); overflow: hidden; }
+
+  /* ==================================================================
+     PHASE 8 -- ONE CARD STYLE, DEFINED ONCE.
+     Serge dictated this standard 2026-08-08 (Jarvis Conventions §5):
+     "use the CSS for one card, with all its knick-knack... then use that
+     for everything, so you don't have to repeat yourself -- you do one fix
+     and all the cards are changing at the same time." Every value below is
+     MEASURED from JarvisOS5000-concept-v2.png, not chosen by taste.
+
+       page field  #000b1a      card body  #000d1b   -- THREE points apart.
+       The panels are NOT lighter than the page. All the depth in that
+       image is drawn with LIGHT: a hairline and its halo over near-black.
+       Every instinct to "lift the card" by lightening its fill pushes AWAY
+       from the reference, and did, twice.
+
+       border RUN rgb(137,164,187) at .85 -- a long edge measures dull.
+       #6eebfa is a PEAK, and it lives ONLY at the notch vertices. A
+       hairline held at peak along its whole length reads as neon, not as
+       machined metal.
+
+     THE MECHANICAL TRAP, found by rendering and not by reading: clip-path
+     clips the border AND the outer box-shadow with the shape, so a notched
+     card cannot carry its own frame or glow that way -- they simply vanish,
+     which reads as "the glow isn't working." The halo therefore rides
+     filter: drop-shadow on the ::after layer, which is not clipped.
+     ================================================================== */
+  .card, #stage, #botbar > div {
+    position: relative;
+    background: var(--bg-card);
+    border: 1px solid rgba(var(--chrome-line), 0.85);
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px,
+                       100% 100%, 0 100%, 0 14px);
+    padding: 12px;
+    box-shadow: 0 0 6px rgba(var(--chrome-line), 0.18);
+  }
+  /* the near-white is spent on the corners, and only there */
+  .card::after, #stage::after, #botbar > div::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background:
+      linear-gradient(135deg, rgb(var(--chrome-peak)) 0 1.5px, transparent 1.5px) top left / 18px 18px no-repeat,
+      linear-gradient(225deg, rgb(var(--chrome-peak)) 0 1.5px, transparent 1.5px) top right / 18px 18px no-repeat;
+    filter: drop-shadow(0 0 4px rgba(var(--chrome-peak), 0.8));
+  }
+  /* Interior frames run FAR dimmer in the concept -- ~0.2 alpha. The stage
+     is a panel there, not open field, but it must not shout over the left
+     and right columns that surround it. */
+  #stage { border-color: rgba(var(--chrome-line), 0.28); box-shadow: none; }
   .panel::-webkit-scrollbar { width: 4px; }
   .panel::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb), 0.3); }
 
+  /* ONE LINE, and the TITLE is what survives. Serge, 2026-08-09 ~4:53 PM,
+     in a narrower window: "SYS MONITOR" broke in half and STACK and EVENTS
+     pushed their new counts onto a second row. A header that wraps stops
+     being a header. The title never wraps; the count is the part that
+     yields, because a card whose name you cannot read is worse than a card
+     whose tally you cannot. */
   .sec-title {
     font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase;
     color: var(--sec); display: flex; align-items: center; gap: 6px;
     margin-bottom: 10px; flex-shrink: 0;
+    white-space: nowrap; overflow: hidden; min-width: 0;
   }
   .sec-title::before { content: "\25CF"; font-size: 8px; }
+  /* THE HEADER ANATOMY, 2026-08-09. In the concept every card header is
+     icon · title · live count, and that is the single reason the reference
+     reads as instrumentation while ours read as a list. The icon replaces
+     the generic bullet only where a card has one, so a header without one
+     still looks like the rest of the page rather than half-converted. */
+  .sec-title[data-icon]::before {
+    content: attr(data-icon); font-size: 11px;
+    color: rgba(var(--accent-rgb), 0.8);
+  }
+  /* THE COUNT IS EMPTY UNTIL ITS RENDERER FILLS IT, and every renderer fills
+     it from the SAME list it just drew -- never from a second source and
+     never from a constant. A header count is exactly the shape of thing that
+     would sit there being plausibly wrong for weeks, so an unknown count
+     shows NOTHING. Cards with no honest number (Sys Monitor, Command Input)
+     have no slot at all. */
+  .sec-count {
+    margin-left: auto; font-size: 9px; letter-spacing: 0.18em;
+    color: rgba(var(--accent-rgb), 0.7); text-transform: uppercase;
+    /* The count gives up its width first and then disappears entirely
+       rather than pushing the title around. `min-width: 0` is what lets it
+       shrink at all; without it the flex default refuses to go below its
+       own text and the header overflows instead. */
+    min-width: 0; overflow: hidden; text-overflow: clip; white-space: nowrap;
+  }
+  /* The skew note and the caret keep their place at the right edge; the
+     count sits before them, so "partial" still reads last. */
+  #sessions-skew { margin-left: 6px; }
+
+  /* PHASE 8 -- THE HEADER STRIP. In the concept every card's title sits on
+     its own row, on the SAME fill as the body (measured: they are the same
+     black), separated by a hairline rather than by a lighter surface. The
+     negative margins let the strip span the card's padding, so the rule
+     runs edge to edge like the reference. Only inside a card -- headings
+     elsewhere on the page are untouched. */
+  .card > .sec-title, .card > #tasks-head {
+    margin: -12px -12px 10px; padding: 9px 12px;
+    border-bottom: 1px solid rgba(var(--chrome-line), 0.35);
+    color: var(--text-bright);
+    text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.6);
+  }
+  /* The bloom is what makes the concept feel lit. It is HALO, never hue --
+     the fill stays flat, which is the finding two of my passes ignored. */
+  .card, #botbar > div { text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.25); }
 
   /* left panel: monitor.
      Serge, 2026-08-04: "the system monitor put smaller fonts... so it fits
@@ -966,9 +1078,25 @@
     width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
     background: rgba(var(--accent-rgb), 0.35);
   }
-  .st-row .name { color: rgba(var(--accent-rgb), 0.75); flex: 1; }
+  /* Same rule for the name: "browser Jarvis" was wrapping onto a second
+     line and pushing its own timestamp away from it. The PID must never be
+     the thing that yields, so the name clips and the number keeps its
+     place -- a truncated label is still readable, a lost PID is not. */
+  /* THE NAME HOLDS ITS GROUND; THE NUMBER GIVES. Serge caught this at
+     4:53 PM: "browser Jarvis" had been clipped to "br..." because the name
+     was the only flexible thing in the row and the PID column took whatever
+     it wanted. That is backwards -- a two-letter label names nothing, while
+     a PID is recoverable from the tooltip and from `jarvis.sh status`. The
+     floor is wide enough for the longest real component label. */
+  .st-row .name {
+    color: rgba(var(--accent-rgb), 0.75); flex: 1 1 auto;
+    min-width: 6.5em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .st-row .pid {
     font-family: "Menlo", monospace; font-size: 10.5px; color: var(--text-val);
+    min-width: 0; flex: 0 1 auto;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .st-row.up .dot { background: var(--ok); box-shadow: 0 0 7px var(--ok); }
   .st-row.up .pid { color: var(--ok-soft); }
@@ -981,10 +1109,16 @@
   /* Serge, 2026-08-04: start time + how long it has been up, under each row.
      Its own dim line rather than a third column -- the panel is narrow and
      the name/PID line has to stay readable at a glance. */
+  /* ONE LINE, ALWAYS. Serge, 2026-08-09, from his own screen: this broke
+     across THREE lines in a narrow panel -- "13:53:07 · up 12m 07s" is one
+     fact and reading it as three stacked fragments is worse than not
+     showing the tail of it at all. It clips rather than wraps; the full
+     text is already one hover away on the row. */
   .st-sub {
     font-family: "Menlo", monospace; font-size: 9.5px;
     color: rgba(var(--accent-rgb), 0.42); margin: -2px 0 6px 13px;
     letter-spacing: 0.04em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   /* Serge, 2026-08-04: this block read "a bit tight" -- the three port pairs
      and the page clock were shoulder to shoulder under the last stack row.
@@ -1019,9 +1153,19 @@
     font-family: "Menlo", monospace; font-size: 9.5px; flex-shrink: 0;
     color: rgba(var(--accent-rgb), 0.42);
   }
-  /* The text wraps rather than ellipsising: an event Serge cannot read is the
-     same as an event that was never logged. */
-  .ev-row .msg { color: rgba(var(--accent-rgb), 0.72); flex: 1; }
+  /* THE OLD RULE STANDS, WITH A CEILING. The text still WRAPS rather than
+     ellipsising on one line -- "an event Serge cannot read is the same as an
+     event that was never logged" -- but in his narrow window one event ran
+     to four lines and three of them filled the whole card, which hides the
+     other events just as effectively. So it wraps to TWO lines and then
+     clamps, and the full text is on the row's own tooltip as well as in the
+     hover fold below. Nothing is lost; the card stops being one event long.
+     (Serge, 2026-08-09 ~5:45 PM, on the narrow-window screenshot.) */
+  .ev-row .msg {
+    color: rgba(var(--accent-rgb), 0.72); flex: 1; min-width: 0;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
   .ev-row.up .dot   { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
   .ev-row.off .dot  { background: var(--off); }
   .ev-row.down .dot { background: var(--bad); box-shadow: 0 0 5px var(--bad); }
@@ -1357,20 +1501,14 @@
     position: absolute; top: 13%; width: 100%;
     text-align: center; pointer-events: none; display: none;
   }
-  #waiting-head {
-    font-size: 24px; letter-spacing: 0.35em; text-transform: uppercase;
-    color: var(--text-soft);
-    text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.65);
-    animation: waitpulse 2.2s ease-in-out infinite;
-  }
+  /* NO SECOND HEADING HERE. The stage status strip already reads
+     WAITING FOR YOUR ANSWER whenever a question is pending (see draw()),
+     so a heading on the banner said it twice — Serge caught it on screen
+     2026-08-09. The banner carries the QUESTION and nothing else. */
   #waiting-q {
-    margin: 20px auto 0; max-width: 76%;
+    margin: 0 auto; max-width: 76%;
     font-size: 26px; font-weight: 600; line-height: 1.35;
     color: var(--text-bright);
-  }
-  @keyframes waitpulse {
-    0%, 100% { opacity: 0.55; }
-    50% { opacity: 1; }
   }
   #label {
     position: absolute; bottom: 9%; width: 100%;
@@ -1382,9 +1520,94 @@
     position: absolute; bottom: 3%; left: 50%; transform: translateX(-50%);
     background: rgba(var(--accent-rgb), 0.08);
     border: 1px solid rgba(var(--accent-rgb), 0.4);
-    color: var(--text-val); padding: 13px 32px; border-radius: 26px;
+    color: var(--text-val); padding: 8px 26px; border-radius: 30px;
     font-size: 12px; letter-spacing: 0.2em; cursor: pointer;
     text-transform: uppercase; font-family: inherit;
+    display: flex; align-items: center; gap: 14px;
+  }
+  /* Nothing inside the pill is its own target. The tap-vs-hold rule and the
+     interrupt suppression both read the button; a child swallowing a
+     pointerdown would silently create a second, unruled mic path. */
+  #talk > * { pointer-events: none; }
+  .tk-label { white-space: nowrap; }
+  /* The page-wide `canvas` rule pins every canvas absolute and inset to its
+     container -- right for the stage layers, and it threw both of these out
+     of the pill and up its top edge. In a flex row a canvas has to be an
+     ordinary item, so this rule takes it back. */
+  .tk-wave {
+    position: static; inset: auto;
+    flex: none; width: 110px; height: 24px; opacity: 0.85;
+  }
+  /* --lv is the SAME smoothed level the two strips are drawn from, written
+     once per frame by the draw loop (Serge, 2026-08-09: "the mic should glow
+     in the same thing, in the same time too"). It is a level, not a state:
+     the halo grows with his voice while `hot` says the microphone is open,
+     and the two are deliberately separate so a lit roundel in a silent room
+     still means "listening" rather than "hearing something". */
+  #tk-mic {
+    --lv: 0;
+    position: relative;      /* the rings position against this */
+    flex: none; width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(var(--accent-rgb), calc(0.65 + var(--lv) * 0.35));
+    background: rgba(var(--accent-rgb), calc(0.14 + var(--lv) * 0.30));
+    box-shadow: 0 0 calc(18px + var(--lv) * 46px)
+                  rgba(var(--accent-rgb), calc(0.35 + var(--lv) * 0.5)),
+                inset 0 0 calc(14px + var(--lv) * 18px)
+                  rgba(var(--accent-rgb), calc(0.18 + var(--lv) * 0.35));
+  }
+  #tk-mic-icon { color: rgba(var(--accent-rgb), 0.95); display: block; position: relative; }
+  /* THE RIPPLE. Serge, 2026-08-09 ~5:10 PM: the halo alone read as static --
+     he expected "a round circle, bigger, that goes away", i.e. a ring
+     travelling outward from the microphone. Two of them, half a cycle
+     apart, so the sound looks continuous rather than blinking.
+     They are DRAWN FROM THE SAME LEVEL as the strips and the halo: the
+     animation runs at a constant rate, and the level scales how far the
+     ring gets and how visible it is -- so silence collapses it to nothing
+     without ever stopping and restarting an animation mid-flight. */
+  /* THE LEVEL LIVES ON THE WRAPPER, NEVER INSIDE THE KEYFRAMES. A custom
+     property read inside an @keyframes block is not reliably re-read while
+     the animation is already running -- the ripple would have been frozen
+     at whatever the level happened to be when it started. So the keyframes
+     are constant, and the wrapper's opacity carries his voice. Opacity
+     multiplies down the tree, so silence hides the rings completely while
+     the animation goes on turning underneath, and there is never an
+     animation restart to make it stutter. */
+  #tk-rings {
+    position: absolute; inset: 0; pointer-events: none;
+    opacity: var(--lv);
+    transition: opacity 90ms linear;
+  }
+  .tk-ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 1px solid rgba(var(--accent-rgb), 0.9);
+    animation: tkripple 1.6s linear infinite;
+  }
+  .tk-ring:nth-child(2) { animation-delay: 0.8s; }
+  /* IT LEAVES FROM THE MIDDLE, like a speaker cone. Serge, 2026-08-09
+     ~5:20 PM: "it would be nice if it started in the middle, wider." The
+     first version began at the roundel's own rim (scale 1), so the ring
+     appeared to peel off the border rather than to come out of the
+     microphone. It now starts small at the centre and travels well past
+     the roundel. The brief fade-in at the start stops it popping into
+     existence as a hard dot in the middle of the icon. */
+  @keyframes tkripple {
+    0%   { transform: scale(0.30); opacity: 0; }
+    14%  { transform: scale(0.55); opacity: 0.95; }
+    100% { transform: scale(2.75); opacity: 0; }
+  }
+  /* Live, the roundel is the loudest thing on the pill -- it is the state
+     the whole control exists to report. */
+  /* Open microphone: the floor rises, and the level still rides on top of it
+     -- so holding the key is visible even in silence, and speaking is
+     visible on top of that. Two different facts, two different signals. */
+  #talk.hot #tk-mic {
+    border-color: rgba(var(--accent-rgb), 1);
+    background: rgba(var(--accent-rgb), calc(0.34 + var(--lv) * 0.34));
+    box-shadow: 0 0 calc(30px + var(--lv) * 54px)
+                  rgba(var(--accent-rgb), calc(0.75 + var(--lv) * 0.25)),
+                inset 0 0 calc(16px + var(--lv) * 22px)
+                  rgba(var(--accent-rgb), calc(0.4 + var(--lv) * 0.4));
   }
   #talk:hover { background: rgba(var(--accent-rgb), 0.18); }
   #talk.hot {
@@ -1538,10 +1761,17 @@
     min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  /* The meta is the row's LAST claim on width, not its first. It was
+     flex-shrink: 0 in a grid, which does nothing -- so the uptime and idle
+     pair took whatever it wanted and the doing word was cut mid-syllable
+     ("running a c..."). Now it clips first and the activity gets the room:
+     an approximate idle time still reads, half a word does not. */
   #sessions .sess .sess-meta {
     grid-column: 3; grid-row: 2;
     font-size: 9.5px; letter-spacing: 0.06em;
-    color: rgba(var(--accent-rgb), 0.7); flex-shrink: 0;
+    color: rgba(var(--accent-rgb), 0.7);
+    min-width: 0; justify-self: end;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   /* WHAT THE SESSION IS DOING. A fact, not a control and not a status:
      no border (a border says pressable, this page's own rule) and no
@@ -1649,20 +1879,15 @@
   #lines .you    { color: rgba(var(--accent-rgb), 0.92); }
   #lines .jarvis { color: var(--text-bright); opacity: 0.88; }
 
-  /* PHASE 3. The bar spans the page under #main. `margin-top: auto` went
-     with the move -- it was the trick that pinned the group to the bottom of
-     the right column, and it has nothing to do here. */
-  #cmdbar {
-    padding: 8px 20px;
-    border-top: 1px solid rgba(var(--accent-rgb), 0.18);
-    background: var(--bg-bar);
-  }
-  #cmd-sec { flex-shrink: 0; }
+  /* 2026-08-09. The command group is a card in the right column again, as the
+     concept draws it. `margin-top: auto` pins it to the FOOT of that column --
+     it is the way in, so it sits under the state, exactly where the picture
+     puts it. The full-width strip's own rules went with the strip. */
+  #cmd-sec { flex-shrink: 0; margin-top: auto; }
   #cmd-foot {
     display: flex; justify-content: space-between; align-items: center;
-    margin-top: 5px;
+    gap: 8px; flex-wrap: wrap; margin-top: 5px;
   }
-  #cmd-wave { flex: none; width: 200px; height: 26px; opacity: 0.85; }
   #cmd-hint {
     font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
     color: rgba(var(--accent-rgb), 0.4); margin-top: 7px;
@@ -1715,14 +1940,55 @@
   #micline.dim { color: rgba(127, 196, 255, 0.45); }
 
   /* ===== bottom bar ===== */
+  /* PHASE 8: the bar is the FIELD, its children are the pods. The flat
+     text strip becomes notched cards wearing the same one rule above --
+     which is the §5 check being real: the pods were not restyled, they
+     were simply added to the selector. */
   #botbar {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 20px; font-size: 10px; letter-spacing: 0.14em;
+    display: flex; align-items: stretch; gap: 10px;
+    padding: 10px 12px; font-size: 10px; letter-spacing: 0.14em;
     text-transform: uppercase;
-    border-top: 1px solid rgba(0, 120, 220, 0.3);
-    background: rgba(2, 12, 24, 0.85);
+    border-top: 1px solid rgba(var(--accent-rgb), 0.3);
+    background: var(--bg-deep);
     color: rgba(111, 194, 255, 0.7);
   }
+  #botbar > div {
+    padding: 8px 14px; display: flex; align-items: center; gap: 10px;
+  }
+  /* The pods do not compete for width; the identity pod takes the slack so
+     the bar reads left-anchored like the concept's. */
+  #botbar > div:last-child { margin-left: auto; }
+  /* The ring came down at full size; in a 34px-tall pod it is the pod. */
+  #pod-health #health-ring { width: 26px; height: 26px; }
+  #pod-health #health { gap: 8px; }
+  #pod-health #health-sub { opacity: 0.65; }
+  /* The row was built for a column: it carried a top rule, a top margin and
+     wrapping, all of which are how it separated itself from the STACK list
+     above it. In a footer pod there is nothing above it, so those become a
+     stacked second line. Stripped here rather than in .ports-row itself --
+     the rule still has to work if the row is ever put back in a column. */
+  #pod-ports .ports-row {
+    display: flex; flex-wrap: nowrap; gap: 12px;
+    margin-top: 0; padding-top: 0; border-top: none; line-height: 1;
+  }
+  #pod-ports #page-age {
+    margin-top: 0; opacity: 0.6;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* The pod is a fixed slot in the footer grid, so its two rows have to fit
+     it rather than grow it -- without this the page clock wrapped under the
+     ports and the pod grew taller than the five beside it. */
+  /* Two ROWS, like every other pod in this bar: the ports, then the page
+     clock under them. Side by side they fought over one line and the clock
+     lost its seconds to the clip -- a truncated time is not a time. */
+  #pod-ports {
+    min-width: 0; flex-direction: column; align-items: flex-start;
+    justify-content: center; gap: 3px;
+  }
+  /* ONE rule for this pod, deliberately. It had two -- an early `gap: 14px`
+     and this one -- and the second silently won. Two rules for one selector
+     is how a change lands in the file and not on the page. */
+  #pod-ports .ports-row > span { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -1850,19 +2116,15 @@
            machine read as broken every time Serge turns the terminal line
            off. The tooltip names every component so the ring is never a
            number he has to take on faith. -->
-      <div class="sec-title">System Status</div>
-      <div id="health" title="">
-        <svg id="health-ring" viewBox="0 0 44 44">
-          <circle class="hr-track" cx="22" cy="22" r="19"></circle>
-          <circle class="hr-arc" cx="22" cy="22" r="19"></circle>
-        </svg>
-        <div class="h-txt">
-          <div id="health-word">&mdash;</div>
-          <div id="health-sub">&mdash;</div>
-        </div>
-      </div>
-
-      <div class="sec-title">Sys Monitor</div>
+      <!-- PHASE 8 -- THE CHROME PORT. Every section is now wrapped in .card,
+           which is the ONE place the notch, the hairline and the halo are
+           defined (Jarvis Conventions section 5, his own standard: "you do
+           one fix and all the cards are changing at the same time"). These
+           two sections had no wrapper at all before -- they were loose
+           siblings in the column -- which is exactly why the chrome had
+           nowhere to land. -->
+      <div class="card">
+      <div class="sec-title" data-icon="▤">Sys Monitor</div>
       <div class="mon">
         <div class="mon-label"><span>CPU</span><span class="val" id="cpu-v">--</span></div>
         <div class="bar"><i id="cpu-b"></i></div>
@@ -1880,20 +2142,19 @@
       <div class="stat-row"><span class="k">UPTIME</span><span class="v" id="up-v">--</span></div>
       <div class="stat-row"><span class="k">PROC</span><span class="v" id="proc-v">--</span></div>
       <div class="stat-row"><span class="k">OS</span><span class="v" id="os-v">--</span></div>
+      </div>
 
-      <div class="stack-sec">
-        <div class="sec-title">Stack</div>
+      <div class="stack-sec card">
+        <div class="sec-title" data-icon="▦">Stack<span class="sec-count" id="stack-count"></span></div>
         <div id="stack-list"></div>
-        <div class="ports-row" id="ports-row"></div>
-        <div class="st-sub" id="page-age" style="margin-left:0"></div>
       </div>
 
       <!-- Serge, 2026-08-05: "something visual, so we could see the server
            going on and off and restarting". The STACK block above is the
            present tense; this is the past. Hidden until there is history. -->
       <!-- Newest three stand on the panel; the rest unfold on hover. -->
-      <div class="events-sec" id="events-sec" style="display:none">
-        <div class="sec-title">Events</div>
+      <div class="events-sec card" id="events-sec" style="display:none">
+        <div class="sec-title" data-icon="◷">Events<span class="sec-count" id="events-count"></span></div>
         <div id="events-list"></div>
         <div id="events-more"></div>
         <div id="events-hint"></div>
@@ -1923,14 +2184,40 @@
     </div>
     <div id="status">CONNECTING</div>
     <div id="waiting">
-      <div id="waiting-head">Waiting for your answer</div>
       <div id="waiting-q"></div>
     </div>
     <div id="log"><div id="lines"></div></div>
     <div id="label">J A R V I S</div>
     <div id="graph-hint">Drag to spin &nbsp;&middot;&nbsp; scroll to zoom</div>
     <button id="viewbtn">Vault Graph</button>
-    <button id="talk">Hold to talk &nbsp;&middot;&nbsp; or hold Right &#8984;</button>
+    <!-- THE TALK PILL, drawn as the concept draws it (2026-08-09, his ask:
+         "the microphone, and the sound wave coming out of the microphone").
+         Label, waveform, MIC ROUNDEL, waveform, label -- symmetrical about
+         the roundel, which is the thing the eye lands on.
+         The two canvases are fed the SAME smoothed level the stage ring is
+         drawn from, passed in rather than re-read, so no two instruments on
+         this page can disagree about how loud he is. They mirror each other:
+         the left one runs outward to the left, the right one outward to the
+         right, so the sound reads as coming OUT of the microphone.
+         Everything inside is pointer-transparent -- the whole pill is one
+         button, and press()/release() must never see a child as the target. -->
+    <button id="talk">
+      <span class="tk-label" id="tk-left">Hold to talk</span>
+      <canvas class="tk-wave" id="tk-wave-l" width="110" height="24"></canvas>
+      <!-- Drawn, not typed. An emoji microphone renders in whatever colour
+           the platform's font decides, which on this machine is grey — it
+           cannot follow the face dial, and every other lit thing here does.
+           This one inherits currentColor, so it turns with the accent. -->
+      <span id="tk-mic"><span id="tk-rings"><span class="tk-ring"></span><span
+        class="tk-ring"></span></span><svg id="tk-mic-icon" viewBox="0 0 24 24" width="19" height="19"
+        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <rect x="9" y="2.5" width="6" height="11" rx="3"></rect>
+        <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"></path>
+        <path d="M12 18v3.5"></path>
+      </svg></span>
+      <canvas class="tk-wave" id="tk-wave-r" width="110" height="24"></canvas>
+      <span class="tk-label" id="tk-right">or hold Right &#8984;</span>
+    </button>
   </div>
 
   <div id="right" class="panel">
@@ -1942,7 +2229,7 @@
          avatar back full stage -- the page's existing tap-vs-hold rule, and
          it calls press()/release() directly rather than growing a second mic
          path, so every rule those carry travels with it untouched. -->
-    <div id="avcard" style="display:none" title="Hold to talk · tap for the full avatar">
+    <div id="avcard" class="card" style="display:none" title="Hold to talk · tap for the full avatar">
       <div id="avcard-ring"><span id="avcard-core"></span></div>
       <div id="avcard-state">IDLE</div>
     </div>
@@ -1951,7 +2238,7 @@
          it IS this card's heading row, and the board rolls down from it. The
          hover zone is this whole row, which the wiring picks up on its own by
          reading the strip's parent. -->
-    <div id="tasks" style="display:none">
+    <div id="tasks" class="card" style="display:none">
       <div id="tasks-head">
         <span class="th-title">Active Tasks</span>
         <div id="board-strip" style="display:none"></div>
@@ -1968,67 +2255,59 @@
          new page that goes to the vault."
          It sits ABOVE Sessions by his placement. Hidden until the note has
          something in it -- an empty panel is chrome, not information. -->
-    <div id="ideas-sec" style="display:none">
-      <div class="sec-title" id="ideas-head">Ideas<span class="caret"
+    <div id="ideas-sec" class="card" style="display:none">
+      <div class="sec-title" data-icon="✦" id="ideas-head">Ideas<span class="sec-count" id="ideas-count"></span><span class="caret"
            id="ideas-caret">&#9660;</span></div>
     </div>
-    <div id="sessions" style="display:none">
-      <div class="sec-title">Sessions<span id="sessions-skew"
-           style="display:none"> &middot; partial</span></div>
+    <div id="sessions" class="card" style="display:none">
+      <div class="sec-title" data-icon="◉">Sessions<span id="sessions-skew"
+           style="display:none"> &middot; partial</span><span class="sec-count" id="sessions-count"></span></div>
       <div id="sessions-body"></div>
     </div>
     <!-- The session bus. Notices are FACTS, never questions, and every word
          drawn here is built locally from a closed vocabulary -- nothing a
          sender wrote is rendered as language. Hidden until there is mail. -->
-    <div class="mail-sec" id="mail-sec" style="display:none">
-      <div class="sec-title">Mail</div>
+    <div class="mail-sec card" id="mail-sec" style="display:none">
+      <div class="sec-title" data-icon="✉">Mail<span class="sec-count" id="mail-count"></span></div>
       <div id="mail-list"></div>
       <div id="mail-more"></div>
       <div id="mail-hint"></div>
     </div>
     <!-- The activity log used to live here. It is now an overlay on the
          stage (see #log in the stylesheet) -- this column is state only. -->
-    <!-- THE COMMAND GROUP MOVED OUT in Phase 3, to the full-width bar below
-         #main. It sat here because the right column was where state lived;
-         it is not state, it is the way in. See #cmdbar. -->
-  </div>
-
-</div>
-
-<!-- PHASE 3 -- THE COMMAND BAR. The plan's one structural move: the typed
-     input, send, the attach queue, the hint and the mic line leave the right
-     column for a full-width strip above the status bar.
-     WHY IT IS SAFE TO MOVE: every binding in the script reaches these by id
-     or by element reference, and the Right-Command focus guard compares
-     `document.activeElement !== typedEl`, which is position-independent. What
-     the old page tests CANNOT prove is placement -- they slice JS out of the
-     source and are blind to where the markup sits -- so this phase carries
-     its own placement tests and a live walkthrough of every behaviour that
-     lives in this code: images riding a spoken turn, the old-server
-     degradation ladder, tap-vs-hold, interrupt suppression under a pending
-     approval, the held-behind-approval message, and terminal-line routing. -->
-<div id="cmdbar">
-  <div id="cmd-sec">
-    <div id="cmd">
-      <input id="typed" placeholder="How can I assist you today, Serge?" autocomplete="off">
-      <button id="send">&#9654;</button>
-      <!-- Driven by the level data the stage already computes -- no second
-           meter, no new source of truth. It is the concept's waveform strip,
-           and it says the one thing this bar cannot otherwise show: the
-           microphone is hearing you. -->
-      <canvas id="cmd-wave" width="200" height="26"></canvas>
-    </div>
-    <!-- One row per attached image, built by renderAttachments(). It was a
-         single fixed chip until 2026-08-05, which is why a second image
-         replaced the first instead of joining it. -->
-    <div id="attach"></div>
-    <div id="cmd-foot">
-      <!-- The hint sits with the thing it describes, not in the far bottom
-           corner of the page where it used to duplicate the talk button. -->
-      <div id="cmd-hint">Enter to send &nbsp;&middot;&nbsp; hold Right &#8984; to talk</div>
-      <div id="micline" class="dim">&#9679; standing by</div>
+    <!-- THE COMMAND GROUP CAME BACK, 2026-08-09, on Serge's explicit word --
+         and this REVERSES Phase 3's full-width strip, which he had approved.
+         It is recorded rather than done quietly: he put the concept and the
+         page side by side and asked why we were not simply doing what the
+         picture does. The picture splits the two ways in instead of merging
+         them -- TALKING belongs to the avatar, inside the stage, as a pill
+         with a real mic roundel between two waveforms; TYPING is just
+         another card in this column. That split is also why the merged
+         control we had been sketching is not needed: his cursor never sits
+         inside the microphone, so the Right-Command focus guard keeps
+         meaning exactly what it always meant.
+         Every binding still reaches these by id, so the move carries no
+         behaviour with it -- the placement tests below are what prove that,
+         because the JS-slicing tests are blind to where markup sits. -->
+    <div id="cmd-sec" class="card">
+      <div class="sec-title" data-icon="❯">Command Input</div>
+      <div id="cmd">
+        <input id="typed" placeholder="Type a command or question&#8230;" autocomplete="off">
+        <button id="send">&#9654;</button>
+      </div>
+      <!-- One row per attached image, built by renderAttachments(). It was a
+           single fixed chip until 2026-08-05, which is why a second image
+           replaced the first instead of joining it. -->
+      <div id="attach"></div>
+      <div id="cmd-foot">
+        <!-- The hint sits with the thing it describes, not in the far bottom
+             corner of the page where it used to duplicate the talk button. -->
+        <div id="cmd-hint">Enter to send &nbsp;&middot;&nbsp; hold Right &#8984; to talk</div>
+        <div id="micline" class="dim">&#9679; standing by</div>
+      </div>
     </div>
   </div>
+
 </div>
 
 <!-- The bottom bar is the status bar now (Serge, 2026-08-05). AI CORE and
@@ -2042,7 +2321,27 @@
     <span class="bs" id="chip-core"><i class="dot"></i><span class="t">AI CORE</span></span>
     <span class="bs" id="chip-line"><i class="dot"></i><span class="t">TERMINAL LINE</span></span>
   </div>
+  <!-- PHASE 8. These three readings came DOWN from the left column on
+       Serge's word, 2026-08-09: "yeah, move them." MOVED, never copied --
+       his own decision 11 forbids the page saying the same thing twice, and
+       a duplicated reading is also two places for one number to go stale. -->
+  <div id="pod-ports">
+    <span class="ports-row" id="ports-row"></span>
+    <span class="st-sub" id="page-age" style="margin-left:0"></span>
+  </div>
   <div>Local core &nbsp;&middot;&nbsp; 127.0.0.1:8765</div>
+  <div id="pod-health">
+    <div id="health" title="">
+      <svg id="health-ring" viewBox="0 0 44 44">
+        <circle class="hr-track" cx="22" cy="22" r="19"></circle>
+        <circle class="hr-arc" cx="22" cy="22" r="19"></circle>
+      </svg>
+      <div class="h-txt">
+        <div id="health-word">&mdash;</div>
+        <div id="health-sub">&mdash;</div>
+      </div>
+    </div>
+  </div>
   <div>Jarvis Systems &nbsp;&middot;&nbsp; <span id="model-v">model &hellip;</span></div>
 </div>
 
@@ -3148,8 +3447,10 @@ function renderIdeas(ideas){
     sec.style.display = 'none';
     ideasOpen(false);
     list.innerHTML = '';
+    setCount('ideas-count', null);
     return;
   }
+  setCount('ideas-count', ideas.length, 'open');
   sec.style.display = '';
   // THE THINKING IS ON THE CARD, FOLDED (Serge, 2026-08-07 ~6:00 PM: he asked
   // to see the whole argument, not the one-line gist). Folded rather than
@@ -4199,6 +4500,9 @@ function renderSessions(list){
         + 'sessions that registered at boot. Restart Jarvis to see them all.'
       : '';
   }
+  // From the list just handed in, before the change guard -- the count must
+  // be right even on a poll where the DOM is left alone.
+  setCount('sessions-count', list.length, 'active');
   const sig = sessSig(list);
   if (sig === lastSessSig) return;     // rebuild DOM only on real change
   lastSessSig = sig;
@@ -4911,6 +5215,17 @@ function renderHealth(sk) {
     (c.state === 'off' ? 'off, not counted' : c.state)).join('\n');
 }
 
+// ONE SETTER FOR EVERY HEADER COUNT, so the honesty rule lives in one place
+// instead of six. A count it cannot state is BLANK -- never a zero, never a
+// dash, never a stale number left over from the last poll. The concept's
+// headers are instruments, and an instrument that keeps showing its last
+// reading after the source goes away is worse than an empty one.
+function setCount(id, n, word) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = (typeof n === 'number' && isFinite(n) && n >= 0)
+    ? n + ' ' + word : '';
+}
 function renderStack(sk){
   if (!sk || !sk.components) return;
   const sig = JSON.stringify(sk);
@@ -4923,12 +5238,22 @@ function renderStack(sk){
                 : 'down';
       const sub = (c.state === 'up' && c.since)
         ? '<div class="st-sub" data-since="' + c.since + '"></div>' : '';
+      // The name CLIPS now rather than wrapping, so the full one has to be
+      // recoverable -- a label a narrow panel cut in half and nothing can
+      // restore is worse than the wrap it replaced. Escaped: the label
+      // comes off disk, like the events strip's does.
       return '<div class="st-row ' + c.state + '">'
            + '<span class="dot"></span>'
-           + '<span class="name">' + c.label + '</span>'
-           + '<span class="pid">' + pid + '</span></div>' + sub;
+           + '<span class="name" title="' + esc(c.label) + '">' + c.label + '</span>'
+           + '<span class="pid" title="' + esc(pid) + '">' + pid
+           + '</span></div>' + sub;
     }).join('');
   tickAges();
+  // The header count, from the list this function just drew. `up` is the
+  // only state that means online -- `off` is a deliberate stand-down and
+  // `down` is a fault, and counting either as online is the exact lie the
+  // stack panel exists to prevent.
+  setCount('stack-count', sk.components.filter(c => c.state === 'up').length, 'online');
   document.getElementById('ports-row').innerHTML =
     Object.keys(sk.ports || {}).map(p =>
       '<span><b>' + p + '</b> <span class="port ' + sk.ports[p] + '">'
@@ -4952,6 +5277,7 @@ function renderEvents(evs){
   const sec = document.getElementById('events-sec');
   if (!sec) return;
   if (!evs || !evs.length){ sec.style.display = 'none'; return; }
+  setCount('events-count', evs.length, 'logged');
   const sig = JSON.stringify(evs);
   if (sig === eventsSig) return;
   eventsSig = sig;
@@ -4959,10 +5285,14 @@ function renderEvents(evs){
   const row = (e) => {
     const kind = (e.kind === 'up' || e.kind === 'off' || e.kind === 'down')
       ? e.kind : 'off';
-    return '<div class="ev-row ' + kind + '">'
+    // The row carries the whole thing in its tooltip, because the message is
+    // clamped at two lines now. Escaped twice over: once for the attribute,
+    // once for the text -- bash writes some of these details.
+    const full = esc(e.label) + ' — ' + esc(e.detail);
+    return '<div class="ev-row ' + kind + '" title="' + full + '">'
          + '<span class="dot"></span>'
          + '<span class="t">' + esc(fmtClock(e.ts)) + '</span>'
-         + '<span class="msg">' + esc(e.label) + ' — ' + esc(e.detail)
+         + '<span class="msg">' + full
          + '</span></div>';
   };
   // Fold, don't truncate: the newest EV_SHOWN stand on the panel and the
@@ -5021,6 +5351,9 @@ function renderMail(ms){
          + esc(verb) + (shortP ? ' ' + esc(shortP) : '')
          + '</span></div>';
   };
+  // NOT "unread" -- the bus has no read state and inventing one would be a
+  // plausible number that means nothing. It is the count of notices held.
+  setCount('mail-count', ms.length, 'notices');
   const head = ms.slice(0, MAIL_SHOWN), rest = ms.slice(MAIL_SHOWN);
   document.getElementById('mail-list').innerHTML = head.map(row).join('');
   const more = document.getElementById('mail-more');
@@ -5144,9 +5477,18 @@ async function poll(){
             lineAlive ? 'bs on' : 'bs off');
     talkBtn.disabled = lineAlive;
     talkBtn.style.opacity = lineAlive ? 0.35 : 1;
-    talkBtn.innerHTML = lineAlive
-      ? 'Terminal line active &nbsp;&middot;&nbsp; speak there or type here'
-      : 'Hold to talk &nbsp;&middot;&nbsp; or hold Right &#8984;';
+    // ⚠ THIS USED TO BE `talkBtn.innerHTML = ...`, AND IT RAN AT 15 Hz.
+    // The moment the pill grew a mic roundel and two canvases, that line
+    // deleted them on the very next poll -- and worse, silently: the drawing
+    // code went on writing into canvas elements that were no longer in the
+    // document, so there was no error to notice, just an empty pill. No test
+    // in the suite could see it; only rendering the running page did.
+    // So the pill's STRUCTURE is markup and only its WORDS are state.
+    const tkL = document.getElementById('tk-left');
+    const tkR = document.getElementById('tk-right');
+    if (tkL) tkL.textContent = lineAlive ? 'Terminal line active' : 'Hold to talk';
+    if (tkR) tkR.textContent = lineAlive ? 'speak there or type here'
+                                         : 'or hold Right \u2318';
     // One conversation: while the terminal line is up, mirror its
     // transcript into the activity log -- appending only what isn't
     // already on screen, so replayed history survives.
@@ -5955,27 +6297,54 @@ cv.addEventListener('wheel', (e) => {
 // stage ring is drawn from -- passed in rather than re-read, so the two can
 // never disagree about how loud he is. A second meter with its own source is
 // how two instruments start telling different stories about one microphone.
-const cmdWave = document.getElementById('cmd-wave');
+const cmdWaves = [
+  {el: document.getElementById('tk-wave-l'), out: 'left'},
+  {el: document.getElementById('tk-wave-r'), out: 'right'},
+];
 const cmdWaveHist = [];
+const tkMic = document.getElementById('tk-mic');
+let lastMicLv = -1;
 function drawCmdWave(lv) {
-  if (!cmdWave) return;
-  const g = cmdWave.getContext('2d');
-  const W2 = cmdWave.width, H2 = cmdWave.height;
-  cmdWaveHist.push(lv);
-  while (cmdWaveHist.length > W2 / 3) cmdWaveHist.shift();
-  g.clearRect(0, 0, W2, H2);
-  g.strokeStyle = 'rgba(' + ACCENT_RGB + ', 0.75)';
-  g.lineWidth = 1;
-  g.beginPath();
-  // Right-anchored, like the sparklines: the newest sample is always at the
-  // same edge, so a glance at the same pixel always means "now".
-  for (let i = 0; i < cmdWaveHist.length; i++) {
-    const x = W2 - (cmdWaveHist.length - i) * 3;
-    const a = Math.min(1, cmdWaveHist[i] * 3) * (H2 / 2 - 1);
-    g.moveTo(x, H2 / 2 - a);
-    g.lineTo(x, H2 / 2 + a);
+  // THE ROUNDEL AND THE STRIPS ARE ONE READING. Serge asked for the mic to
+  // light "in the same time" as the waves, so it is driven from the SAME
+  // argument, in the same call -- not from a second read of the microphone,
+  // which is how two instruments start disagreeing about one voice.
+  // Quantised to 1/50th before it is written: at 60 fps an unrounded value
+  // would set a style property on every single frame and never repeat.
+  if (tkMic) {
+    const q = Math.round(Math.min(1, Math.max(0, lv * 3)) * 50) / 50;
+    if (q !== lastMicLv) { tkMic.style.setProperty('--lv', q); lastMicLv = q; }
   }
-  g.stroke();
+  cmdWaveHist.push(lv);
+  // One history, two views. A second buffer is how two meters on one
+  // microphone start telling different stories about the same second.
+  while (cmdWaveHist.length > 40) cmdWaveHist.shift();
+  for (const w of cmdWaves) {
+    if (!w.el) continue;
+    const g = w.el.getContext('2d');
+    const W2 = w.el.width, H2 = w.el.height;
+    g.clearRect(0, 0, W2, H2);
+    g.strokeStyle = 'rgba(' + ACCENT_RGB + ', 0.75)';
+    g.lineWidth = 1;
+    g.beginPath();
+    // ANCHORED AT THE MICROPHONE, and the two strips mirror each other, so
+    // the newest sample is always the bar nearest the roundel and the sound
+    // reads as travelling outward from it. The stage ring, these two, and
+    // the mic level are one number drawn four ways.
+    for (let i = 0; i < cmdWaveHist.length; i++) {
+      const age = cmdWaveHist.length - 1 - i;
+      const x = w.out === 'left' ? W2 - 1 - age * 3 : 1 + age * 3;
+      if (x < 0 || x > W2) continue;
+      // A FLOOR, so the strip is legible as a waveform when the room is
+      // silent instead of vanishing into empty pill. It is 1 px — the
+      // instrument stays visible without ever being able to imply a level
+      // that is not there, because 1 px is plainly the bottom of the scale.
+      const a = 1 + Math.min(1, cmdWaveHist[i] * 3) * (H2 / 2 - 2);
+      g.moveTo(x, H2 / 2 - a);
+      g.lineTo(x, H2 / 2 + a);
+    }
+    g.stroke();
+  }
 }
 
 let t = 0, smooth = 0;

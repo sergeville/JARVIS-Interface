@@ -91,7 +91,9 @@ function num(name) {
 
 const BUSY_WITHIN = num('BUSY_WITHIN');
 let lastSessSig = '';
-eval(grab('fmtDur') + '\n' + grab('sessBusy') + '\n' + grab('sessSig') + '\n'
+// setCount comes from the page, never a stub: this renderer gained a header
+// count on 2026-08-09 and depends on the real one.
+eval(grab('setCount') + '\n' + grab('fmtDur') + '\n' + grab('sessBusy') + '\n' + grab('sessSig') + '\n'
    + grab('renderSessions') + '\n' + grab('tickSessions'));
 
 // ---- harness --------------------------------------------------------------

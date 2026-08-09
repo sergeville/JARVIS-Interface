@@ -46,7 +46,9 @@ function grab(name) {
   assert.ok(end !== -1, 'unbalanced braces reading ' + name);
   return src.slice(start, end);
 }
-eval(grab('fmtClock') + '\n' + grab('esc') + '\n' + grab('renderEvents'));
+// setCount comes from the page, never a stub: this renderer gained a header
+// count on 2026-08-09 and depends on the real one.
+eval(grab('fmtClock') + '\n' + grab('esc') + '\n' + grab('setCount') + '\n' + grab('renderEvents'));
 let eventsSig = '';   // module-level state the real page holds
 // Read the real cap out of the page rather than hard-coding 3 here: if it is
 // ever retuned, these tests must follow it, not contradict it.
