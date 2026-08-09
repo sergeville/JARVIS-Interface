@@ -126,8 +126,31 @@ test('the Right-Command focus guard is position-independent', () => {
 // Each of these lives in the code that moved. A source assertion here, and a
 // line in the walkthrough record, because neither alone is proof.
 
-test('images still ride a SPOKEN turn', () => {
-  assert.ok(/images_prompt|attached|attachQueue/.test(src), 'the attach queue vanished');
+// SLICE THE FUNCTION, do not grep the file. The terminal session's red pen,
+// 2026-08-08: the first versions of the next two tests asserted that an
+// IDENTIFIER appears anywhere in 4,000 lines. Gut the behaviour and both stay
+// green, because the name survives somewhere else. And these are exactly the
+// two behaviours nobody has walked through in Serge's hands — so a
+// word-existence assertion left them covered by nothing at all.
+function slice(name) {
+  const start = src.indexOf('function ' + name + '(');
+  assert.ok(start !== -1, 'no function ' + name);
+  let i = src.indexOf('{', start), depth = 0, end = -1;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '{') depth++;
+    else if (src[j] === '}' && --depth === 0) { end = j + 1; break; }
+  }
+  return src.slice(start, end);
+}
+
+test('images ride a SPOKEN turn — asserted INSIDE release(), where it happens', () => {
+  const body = slice('release');
+  assert.ok(/attached\.length && serverVoiceImage/.test(body),
+    'the spoken turn no longer checks for attached images');
+  assert.ok(/msg\.images = take\.map/.test(body),
+    'the audio message does not carry the images');
+  assert.ok(/msg\.image = msg\.images\[0\]/.test(body),
+    'the one-image shape for an old server is gone from the spoken path');
   assert.ok(/id="attach"/.test(src), 'the attach queue has no home in the new bar');
 });
 
@@ -163,8 +186,22 @@ test('interrupt suppression under a pending approval survived — EVERY site', (
   }
 });
 
-test('terminal-line routing survived the move', () => {
-  assert.ok(/lineAlive/.test(src), 'the terminal-line stand-down is gone');
+test('terminal-line routing survived — asserted INSIDE sendTyped()', () => {
+  // Same correction as the images test above: `/lineAlive/` anywhere in the
+  // file proved nothing. The routing decision has to live in the function
+  // that sends, or a typed message goes to the wrong place while the
+  // identifier sits happily in some unrelated handler.
+  const body = slice('sendTyped');
+  assert.ok(/lineAlive/.test(body),
+    'the typed-send path no longer branches on the terminal line');
+  assert.ok(/if \(!lineAlive\)/.test(body),
+    'the stand-down branch is gone from the send path');
+});
+
+test('press() still stands down while the terminal line owns the key', () => {
+  const body = slice('press');
+  assert.ok(/if \(capturing \|\| lineAlive\) return;/.test(body),
+    'the browser would grab a microphone the terminal line owns');
 });
 
 test('the mic line still renders from its own function', () => {
@@ -192,7 +229,12 @@ test('the waveform is right-anchored, like every other sparkline here', () => {
 test('the waveform takes its colour from the FACE, not from a literal', () => {
   const i = at('function drawCmdWave(');
   const body = src.slice(i, src.indexOf('\n}', i));
-  assert.ok(/--accent-rgb/.test(body), 'the waveform ignores the face dial');
+  // The accent is CACHED now (one read at applyFace instead of one per
+  // animation frame), so the property to assert moved: the drawing must use
+  // the cache, and the cache must be refreshed by the face dial.
+  assert.ok(/ACCENT_RGB/.test(body), 'the waveform ignores the face dial');
+  assert.ok(/refreshAccent\(\);/.test(src) && /ACCENT_RGB = getComputedStyle/.test(src),
+    'the cached accent is never refreshed, so it would freeze on one face');
   assert.ok(!/#[0-9a-f]{6}/i.test(body), 'a colour literal would survive every face');
 });
 

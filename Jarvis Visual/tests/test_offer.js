@@ -99,9 +99,26 @@ test('the case never quotes free text from the payload', () => {
   // of this guard pinned `t.title`, and an injection reading `tasks[0].title`
   // walked straight past it — an enumerated guard is defeated by the first
   // spelling nobody thought of, which is this project's oldest lesson.
-  const body = fn('suggestJob');
-  assert.ok(!/\.(title|note|text|owner|question)\b/.test(body),
-    'the offer would render text straight from the payload');
+  // AN ALLOW-LIST, not a blacklist. This was a list of forbidden field names
+  // until the terminal session's red pen pointed out the obvious: `.gist`,
+  // `.body`, `.label`, `.name`, bracket access — every one of them walks past
+  // a blacklist. My own commit that same night said an enumerated guard is
+  // defeated by the first spelling nobody thought of, and then I shipped one.
+  // Now: every property this function reads off a task must be on the list.
+  const ALLOWED = ['tasks', 'status', 'length', 'ideasChanged', 'sessionsBusy',
+                   'filter', 'job', 'because'];
+  // COMMENTS STRIPPED FIRST. This guard failed on its own first run because
+  // the comment explaining it NAMES `.gist`, `.body` and `.label` as examples
+  // of what a blacklist misses — so the allow-list read the prose describing
+  // it and reported three violations that were not code. Eighth time on this
+  // record that grepping source punished the explanation beside it.
+  const body = fn('suggestJob').replace(/\/\/[^\n]*/g, '');
+  const reads = [...body.matchAll(/\.([a-zA-Z_][a-zA-Z0-9_]*)/g)].map(m => m[1]);
+  const bad = [...new Set(reads)].filter(r => !ALLOWED.includes(r));
+  assert.deepStrictEqual(bad, [],
+    'suggestJob reads ' + bad.join(', ') + ' — free text from the payload can reach the page');
+  assert.ok(!/\[[^\]]*\]\s*\./.test(body.replace(/tasks\[0\]/g, '')),
+    'bracket access would step around the allow-list');
 });
 
 test('suggestJob is PURE — no clock, no storage, no DOM', () => {

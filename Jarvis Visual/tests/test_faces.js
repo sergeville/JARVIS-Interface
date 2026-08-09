@@ -164,10 +164,16 @@ function dial() {
     localStorage: { getItem: k => (k in store ? store[k] : null),
                     setItem: (k, v) => { store[k] = v; } },
   };
-  const fn = new Function('document', 'localStorage',
-    body + '\nreturn {applyFace, currentFace, FACES};');
-  return Object.assign(fn(sandbox.document, sandbox.localStorage),
-                       {cls, store});
+  // getComputedStyle joined the sandbox when applyFace gained refreshAccent()
+  // — the accent is cached at the face change rather than read once per
+  // animation frame. The stub is here rather than the call being stripped,
+  // because what this harness must run is the REAL applyFace.
+  const fn = new Function('document', 'localStorage', 'getComputedStyle',
+    body + '\nreturn {applyFace, currentFace, FACES, refreshAccent};');
+  return Object.assign(
+    fn(sandbox.document, sandbox.localStorage,
+       () => ({ getPropertyValue: () => '0,150,255' })),
+    {cls, store});
 }
 
 test('applyFace sets exactly one face class', () => {

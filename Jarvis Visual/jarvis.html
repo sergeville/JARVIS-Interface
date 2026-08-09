@@ -266,6 +266,28 @@
     background: rgba(var(--accent-rgb), 0.16);
   }
 
+  /* PANEL EMPHASIS -- the half of the JOB dial that was designed and unbuilt
+     until the terminal session's red pen named it: with only stage and type
+     scale, WORKSHOP and BRAINSTORM rendered byte-identically, and this page's
+     own rule says two things that render alike are one thing with two names.
+     A job may only SHOW, HIDE or EMPHASISE instruments that exist. Nothing
+     below adds or removes a panel; they change how much room each gets. */
+
+  /* WORKSHOP condenses the left column and gives the room to the board --
+     Serge, 2026-08-08, decision 15, his first ruling made from inside a job:
+     "I look at the board, don't like what I see... give more real estate to
+     the board, and I got a quick system monitor in the bottom part." */
+  body.job-workshop #main { grid-template-columns: 56px 180px 1fr 360px; }
+  body.job-workshop #left { gap: 10px; }
+  body.job-workshop #left .spark { display: none; }
+
+  /* BRIEFING gives the queue the room and lets the machinery recede. */
+  body.job-briefing #main { grid-template-columns: 56px 200px 1fr 360px; }
+
+  /* BRAINSTORM is the quiet one: chrome recedes, the stage takes the room. */
+  body.job-brainstorm #main { grid-template-columns: 56px 200px 1fr 260px; }
+  body.job-brainstorm #left, body.job-brainstorm #right { opacity: 0.78; }
+
   /* THE TYPE SCALE rides the JOB, never the face (decision 1). One multiplier
      on the panels' text so a job can make the page easier to read across the
      room without moving a single element. */
@@ -830,8 +852,31 @@
   /* ===== main grid ===== */
   #main {
     flex: 1; display: grid;
-    grid-template-columns: 230px 1fr 300px;
+    /* Phase 5 added the 56 px rail as a FOURTH column rather than overlaying
+       it, so it takes its width from the stage honestly instead of covering
+       the thing underneath. */
+    grid-template-columns: 56px 230px 1fr 300px;
     min-height: 0;
+  }
+  #rail {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 8px; padding: 14px 0;
+    background: var(--bg-panel);
+    border-right: 1px solid rgba(var(--accent-rgb), 0.16);
+  }
+  button.rl {
+    width: 32px; height: 32px; font-size: 14px; line-height: 1;
+    cursor: pointer; border-radius: 2px;
+    color: var(--text-soft); background: transparent;
+    border: 1px solid rgba(var(--accent-rgb), 0.22);
+  }
+  button.rl:hover { background: rgba(var(--accent-rgb), 0.14); color: var(--text); }
+  /* Lit means the thing it shortcuts is ON -- read from the real control, not
+     from the rail's own memory, so the two can never disagree. */
+  button.rl.on {
+    color: var(--text-bright);
+    border-color: rgba(var(--accent-rgb), 0.65);
+    background: rgba(var(--accent-rgb), 0.18);
   }
   .panel {
     background: var(--bg-panel); padding: 16px 14px;
@@ -1777,6 +1822,22 @@
 </div>
 
 <div id="main">
+
+  <!-- PHASE 5 -- THE ICON RAIL. Serge's call, said twice after I argued
+       against it: it spends stage width, and this page's own history runs the
+       other way. He decided; this is his rail.
+       THE RULE THAT KEEPS IT HONEST: every button here is a SHORTCUT to a
+       control that already exists, and it fires that control's own handler.
+       Nothing here implements anything. Sessions and Settings are absent on
+       purpose -- the sessions card is passive and no settings control exists,
+       so railing them would invent the second code path this rule forbids. -->
+  <div id="rail">
+    <button class="rl" id="rl-view" title="Avatar / Vault Graph">◉</button>
+    <button class="rl" id="rl-board" title="Board">▤</button>
+    <button class="rl" id="rl-ideas" title="Ideas">✦</button>
+    <button class="rl" id="rl-music" title="Music">♪</button>
+    <button class="rl" id="rl-usage" title="Usage poller">%</button>
+  </div>
 
   <div id="left" class="panel">
     <div>
@@ -3917,10 +3978,20 @@ function renderBadge(sessions, stats) {
 // department rows shipped with the switcher a phase earlier, so the naming
 // layer needed no change at all -- which is the registry doing its job.
 const FACES = ['civilian', 'navy', 'army', 'airforce'];
+// Cached accent. Two canvas passes read --accent-rgb on EVERY animation
+// frame; getComputedStyle forces a style recalculation and this runs at 60
+// Hz. The face is the only thing that can change it, so it is cached at the
+// one invalidation point that already exists. (Terminal red pen, finding 9.)
+let ACCENT_RGB = '0,150,255';
+function refreshAccent() {
+  ACCENT_RGB = getComputedStyle(document.body)
+                 .getPropertyValue('--accent-rgb').trim() || ACCENT_RGB;
+}
 function applyFace(name) {
   const face = FACES.includes(name) ? name : 'civilian';
   for (const f of FACES) document.body.classList.remove('face-' + f);
   document.body.classList.add('face-' + face);
+  refreshAccent();
   try { localStorage.setItem('jarvisFace', face); } catch (e) {}
   return face;
 }
@@ -3978,8 +4049,9 @@ const DEPTS = {
   civilian:  { briefing: 'BRIEFING', workshop: 'WORKSHOP',   brainstorm: 'BRAINSTORM', watch: 'WATCH' },
 };
 // A face with no table falls back to the universal job name rather than to an
-// empty button -- a switcher with a blank label is unusable, and army and
-// airforce are faces that do not exist yet.
+// empty button -- a switcher with a blank label is unusable. All four faces
+// ship as of v2.4.0, so the fallback guards a future face rather than a
+// present gap; it stays because the next one will arrive the same way.
 function deptName(face, job) {
   const row = DEPTS[face];
   const name = row && row[job];
@@ -4027,6 +4099,11 @@ const OFFER = {
 // here infers a mood, and nothing invents a reading: the board-never-lies
 // doctrine applies to a suggestion exactly as it applies to a gauge.
 function suggestJob(sig) {
+  // ONLY `status` is ever read off a task. The guard on this used to be a
+  // blacklist of field names, and the terminal's red pen named the obvious:
+  // `.gist`, `.body`, `.label`, bracket access -- all walk past a blacklist.
+  // The test is now an allow-list over the properties this function touches,
+  // which fails closed on the first spelling nobody thought of.
   const tasks = sig.tasks || [];
   const busy = tasks.filter(t => t.status === 'active' || t.status === 'test').length;
   const waiting = tasks.filter(t => t.status === 'review').length;
@@ -4083,7 +4160,15 @@ function renderSwitcher() {
   build(fd, FACES, face, (f) => f.toUpperCase(), (f) => { applyFace(f); renderSwitcher(); });
   // Hovering a department names the universal job underneath, so the two
   // vocabularies never have to be memorised against each other.
-  build(jd, JOB_NAMES, job, (j) => deptName(face, j), (j) => applyJob(j));
+  // The job reads as CURRENT only while its stage is actually on screen. The
+  // avatar card's tap and the Vault Graph button call setView() directly and
+  // leave `job` alone -- so without this the dial could light BRIDGE while
+  // watch's one distinguishing arrangement was gone. Named by the terminal
+  // session's red pen: harmless at today's thinness, a trap the day jobs gain
+  // real arrangements. The dial must never assert a job the stage contradicts.
+  const stageAgrees = (view === JOBS[job].stage);
+  build(jd, JOB_NAMES, stageAgrees ? job : null,
+        (j) => deptName(face, j), (j) => applyJob(j));
   for (const b of jd.children) {
     const j = JOB_NAMES[[...jd.children].indexOf(b)];
     b.title = deptName(face, j) + ' · the ' + j + ' job';
@@ -5691,7 +5776,7 @@ let graphTimer = null, dragging = false, dragX = 0, dragY = 0;
 // ---- the offer's wiring (Phase 7) ---------------------------------------
 // The two pure functions above decide; this only measures and draws. Keeping
 // the measuring out of them is what makes the ranking testable at all.
-let offerHeldSince = 0, offerHeldJob = null, offerShown = null;
+let offerHeldSince = 0, offerHeldJob = null, offerShown = null, offerShownFace = null;
 let lastBusyAt = Date.now();          // the "quiet" clock
 const offerMuted = {};                 // job -> epoch ms until which it is muted
 let ideasSig = null, ideasChangedAt = 0;
@@ -5700,8 +5785,15 @@ function offerTick(d) {
   const now = Date.now();
   // QUIET is measured from the last thing HE or Jarvis actually did. A page
   // polling itself is not activity; that is the whole point of the clock.
+  // TYPING COUNTS AS ACTIVITY. Named by the terminal session's red pen: the
+  // reset set left typing out entirely, so four minutes composing a long
+  // command counted as four minutes of QUIET and the offer could land on him
+  // mid-sentence -- the exact interruption the silence rule outranks
+  // everything to prevent.
+  const tEl2 = document.getElementById('typed');
+  const isTyping = !!(tEl2 && document.activeElement === tEl2 && tEl2.value);
   if (webActive() || state === 'listening' || state === 'speaking'
-      || state === 'thinking' || capturing) lastBusyAt = now;
+      || state === 'thinking' || capturing || isTyping) lastBusyAt = now;
 
   // The ideas signal, derived rather than announced: the note's own content
   // is what changed, so its shape is the signal. A count would miss an edit.
@@ -5722,12 +5814,11 @@ function offerTick(d) {
     offerHeldSince = now;
   }
 
-  const typedEl2 = document.getElementById('typed');
   const show = offerGate({
     suggestion: suggestion ? suggestion.job : null,
     currentJob: job,
     speaking: state === 'speaking' || state === 'listening' || capturing,
-    typing: !!(typedEl2 && document.activeElement === typedEl2 && typedEl2.value),
+    typing: isTyping,
     permissionPending: document.body.classList.contains('alert'),
     questionPending: !!waitingQ,
     quietMs: now - lastBusyAt,
@@ -5738,7 +5829,13 @@ function offerTick(d) {
   const card = document.getElementById('offer');
   if (!card) return;
   if (show && suggestion) {
-    if (offerShown !== suggestion.job) {
+    // Relabelled when the FACE changes too, not only when the suggestion
+    // does. Named by the terminal's red pen: switch navy → civilian with an
+    // ENGINEERING offer showing and the card and the dial would speak two
+    // different languages about the same job.
+    const shownFace = currentFace();
+    if (offerShown !== suggestion.job || offerShownFace !== shownFace) {
+      offerShownFace = shownFace;
       card.querySelector('.of-job').textContent = deptName(currentFace(), suggestion.job);
       card.querySelector('.of-why').textContent = suggestion.because;
       offerShown = suggestion.job;
@@ -5792,6 +5889,43 @@ viewBtn.onclick = () => setView(view === 'avatar' ? 'graph' : 'avatar');
 // to `watch`, never to an unarranged page.
 try { applyJob(localStorage.getItem('jarvisJob')); } catch (e) { applyJob('watch'); }
 
+// ---- THE ICON RAIL (Phase 5) --------------------------------------------
+// Every entry CLICKS the real control or calls the real function. Not one of
+// them reimplements anything: the music and usage buttons are clicked because
+// their handlers own state the rail must not duplicate, and the board and
+// ideas sheets are toggled through the same functions their own gestures use.
+//
+// A shortcut that reimplements its target is not a shortcut, it is a second
+// version of the feature that drifts silently -- which is the failure this
+// project has paid for more than any other.
+const RAIL = [
+  ['rl-view',  () => setView(view === 'avatar' ? 'graph' : 'avatar'),
+               () => view === 'graph'],
+  ['rl-board', () => boardOpen(!document.body.classList.contains('board-open')),
+               () => document.body.classList.contains('board-open')],
+  ['rl-ideas', () => { ideasLatched = !document.body.classList.contains('ideas-open');
+                       ideasOpen(ideasLatched); },
+               () => document.body.classList.contains('ideas-open')],
+  ['rl-music', () => document.getElementById('music-toggle').click(),
+               () => document.getElementById('music-toggle').classList.contains('on')],
+  ['rl-usage', () => document.getElementById('usage-toggle').click(),
+               () => !document.getElementById('usage-toggle').classList.contains('paused')],
+];
+for (const [id, act] of RAIL) {
+  const b = document.getElementById(id);
+  if (b) b.onclick = act;
+}
+// The lit state is READ from the real control every frame rather than
+// remembered here. If the rail kept its own copy, pressing the original
+// button would leave the rail lying about it.
+function tickRail() {
+  for (const [id, , isOn] of RAIL) {
+    const b = document.getElementById(id);
+    if (b) b.classList.toggle('on', !!isOn());
+  }
+}
+setInterval(tickRail, 250); tickRail();
+
 {
   const y = document.getElementById('offer-yes');
   const n = document.getElementById('offer-no');
@@ -5830,8 +5964,7 @@ function drawCmdWave(lv) {
   cmdWaveHist.push(lv);
   while (cmdWaveHist.length > W2 / 3) cmdWaveHist.shift();
   g.clearRect(0, 0, W2, H2);
-  const style = getComputedStyle(document.body);
-  g.strokeStyle = 'rgba(' + style.getPropertyValue('--accent-rgb').trim() + ', 0.75)';
+  g.strokeStyle = 'rgba(' + ACCENT_RGB + ', 0.75)';
   g.lineWidth = 1;
   g.beginPath();
   // Right-anchored, like the sparklines: the newest sample is always at the
@@ -5868,7 +6001,8 @@ function draw(){
   // The welcome rides the same frame as the status it defers to: idle, no
   // question pending, no turn open. Anything else and it is gone.
   const wEl = document.getElementById('welcome');
-  if (wEl) wEl.classList.toggle('on', state === 'idle' && !showWait && !turnOpen);
+  if (wEl) wEl.classList.toggle('on', state === 'idle' && !showWait && !turnOpen
+                                && !document.body.classList.contains('alert'));
   // THE AVATAR IS NEVER OFF SCREEN (decision 9). The card appears exactly
   // when the stage is showing something else, so between the two the avatar
   // is always somewhere -- and it is a microphone in both places.
@@ -6053,8 +6187,7 @@ function drawGlobeCallouts(r) {
   ctx.font = '9px Menlo, monospace';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  const style = getComputedStyle(document.body);
-  const rgb = style.getPropertyValue('--accent-rgb').trim();
+  const rgb = ACCENT_RGB;
   // Anchored off the globe's lower-right, with a short leader line each --
   // the concept's own gesture, and it keeps the text clear of the core.
   let y = cy + r * 0.42;

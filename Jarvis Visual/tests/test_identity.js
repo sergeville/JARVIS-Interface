@@ -153,8 +153,15 @@ test('the clock still ticks once a second, on the existing timer', () => {
 // --- the welcome defers to everything ------------------------------------
 
 test('the welcome shows ONLY when idle, unasked and not mid-turn', () => {
-  const m = src.match(/classList\.toggle\('on',([^)]+)\)/);
-  assert.ok(m, 'the welcome is never toggled');
+  // ANCHORED ON THE WELCOME'S OWN ELEMENT, not on the first `toggle('on'` in
+  // the file. The first version matched whichever came first, and Phase 5's
+  // icon rail later added one ABOVE it — so this test reported the welcome
+  // broken while reading the rail's line. SEVENTH instance of the first-match
+  // trap on this record, and the one no injection could have caught: the
+  // colliding code did not exist when the injections ran. Found by the
+  // terminal session's red pen, 2026-08-08.
+  const m = src.match(/wEl\.classList\.toggle\('on',([^)]+)\)/);
+  assert.ok(m, 'the welcome is never toggled through its own element');
   const cond = m[1];
   assert.ok(/state === 'idle'/.test(cond), 'it can show while Jarvis works');
   assert.ok(/!showWait/.test(cond), 'it can cover the waiting banner');

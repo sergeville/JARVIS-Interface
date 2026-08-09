@@ -51,10 +51,9 @@ function runCallouts({ nodes, sessions, model }) {
   };
   const body = fn('drawGlobeCallouts');
   const f = new Function('ctx', 'cx', 'cy', 'gNodes', 'calloutSessions',
-                         'calloutModel', 'document', 'getComputedStyle',
+                         'calloutModel', 'ACCENT_RGB',
                          body + '\nreturn drawGlobeCallouts;');
-  f(ctx, 100, 100, new Array(nodes).fill(0), sessions, model,
-    { body: {} }, () => ({ getPropertyValue: () => '0,150,255' }))(50);
+  f(ctx, 100, 100, new Array(nodes).fill(0), sessions, model, '0,150,255')(50);
   return drawn;
 }
 
@@ -163,7 +162,8 @@ test('the avatar stays STATE-REACTIVE — that is why a static Earth was decline
 
 test('the callouts take their colour from the FACE', () => {
   const body = fn('drawGlobeCallouts');
-  assert.ok(/--accent-rgb/.test(body), 'the callouts ignore the face dial');
+  assert.ok(/ACCENT_RGB/.test(body), 'the callouts ignore the face dial');
+  assert.ok(/refreshAccent\(\);/.test(src), 'the cached accent is never refreshed');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

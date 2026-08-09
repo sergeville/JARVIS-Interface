@@ -10,9 +10,10 @@
 //   2. A SECOND CODE PATH TO THE STAGE. A job that swapped the view itself
 //      rather than calling setView() would leak the graph's 30 s timer, which
 //      is invisible until the machine gets warm.
-//   3. A DEPARTMENT THAT DOES NOT EXIST — army and airforce have no face yet,
-//      so the naming table must fall back to the universal job name rather
-//      than to an empty button.
+//   3. A DEPARTMENT THAT DOES NOT EXIST — the naming table must fall back to
+//      the universal job name rather than to an empty button. All four faces
+//      ship as of v2.4.0, so this now guards the NEXT face rather than a
+//      present gap.
 //   4. JUNK IN STORAGE restoring an unarranged page — the clampVol lesson,
 //      already paid for once on the volume slider and once on the face.
 
@@ -85,7 +86,7 @@ test('every FACE has a complete department row, or falls back by rule', () => {
   }
 });
 
-test('the two unbuilt faces are named in the table, ready for their afternoon', () => {
+test('army and airforce carry their approved department rows', () => {
   for (const f of ['army', 'airforce']) {
     assert.ok(DEPTS[f] && JOB_NAMES.every(j => DEPTS[f][j]),
       f + ' has no department row — the table is the approved one');
@@ -187,7 +188,7 @@ test('the dials are built FROM the registries', () => {
   // The label argument is itself a lambda CONTAINING a comma, so a lazy
   // [^,]+ capture cuts it in half and the assertion fails against correct
   // code. Anchored on the next argument instead.
-  const call = /build\(jd, JOB_NAMES, job, ([\s\S]*?), \(j\) =>/.exec(body);
+  const call = /build\(jd, JOB_NAMES, [^,]+,\s*([\s\S]*?), \(j\) =>/.exec(body);
   assert.ok(call, 'the job dial is not built with a label function at all');
   assert.ok(/deptName\(face, j\)/.test(call[1]),
     'the dial labels itself with raw job names — the naming layer is bypassed');
@@ -210,6 +211,33 @@ test('no job hides the stage or the avatar', () => {
   const body = decl('JOBS');
   assert.ok(!/hideAvatar|avatar: *false|display: *'none'/.test(body),
     'a job is hiding the avatar — decision 9 exempts it everywhere');
+});
+
+test('NO TWO JOBS RENDER ALIKE — a dial button must do something visible', () => {
+  // The terminal session's red pen, 2026-08-08: with only stage and type
+  // scale, workshop and brainstorm were byte-identical. The faces file already
+  // carries this rule for faces; a dial whose button appears to do nothing is
+  // the same failure whichever dial it is on.
+  const seen = new Map();
+  for (const j of JOB_NAMES) {
+    const at = src.indexOf('body.job-' + j + ' ');
+    const css = at === -1 ? '' : src.slice(at, src.indexOf('\n\n', at)).replace(/\s+/g, '');
+    const key = JOBS[j].stage + '|' + JOBS[j].typeScale + '|' + css;
+    const twin = seen.get(key);
+    assert.ok(!twin, j + ' renders identically to ' + twin + ' — one job, two names');
+    seen.set(key, j);
+  }
+});
+
+test('every job that claims emphasis has a CSS rule that delivers it', () => {
+  // and the rules may only resize or fade — never add or remove a panel.
+  for (const j of JOB_NAMES) {
+    const at = src.indexOf('body.job-' + j + ' ');
+    if (at === -1) continue;
+    const css = src.slice(at, src.indexOf('\n\n', at));
+    assert.ok(!/display:\s*(block|flex|grid)\b/.test(css.replace(/display:\s*none/g, '')),
+      'job ' + j + ' is revealing a panel — a job may only show, hide or emphasise');
+  }
 });
 
 test('a job may take the graph ONLY while the avatar card exists to hold it', () => {
