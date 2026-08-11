@@ -65,6 +65,16 @@ voice-line/services/
 voice-line/.venv/
 Jarvis Visual/audio/
 
+# ---- The Discord line's credentials and local state ------------------------
+# .token is the bot token -- a credential, never published. config.json holds
+# the channel id and the family's Discord user ids -- personal, and this repo
+# is public. config.example.json IS committed and is the template both are
+# filled from by hand, on this machine only. bot.log is caught by *.log above;
+# .bot.pid is runtime state.
+discord-line/.token
+discord-line/config.json
+discord-line/.bot.pid
+
 # ---- Build and OS noise ---------------------------------------------------
 __pycache__/
 *.py[cod]
