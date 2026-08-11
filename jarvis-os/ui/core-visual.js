@@ -5,10 +5,17 @@
 // from a model object; later slices feed that model from real services. The
 // renderer returns references to everything it will ever update -- nothing
 // re-queries the document, so a fake DOM with no selector engine can test it.
+//
+// One spelling of truth: the model carries the state ID (the same word the
+// shell root wears in data-os-state) and the label is DERIVED through the
+// states vocabulary -- the core and the root can no longer disagree on how
+// a state is spelled (voice-line red pen, 2026-08-11).
+
+import { getState } from '../core/states.js';
 
 /**
  * @typedef {Object} CoreModel
- * @property {string}  [state]      system state label to show
+ * @property {string}  [stateId]    system state id ('ready', 'working', ...)
  * @property {string}  [goal]       active goal, or nothing
  * @property {string}  [operation]  current operation, or nothing
  * @property {number|null} [progress]  0-100, or null for "no meter"
@@ -72,7 +79,8 @@ export function createCore(doc, model = {}) {
  */
 export function updateCore(core, model = {}) {
   const { el, refs } = core;
-  refs.state.textContent = model.state || EMPTY;
+  const known = model.stateId ? getState(model.stateId) : undefined;
+  refs.state.textContent = known ? known.label : EMPTY;
   refs.goal.textContent = model.goal || EMPTY;
   refs.operation.textContent = model.operation || EMPTY;
 
@@ -85,5 +93,5 @@ export function updateCore(core, model = {}) {
     refs.meter.setAttribute('data-empty', 'false');
     refs.fill.style.width = `${clamped}%`;
   }
-  el.setAttribute('data-core-state', model.state || 'none');
+  el.setAttribute('data-core-state', known ? known.id : 'none');
 }

@@ -39,6 +39,13 @@ export const ZONES = [
 export function buildLayout(doc, root, zones = ZONES) {
   const built = new Map();
   for (const zone of zones) {
+    // A repeated id would build two DOM zones and one Map handle -- the
+    // second winning, the first unreachable and unremovable (voice-line
+    // red pen, 2026-08-11). First wins; the repeat is skipped and said.
+    if (built.has(zone.id)) {
+      console.warn(`buildLayout: duplicate zone id skipped: ${zone.id}`);
+      continue;
+    }
     const el = doc.createElement('section');
     el.setAttribute('data-zone', zone.id);
     el.className = `os-zone os-zone--${zone.id}`;

@@ -8,7 +8,7 @@
 
 /** @type {import('../ui/core-visual.js').CoreModel} */
 export const MOCK_READY_MODEL = {
-  state: 'READY',
+  stateId: 'ready',
   goal: 'No active goal (mock)',
   operation: 'Standing by (mock)',
   progress: null,
@@ -16,14 +16,15 @@ export const MOCK_READY_MODEL = {
 
 /**
  * The boot demonstration: starting, then ready. Times in ms from mount.
- * @type {{at: number, state: string, model: import('../ui/core-visual.js').CoreModel}[]}
+ * The model's stateId is the ONE spelling of the state -- the wiring
+ * applies it to the shell root and the core alike.
+ * @type {{at: number, model: import('../ui/core-visual.js').CoreModel}[]}
  */
 export const MOCK_BOOT_SEQUENCE = [
   {
     at: 0,
-    state: 'starting',
     model: {
-      state: 'STARTING',
+      stateId: 'starting',
       goal: 'No active goal (mock)',
       operation: 'Bringing systems up (mock)',
       progress: 30,
@@ -31,7 +32,6 @@ export const MOCK_BOOT_SEQUENCE = [
   },
   {
     at: 1400,
-    state: 'ready',
     model: MOCK_READY_MODEL,
   },
 ];

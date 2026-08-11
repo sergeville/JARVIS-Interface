@@ -27,12 +27,22 @@ export const SYSTEM_STATES = [
 const byId = new Map(SYSTEM_STATES.map((s) => [s.id, s]));
 
 /**
+ * The fail-closed landing spot, held OUTSIDE the list it protects: if an
+ * edit ever renames or removes the 'degraded' entry, the guard still works
+ * instead of throwing on exactly the input it exists to absorb (voice-line
+ * red pen, 2026-08-11 -- the fallback used to be a lookup into the very
+ * configuration it was guarding).
+ * @type {SystemState}
+ */
+const FALLBACK = { id: 'degraded', label: 'DEGRADED', tone: 'warn' };
+
+/**
  * Apply a system state to the shell root.
  *
- * Unknown ids fail CLOSED: the shell goes to 'degraded' -- the honest word
- * for "the OS was told something it does not understand" -- and the caller
- * is told the apply was refused. It never throws (one bad input must not
- * break JARVIS) and it never applies a word the vocabulary does not hold.
+ * Unknown ids fail CLOSED to the fallback -- the honest word for "the OS
+ * was told something it does not understand" -- and the caller is told the
+ * apply was refused. It never throws (one bad input must not break JARVIS)
+ * and it never applies a word the vocabulary does not hold.
  *
  * @param {Element} rootEl
  * @param {string}  id
@@ -40,7 +50,7 @@ const byId = new Map(SYSTEM_STATES.map((s) => [s.id, s]));
  */
 export function applySystemState(rootEl, id) {
   const known = byId.has(id);
-  const state = known ? byId.get(id) : byId.get('degraded');
+  const state = known ? byId.get(id) : FALLBACK;
   rootEl.setAttribute('data-os-state', state.id);
   rootEl.setAttribute('data-os-tone', state.tone);
   return known;

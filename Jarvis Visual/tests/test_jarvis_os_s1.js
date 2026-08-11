@@ -75,6 +75,14 @@ function walk(el, out = []) {
   layout.buildLayout(fakeDoc, occupiedRoot, layout.ZONES.slice(0, 1));
   ok('buildLayout never destroys children it did not create', occupiedRoot.children.length === 2);
 
+  const dupRoot = new FakeEl('div');
+  const dupMap = layout.buildLayout(fakeDoc, dupRoot, [
+    { id: 'header', name: 'First' }, { id: 'header', name: 'Second' }, { id: 'footer', name: 'Foot' },
+  ]);
+  ok('a duplicate zone id is skipped -- first wins, no orphan element, no lost handle',
+    dupRoot.children.length === 2 && dupMap.size === 2 &&
+    dupMap.get('header').children[0].textContent === 'First');
+
   // ---- system states -----------------------------------------------------
 
   const EXPECTED_STATES = [
@@ -99,6 +107,15 @@ function walk(el, out = []) {
   ok('an unknown state fails CLOSED to degraded, refused but never thrown',
     !threw && refusedResult === false && shell2.getAttribute('data-os-state') === 'degraded');
 
+  // Source check, comments stripped: the fail-closed landing spot must not
+  // live inside the list it guards -- a lookup into SYSTEM_STATES would
+  // throw the day someone renames the 'degraded' entry (voice-line red pen).
+  const statesSrc = fs.readFileSync(path.join(OS_DIR, 'core', 'states.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok('the fallback is a constant outside the guarded list, not a lookup into it',
+    /const state = known \? byId\.get\(id\) : FALLBACK;/.test(statesSrc) &&
+    /const FALLBACK = \{/.test(statesSrc));
+
   // ---- state visuals in the CSS (source check, read raw) -----------------
 
   const css = fs.readFileSync(path.join(OS_DIR, 'ui', 'skeleton.css'), 'utf8');
@@ -110,21 +127,31 @@ function walk(el, out = []) {
 
   // ---- the core ----------------------------------------------------------
 
-  const core = coreVisual.createCore(fakeDoc, { state: 'READY', goal: 'g', operation: 'o', progress: 40 });
+  const core = coreVisual.createCore(fakeDoc, { stateId: 'ready', goal: 'g', operation: 'o', progress: 40 });
   const all = walk(core.el);
   ok('the core renders rings, title, state, goal, operation and meter',
     all.filter((el) => el.className.includes('os-core__ring')).length === 3 &&
     all.some((el) => el.className === 'os-core__title' && el.textContent === 'JARVIS') &&
     core.refs.state.textContent === 'READY' && core.refs.fill.style.width === '40%');
 
-  coreVisual.updateCore(core, { state: 'WORKING', progress: 150 });
+  ok('ONE spelling of truth -- the core carries the state ID the root wears, label derived',
+    core.el.getAttribute('data-core-state') === 'ready');
+  coreVisual.updateCore(core, { stateId: 'emergency-stop' });
+  ok('the derived label comes from the vocabulary, spaces and all',
+    core.refs.state.textContent === 'EMERGENCY STOP' &&
+    core.el.getAttribute('data-core-state') === 'emergency-stop');
+  coreVisual.updateCore(core, { stateId: 'quantum-overdrive' });
+  ok('an unknown stateId renders the honest empty value, never an invented label',
+    core.refs.state.textContent === '—' && core.el.getAttribute('data-core-state') === 'none');
+
+  coreVisual.updateCore(core, { stateId: 'working', progress: 150 });
   const overClamped = core.refs.fill.style.width;
-  coreVisual.updateCore(core, { state: 'WORKING', progress: -5 });
+  coreVisual.updateCore(core, { stateId: 'working', progress: -5 });
   const underClamped = core.refs.fill.style.width;
   ok('progress is clamped -- junk in cannot draw a lying meter',
     overClamped === '100%' && underClamped === '0%');
 
-  coreVisual.updateCore(core, { state: 'READY', progress: null });
+  coreVisual.updateCore(core, { stateId: 'ready', progress: null });
   ok('null progress hides the meter -- "no reading" is not "zero"',
     core.refs.meter.getAttribute('data-empty') === 'true');
 
@@ -138,10 +165,18 @@ function walk(el, out = []) {
   ok('every mock goal and operation says (mock) on sight',
     mockModels.every((m) =>
       (!m.goal || m.goal.includes('(mock)')) && (!m.operation || m.operation.includes('(mock)'))));
+  ok('every mock stateId is a word the vocabulary actually holds',
+    mockModels.every((m) => !m.stateId || states.getState(m.stateId) !== undefined));
 
+  // Comments stripped first, every import style matched -- a quarantine that
+  // only catches single-quote static imports is a door with one lock
+  // (test-adversary, 2026-08-11, on the S2 twins of this check).
+  const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const importsMock = (src) =>
+    /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"`][^'"`]*mock\//.test(stripComments(src));
   const nonWiring = ['core/layout.js', 'core/states.js', 'ui/core-visual.js'];
-  ok('only app.js imports from mock/ -- simulated data stays quarantined',
-    nonWiring.every((f) => !fs.readFileSync(path.join(OS_DIR, f), 'utf8').includes('mock/')));
+  ok('only app.js imports from mock/ -- simulated data stays quarantined, in any import style',
+    nonWiring.every((f) => !importsMock(fs.readFileSync(path.join(OS_DIR, f), 'utf8'))));
 
   // ---- the entry shell and the manifest ----------------------------------
 
