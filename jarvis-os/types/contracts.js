@@ -14,7 +14,7 @@
  * @property {string} type          free vocabulary: 'agent', 'service', ...
  * @property {string} [description]
  * @property {string} [icon]
- * @property {string} [position]    orbit/zone hint; layout decides, not the instrument
+ * @property {number|string} [position]  orbit angle hint in degrees (a numeric string is honoured); layout decides, not the instrument
  * @property {string} [statusProvider]
  * @property {Object[]} capabilities
  * @property {Object[]} actions
