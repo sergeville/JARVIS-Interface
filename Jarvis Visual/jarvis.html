@@ -986,9 +986,21 @@
        own text and the header overflows instead. */
     min-width: 0; overflow: hidden; text-overflow: clip; white-space: nowrap;
   }
-  /* The skew note and the caret keep their place at the right edge; the
-     count sits before them, so "partial" still reads last. */
-  #sessions-skew { margin-left: 6px; }
+  /* The skew note sits straight after the title -- `margin-left: auto` on
+     .sec-count pushes both counts to the right edge, so "partial" reads
+     FIRST, not last. (The old comment here claimed the opposite; corrected
+     2026-08-12 after the adversary measured the header.)
+     `min-width: 0` is not cosmetic: .sec-title clips from the right, and
+     without it the skew note refuses to shrink while the counts do -- which
+     makes the amber unknown count, the last element, the FIRST thing to
+     vanish in a narrow window. The warning must not be the first casualty. */
+  #sessions-skew { margin-left: 6px; min-width: 0; overflow: hidden; }
+  /* The unknown count rides beside the active one and wears the warn colour
+     the unregistered ROWS already wear, so the header and the rows tell the
+     same story. It keeps .sec-count for the shrink behaviour and the type;
+     this rule only overrides the colour and the auto margin the class would
+     otherwise use to claim the right edge for a second time. */
+  #sessions-unknown { margin-left: 6px; color: var(--warn); }
 
   /* PHASE 8 -- THE HEADER STRIP. In the concept every card's title sits on
      its own row, on the SAME fill as the body (measured: they are the same
@@ -2261,7 +2273,8 @@
     </div>
     <div id="sessions" class="card" style="display:none">
       <div class="sec-title" data-icon="◉">Sessions<span id="sessions-skew"
-           style="display:none"> &middot; partial</span><span class="sec-count" id="sessions-count"></span></div>
+           style="display:none"> &middot; partial</span><span class="sec-count" id="sessions-count"></span><span
+           class="sec-count" id="sessions-unknown" style="display:none"></span></div>
       <div id="sessions-body"></div>
     </div>
     <!-- The session bus. Notices are FACTS, never questions, and every word
@@ -4502,7 +4515,28 @@ function renderSessions(list){
   }
   // From the list just handed in, before the change guard -- the count must
   // be right even on a poll where the DOM is left alone.
-  setCount('sessions-count', list.length, 'active');
+  //
+  // ACTIVE MEANS REGISTERED, and the rest are counted separately rather than
+  // folded in. (Serge's own screen, 2026-08-11 5:17 PM: the card read
+  // "6 ACTIVE" while three of the six were bare shells with no session
+  // metadata at all.) An unregistered row is a live claude in this folder
+  // that never wrote a start record -- the registry lists it deliberately,
+  // over-report never under-report, and that rule is not in question here.
+  // What was wrong is the WORD: calling an unidentified process active is a
+  // number that reads as truth and is not. The rows have worn the warn
+  // colour for this all along; now the header says the same thing.
+  const unknown = list.filter(s => !!s.unregistered).length;
+  setCount('sessions-count', list.filter(s => !s.unregistered).length, 'active');
+  const unkEl = document.getElementById('sessions-unknown');
+  if (unkEl) {
+    unkEl.textContent = unknown ? '· ' + unknown + ' unknown' : '';
+    unkEl.style.display = unknown ? 'inline' : 'none';
+    unkEl.title = unknown
+      ? unknown + ' live Claude process(es) in the Jarvis folder that never '
+        + 'registered at boot. Listed on purpose -- but unidentified, so not '
+        + 'counted as active.'
+      : '';
+  }
   const sig = sessSig(list);
   if (sig === lastSessSig) return;     // rebuild DOM only on real change
   lastSessSig = sig;

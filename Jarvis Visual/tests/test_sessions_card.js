@@ -55,6 +55,8 @@ const nodes = {
   'sessions': makeNode('sessions'),
   'sessions-body': makeNode('sessions-body'),
   'sessions-skew': makeNode('sessions-skew'),
+  'sessions-count': makeNode('sessions-count'),
+  'sessions-unknown': makeNode('sessions-unknown'),
 };
 function walk(node, out) {
   for (const c of node.children) { out.push(c); walk(c, out); }
@@ -103,6 +105,10 @@ function reset() {
   nodes['sessions'].style = {};
   nodes['sessions-skew'].style = {};
   nodes['sessions-skew'].title = '';
+  nodes['sessions-count'].textContent = '';
+  nodes['sessions-unknown'].textContent = '';
+  nodes['sessions-unknown'].style = {};
+  nodes['sessions-unknown'].title = '';
   nodes['sessions-body'].children = [];
   nodes['sessions-body']._html = '';
   htmlWrites = 0;
@@ -305,6 +311,147 @@ test('unregistered:false is NOT mistaken for a missing field', () => {
   // means the server never had the field at all.
   renderSessions([session({unregistered: false})]);
   assert.strictEqual(nodes['sessions-skew'].style.display, 'none');
+});
+
+// ---- 5c. the header word -- ACTIVE means REGISTERED ----------------------
+// From Serge's own screen, 2026-08-11 5:17 PM: the card read "6 ACTIVE"
+// while three of the six were bare shells with no session metadata. The
+// registry lists them on purpose (over-report, never under-report) -- the
+// defect was the header calling an unidentified process active.
+
+test('the active count excludes unregistered sessions', () => {
+  renderSessions([session({pid: 1}), session({pid: 2, unregistered: true}),
+                  session({pid: 3, unregistered: true})]);
+  assert.strictEqual(nodes['sessions-count'].textContent, '1 active',
+    'the header counted shells it cannot identify as active sessions');
+});
+
+test('the unregistered ones are counted, not hidden', () => {
+  renderSessions([session({pid: 1}), session({pid: 2, unregistered: true}),
+                  session({pid: 3, unregistered: true})]);
+  assert.strictEqual(nodes['sessions-unknown'].style.display, 'inline');
+  assert.ok(/2\s*unknown/.test(nodes['sessions-unknown'].textContent),
+    'got: ' + nodes['sessions-unknown'].textContent);
+  // and all three still have rows -- the fix must not become under-reporting
+  assert.strictEqual(rows().length, 3);
+});
+
+test('with nothing unregistered the unknown count is absent, not zero', () => {
+  renderSessions([session({pid: 1}), session({pid: 2})]);
+  assert.strictEqual(nodes['sessions-count'].textContent, '2 active');
+  assert.strictEqual(nodes['sessions-unknown'].style.display, 'none');
+  assert.strictEqual(nodes['sessions-unknown'].textContent, '',
+    'a decorative zero is the same lie in the other direction');
+});
+
+test('the unknown count clears when the shells go away', () => {
+  renderSessions([session({pid: 2, unregistered: true})]);
+  assert.strictEqual(nodes['sessions-unknown'].style.display, 'inline');
+  renderSessions([session({pid: 1})]);
+  assert.strictEqual(nodes['sessions-unknown'].style.display, 'none',
+    'a stale unknown count outlived the shells it named');
+});
+
+test('the unknown count explains itself on hover', () => {
+  renderSessions([session({pid: 2, unregistered: true})]);
+  assert.ok(/never\s+registered/i.test(nodes['sessions-unknown'].title),
+    'got: ' + nodes['sessions-unknown'].title);
+});
+
+test('an old server (no unregistered field) counts every row as active', () => {
+  // `undefined` is not `true`: a server too old to send the field is already
+  // marked `partial`, and guessing that its rows are shells would invent a
+  // fault the page cannot see.
+  const old = session(); delete old.unregistered;
+  renderSessions([old]);
+  assert.strictEqual(nodes['sessions-count'].textContent, '1 active');
+  assert.strictEqual(nodes['sessions-unknown'].style.display, 'none');
+});
+
+test('the counts are right on a poll that rebuilds no DOM', () => {
+  const list = [session({pid: 1}), session({pid: 2, unregistered: true})];
+  renderSessions(list);
+  const before = htmlWrites;
+  nodes['sessions-count'].textContent = 'wrong';
+  nodes['sessions-unknown'].textContent = 'wrong';
+  renderSessions(list);                 // identical signature: no rebuild
+  assert.strictEqual(htmlWrites, before, 'the change guard stopped guarding');
+  assert.strictEqual(nodes['sessions-count'].textContent, '1 active');
+  assert.ok(/1\s*unknown/.test(nodes['sessions-unknown'].textContent));
+});
+
+test('the header markup carries the unknown slot exactly once', () => {
+  assert.strictEqual(src.split('id="sessions-unknown"').length - 1, 1);
+});
+
+// ---- 5d. the adversary's holes, 2026-08-12 -------------------------------
+// Its finding, proven not argued: the whole VISUAL half of this fix could be
+// deleted -- the warn colour, the sec-count class, the separator -- and all
+// 48 tests stayed green. A header that no longer looks different from the
+// active count stops telling the story the rows tell, which is the entire
+// point of the change. These read the CSS RULE, never the class name.
+
+test('the unknown count wears the WARN colour, not the accent', () => {
+  assert.ok(/var\(--warn\)/.test(rule('#sessions-unknown')),
+    'the amber is what makes the header agree with the amber rows');
+});
+
+test('the unknown count keeps sec-count, so it shrinks like the others', () => {
+  const m = src.match(/class="([^"]*)"\s+id="sessions-unknown"/);
+  assert.ok(m, 'the unknown span lost its class attribute');
+  assert.ok(m[1].split(/\s+/).includes('sec-count'),
+    'without sec-count it loses the 9px caps type and min-width: 0');
+});
+
+test('the two counts are visibly separated', () => {
+  renderSessions([session({pid: 1}), session({pid: 2, unregistered: true})]);
+  assert.ok(/^[^0-9a-z]/i.test(nodes['sessions-unknown'].textContent),
+    'no separator renders as "1 ACTIVE1 UNKNOWN": '
+    + nodes['sessions-unknown'].textContent);
+});
+
+test('the skew note can shrink too -- the amber must not vanish first', () => {
+  // .sec-title clips from the right. Anything in the header that refuses to
+  // shrink pushes the LAST element out of the box entirely, and the last
+  // element is the warning.
+  assert.ok(/min-width:\s*0/.test(rule('#sessions-skew')),
+    'the partial note would hold its width and clip the unknown count away');
+});
+
+test('all-unregistered reads 0 active with its rows still on screen', () => {
+  // The mirror image of Serge's original complaint, and it is DELIBERATE:
+  // two shells and no identified session is exactly what "0 active · 2
+  // unknown" means. Pinned so it stays a decision instead of an accident.
+  renderSessions([session({pid: 1, unregistered: true, session_id: ''}),
+                  session({pid: 2, unregistered: true, session_id: ''})]);
+  assert.strictEqual(nodes['sessions-count'].textContent, '0 active');
+  assert.ok(/2\s*unknown/.test(nodes['sessions-unknown'].textContent));
+  assert.strictEqual(rows().length, 2, 'the rows are the honest part');
+  assert.strictEqual(nodes['sessions'].style.display, 'block');
+});
+
+test('active + unknown always equals the rows drawn, for ANY value', () => {
+  // The real guarantee of this change, and the adversary is right that
+  // nothing asserted it: the two predicates are exact complements, so no
+  // session can be counted twice or dropped -- even if the server ever
+  // sends something that is not a boolean.
+  const values = [true, false, undefined, 0, '', null, 'false', 1, {}, [], NaN];
+  const list = values.map((v, i) => session({pid: 100 + i, unregistered: v}));
+  renderSessions(list);
+  const n = s => parseInt((s.match(/\d+/) || [0])[0], 10);
+  assert.strictEqual(
+    n(nodes['sessions-count'].textContent)
+      + n(nodes['sessions-unknown'].textContent),
+    rows().length,
+    'a session was double-counted or lost between the two headline numbers');
+});
+
+test('a shell and an old-server row in one list: partial AND both counts', () => {
+  const old = session({pid: 1}); delete old.unregistered;
+  renderSessions([old, session({pid: 2, unregistered: true})]);
+  assert.strictEqual(nodes['sessions-skew'].style.display, 'inline');
+  assert.strictEqual(nodes['sessions-count'].textContent, '1 active');
+  assert.strictEqual(nodes['sessions-unknown'].style.display, 'inline');
 });
 
 // ---- 6. is it actually wired into the page? ------------------------------
