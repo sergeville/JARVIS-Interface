@@ -33,12 +33,30 @@ Run:  python3 vault-tools/session_record.py            # hook mode, reads stdin
       python3 vault-tools/session_record.py <file.jsonl>
       python3 vault-tools/session_record.py --all      # backfill every session
 """
+import io
 import json
 import os
 import re
+import select
 import sys
 import time
 from pathlib import Path
+
+# The ceiling on the WHOLE stdin read in _read_payload(), first byte to last.
+# It is a ceiling, not a delay: a real hook's payload is already there, so the
+# read returns at once and this costs nothing. Only a silent or slow stdin
+# ever pays it.
+#
+# The number is chosen against the hook's own configured timeout, because that
+# is the real upper bound and the first version of this constant was picked
+# against nothing. Those timeouts DISAGREE -- the deployed .claude/settings.json
+# files say 20s and templates/claude-settings.json.template says 15s -- which is
+# carded separately as its own defect. 12.0 sits under BOTH, so under either
+# config this returns on its own rather than being killed mid-read, and the
+# window in which a genuinely slow caller is dropped in silence is 3s against
+# the template and 8s against the live files. Raising this is safe only up to
+# whichever timeout is smaller; shrinking it widens the silent-drop window.
+STDIN_BUDGET = 12.0
 
 JARVIS_ROOT = Path(__file__).resolve().parents[1]
 TRANSCRIPTS = JARVIS_ROOT / "Jarvis Visual" / "transcripts"
@@ -208,17 +226,101 @@ def _hook_path() -> Path | None:
     # forever, at a terminal. This runs on EVERY turn, so a hang here is a
     # hang in every conversation on the machine. If nobody is piping anything
     # in, there is no session to record and it says so immediately.
+    #
+    # 2026-08-14: isatty() ALONE DID NOT KEEP THAT PROMISE, and the gap ran
+    # for a week. It catches exactly one way of "nobody is piping anything
+    # in" -- an interactive terminal. An inherited pipe that is open and
+    # simply never delivers is not a tty, so the guard waved it through and
+    # json.load() waited forever. The guard tested a PROXY (is this a
+    # terminal?) instead of the PROPERTY it promised (is anything actually
+    # coming?). It surfaced as a ten-minute hang in the test suite.
+    #
+    # The isatty line stays, and it is NOT redundant: a tty with a line typed
+    # but no Ctrl-D is "ready" as far as select is concerned, so removing it
+    # puts an interactive run straight back into a read that waits for an EOF
+    # the human has not sent. `test_the_isatty_guard_is_not_redundant` pins
+    # that with a real pty -- it was green under every injection until then.
     try:
         if sys.stdin is None or sys.stdin.isatty():
             return None
     except (ValueError, OSError):
         return None
+    return _payload_path(_read_payload())
+
+
+def _read_payload():
+    """Whatever object the caller piped in, or None -- bounded either way.
+
+    THE FIRST FIX HERE WAS ONLY NEARLY RIGHT, and both review agents caught
+    the same edge. Guarding with select and then handing the descriptor to
+    `json.load` bounds the wait for the FIRST BYTE and nothing after it,
+    because `json.load` calls `read()`, which runs to EOF. So a COMPLETE,
+    perfectly valid payload still hung forever if the writer held its end
+    open -- the residual was never about partial writes, it was about the
+    absence of EOF, and the first comment written here said the wrong one.
+
+    So stop waiting for EOF. Read what is there, and stop the moment the
+    bytes so far parse as JSON: a complete object is the whole answer, and
+    nothing is gained by waiting for a close that may never come. The
+    deadline covers the WHOLE read, not just its first byte, so no path
+    through this function is unbounded and the docblock's promise above is
+    now true rather than nearly true.
+    """
     try:
-        payload = json.load(sys.stdin)
-    except (ValueError, TypeError, OSError):
+        fd = sys.stdin.fileno()
+    except (io.UnsupportedOperation, ValueError, OSError, AttributeError):
+        # No real file descriptor -- an in-memory stdin (io.StringIO), which
+        # is how hooks get tested in-process. It cannot block, so read it
+        # directly. Returning None here instead, as the first fix did, turned
+        # a working read into a silent drop: io.UnsupportedOperation subclasses
+        # BOTH ValueError and OSError, so a plain `except (ValueError, OSError)`
+        # swallows it and nothing anywhere says the turn was lost.
+        try:
+            return json.load(sys.stdin)
+        except (ValueError, TypeError, OSError):
+            return None
+
+    deadline = time.monotonic() + STDIN_BUDGET
+    chunks: list[bytes] = []
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        try:
+            if not select.select([fd], [], [], left)[0]:
+                break           # nothing coming; there is no session to record
+            chunk = os.read(fd, 65536)
+        except (ValueError, OSError):
+            break
+        if not chunk:
+            break               # EOF, the ordinary case
+        chunks.append(chunk)
+        try:
+            return json.loads(b"".join(chunks))
+        except ValueError:
+            continue            # not a whole object yet -- keep reading
+    try:
+        return json.loads(b"".join(chunks))
+    except ValueError:
+        return None
+
+
+def _payload_path(payload) -> Path | None:
+    """The transcript path out of a hook payload, or None.
+
+    Every one of these guards is a crash the adversary reproduced in the
+    shipped code: `json.load` succeeds on `null`, on a list and on a bare
+    string, and then `.get` raises AttributeError -- an uncaught traceback and
+    a non-zero exit, on every turn. A hook that dies loudly every turn is the
+    next long debugging session, so a payload this function cannot read is
+    simply not a session to record.
+    """
+    if not isinstance(payload, dict):
         return None
     p = payload.get("transcript_path")
-    return Path(p) if p else None
+    if not isinstance(p, str) or not p:
+        return None
+    return Path(p)
 
 
 def main(argv: list[str]) -> int:

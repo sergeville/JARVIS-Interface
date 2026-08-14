@@ -17,7 +17,11 @@ to notice:
 """
 import importlib.util
 import json
+import os
 import pathlib
+import subprocess
+import sys
+import time
 import tempfile
 import unittest
 
@@ -34,6 +38,30 @@ def row(kind, text, uuid, ts="2026-08-07T14:30:00.000Z", entry="cli", **kw):
          "message": {"content": text}}
     d.update(kw)
     return json.dumps(d)
+
+
+class _ClosedStdin:
+    """`sr.main([])` with a stdin that is already at EOF.
+
+    ADVERSARY FINDING 6, and it is about incentives rather than correctness:
+    these two tests call main() in-process, so against the runner's inherited
+    stdin each one burned the FULL STDIN_BUDGET waiting for a payload that was
+    never coming -- three of them, adding ~15s to every suite run. Nothing was
+    wrong with the assertions; the cost was pure artifact. But a slow gate is
+    the pressure that makes the next person shrink STDIN_BUDGET to speed it up,
+    which is the one change that silently drops real turns. Removing the cost
+    removes the temptation.
+    """
+    def __enter__(self):
+        self.fh = open(os.devnull)
+        self.saved = sys.stdin
+        sys.stdin = self.fh
+        return self
+
+    def __exit__(self, *exc):
+        sys.stdin = self.saved
+        self.fh.close()
+        return False
 
 
 class Base(unittest.TestCase):
@@ -148,7 +176,8 @@ class TheFourHarms(Base):
             start = src.index("def main(")
             self.assertNotIn(guess, src[start:src.index("--all") ] + "",
                              "main() picks a session by guessing")
-        self.assertEqual(sr.main([]), 0)   # no stdin, no path -> does nothing
+        with _ClosedStdin():
+            self.assertEqual(sr.main([]), 0)  # nothing piped in -> does nothing
 
     def test_it_does_not_guess_EVEN_WHEN_A_LOG_IS_SITTING_RIGHT_THERE(self):
         # CAUGHT BY INJECTION. The test above passed with a "fall back to the
@@ -160,7 +189,8 @@ class TheFourHarms(Base):
         cwd = os.getcwd()
         os.chdir(self.dir)
         try:
-            sr.main([])
+            with _ClosedStdin():
+                sr.main([])
         finally:
             os.chdir(cwd)
         self.assertEqual(self.day(), "",
@@ -252,6 +282,292 @@ class ItStaysOutOfGit(unittest.TestCase):
 
     def test_the_watermark_lives_with_the_files_it_describes(self):
         self.assertIn("transcripts", str(sr.WATERMARK))
+
+
+class AHookMustNeverBlock(unittest.TestCase):
+    """Harm 5, found 2026-08-14 when the full suite hung for ten minutes.
+
+    `_hook_path()`'s own docblock promises: "A HOOK MUST NEVER BLOCK... If
+    nobody is piping anything in, there is no session to record and it says so
+    immediately." It kept that promise with `sys.stdin.isatty()`, which catches
+    exactly ONE way of nobody piping anything in -- an interactive terminal.
+
+    An inherited pipe that stays open and never delivers is NOT a tty. The
+    guard passes, `json.load(sys.stdin)` blocks, and it never returns. This
+    hook is wired into EVERY session on this machine, so that is a hang in
+    every conversation, not merely in the suite that happened to find it.
+
+    The guard tested a proxy (is it a terminal?) instead of the property it
+    promised (is anything actually coming?). These run in a subprocess because
+    a parent that blocks cannot un-block itself to report.
+    """
+
+    BUDGET = 15.0
+
+    def _hook_path_with_stdin(self, read_fd, budget=0.5):
+        """Returns (returncode, stdout) -- or (None, '') if it never returned.
+
+        `budget` overrides STDIN_BUDGET inside the subprocess ON PURPOSE. What
+        these tests prove is that every path RETURNS -- boundedness, which is a
+        property of the loop and not of the number. Waiting the real 12s to
+        prove it would add half a minute to every suite run, and the adversary
+        named a slow gate as the thing that makes the next person shrink the
+        constant to speed it up. The constant's actual VALUE is pinned
+        separately, against the hook's configured timeout, by
+        test_the_budget_is_pinned_to_the_configured_hook_timeout.
+        """
+        code = (
+            "import importlib.util as u\n"
+            f"s = u.spec_from_file_location('sr', {str(SRC)!r})\n"
+            "m = u.module_from_spec(s)\n"
+            "s.loader.exec_module(m)\n"
+            f"m.STDIN_BUDGET = {budget!r}\n"
+            "print(m._hook_path())\n"
+        )
+        p = subprocess.Popen([sys.executable, "-c", code], stdin=read_fd,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            out, _ = p.communicate(timeout=self.BUDGET)
+            return p.returncode, out.decode()
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.communicate()
+            return None, ""
+
+    def test_an_open_stdin_that_never_delivers_does_not_hang(self):
+        r, w = os.pipe()  # open, not a tty, and nothing will ever be written
+        try:
+            rc, out = self._hook_path_with_stdin(r)
+        finally:
+            os.close(r)
+            os.close(w)
+        self.assertIsNotNone(
+            rc, f"_hook_path() never returned within {self.BUDGET}s on a stdin "
+                "that is open but silent -- this hook runs every turn, so that "
+                "is a hang in every conversation on the machine")
+        self.assertEqual(out.strip(), "None",
+                         "nothing was piped in, so there is no session to record")
+
+    def test_a_REAL_hook_payload_is_STILL_READ(self):
+        # The test above is satisfied by a "fix" that returns None
+        # unconditionally -- which would silently switch session recording off
+        # for the whole machine and look perfectly green. This is the half that
+        # refuses that fix.
+        r, w = os.pipe()
+        os.write(w, json.dumps({"transcript_path": "/tmp/a-real-session.jsonl"}).encode())
+        os.close(w)  # EOF, exactly as a real hook caller does
+        try:
+            rc, out = self._hook_path_with_stdin(r)
+        finally:
+            os.close(r)
+        self.assertIsNotNone(rc, "a real hook payload was not read at all")
+        self.assertIn("/tmp/a-real-session.jsonl", out,
+                      "the payload Claude Code piped in was dropped -- session "
+                      "recording is off and every turn is being lost")
+
+    def test_the_isatty_guard_is_not_redundant(self):
+        # ADVERSARY FINDING 1, the most damning: deleting the isatty block left
+        # the whole suite GREEN, and it is load-bearing. A tty with a line typed
+        # and no Ctrl-D is "ready" as far as select is concerned, so without
+        # isatty an interactive run falls into a read waiting for an EOF the
+        # human has not sent -- the original hang, in the one place a person
+        # would actually meet it. Nothing pinned the line until this.
+        import pty
+        master, slave = pty.openpty()
+        os.write(master, b'{"transcript_path": "/tmp/typed.jsonl"}\n')
+        try:
+            rc, out = self._hook_path_with_stdin(slave)
+        finally:
+            os.close(slave)
+            os.close(master)
+        self.assertIsNotNone(
+            rc, "a tty with a line typed and no Ctrl-D hung the hook -- the "
+                "isatty guard was removed or defeated")
+        self.assertEqual(out.strip(), "None",
+                         "a terminal is never a hook caller")
+
+    def test_a_COMPLETE_payload_on_a_pipe_that_never_closes_IS_READ(self):
+        # BOTH AGENTS CAUGHT THIS INDEPENDENTLY, and my first comment named the
+        # wrong cause. The residual was never about PARTIAL writes -- json.load
+        # calls read(), which runs to EOF, so a complete and perfectly valid
+        # payload hung just as hard when the writer held its end open. The read
+        # now stops the moment the bytes parse, so no EOF is required.
+        r, w = os.pipe()
+        os.write(w, json.dumps({"transcript_path": "/tmp/never-closed.jsonl"}).encode())
+        try:                                    # deliberately NOT closing w
+            rc, out = self._hook_path_with_stdin(r)
+        finally:
+            os.close(r)
+            os.close(w)
+        self.assertIsNotNone(
+            rc, "a COMPLETE payload on a pipe the writer never closed still "
+                "hangs -- 'A HOOK MUST NEVER BLOCK' is still not true")
+        self.assertIn("/tmp/never-closed.jsonl", out,
+                      "the payload was there in full and was dropped anyway")
+
+    def test_a_PARTIAL_payload_on_an_open_pipe_is_bounded_not_infinite(self):
+        # The genuinely incomplete case cannot be answered -- but it must still
+        # END. Bounded and empty-handed beats correct and never returning.
+        r, w = os.pipe()
+        os.write(w, b'{"transcript_path": "/tmp/half')   # no closing brace
+        try:
+            rc, out = self._hook_path_with_stdin(r)
+        finally:
+            os.close(r)
+            os.close(w)
+        self.assertIsNotNone(rc, "an incomplete payload blocked forever")
+        self.assertEqual(out.strip(), "None")
+
+    def test_an_IN_MEMORY_stdin_is_still_read(self):
+        # ADVERSARY FINDING 4, a silent regression the first fix introduced:
+        # io.UnsupportedOperation subclasses BOTH ValueError and OSError, so a
+        # plain `except (ValueError, OSError)` swallowed "this stream has no
+        # fileno" and turned a working read into a dropped turn. io.StringIO is
+        # exactly how the other hooks in this repo are tested in-process, so the
+        # next person to copy that pattern would have got a green test proving
+        # nothing.
+        code = (
+            "import io, sys\n"
+            "import importlib.util as u\n"
+            f"s = u.spec_from_file_location('sr', {str(SRC)!r})\n"
+            "m = u.module_from_spec(s)\n"
+            "s.loader.exec_module(m)\n"
+            'sys.stdin = io.StringIO(\'{"transcript_path": "/tmp/mem.jsonl"}\')\n'
+            "print(m._read_payload())\n"
+        )
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                             timeout=self.BUDGET).stdout.decode()
+        self.assertIn("/tmp/mem.jsonl", out,
+                      "an in-memory stdin is silently dropped")
+
+    def test_a_payload_that_is_not_an_object_exits_ZERO(self):
+        # ADVERSARY FINDING 7, pre-existing and three lines below the fix:
+        # json.load happily returns null, a list or a bare string, and then
+        # .get raised AttributeError -- an uncaught traceback and a non-zero
+        # exit, every turn. A hook that dies loudly every turn is the next long
+        # debugging session.
+        for payload in ("null", "[]", '"just a string"', "7",
+                        '{"transcript_path": 7}', '{"transcript_path": ""}',
+                        "{}"):
+            with self.subTest(payload=payload):
+                r, w = os.pipe()
+                os.write(w, payload.encode())
+                os.close(w)
+                try:
+                    rc, out = self._hook_path_with_stdin(r)
+                finally:
+                    os.close(r)
+                self.assertEqual(rc, 0, f"{payload} crashed the hook")
+                self.assertEqual(out.strip(), "None", f"{payload} was not refused")
+
+    def test_a_payload_SPLIT_ACROSS_TWO_WRITES_is_reassembled(self):
+        # MY OWN INJECTION ROUND CAUGHT THIS, not either agent: replacing
+        # `chunks.append(chunk)` with `chunks = [chunk]` -- so only the final
+        # read survives and nothing is ever reassembled -- passed the whole
+        # suite GREEN. Every other test writes its payload in a single write,
+        # so the multi-chunk path they all depend on was never once exercised.
+        # A 64KB pipe buffer or a caller that writes a header first is enough
+        # to split a real payload.
+        r, w = os.pipe()
+        blob = json.dumps({"transcript_path": "/tmp/split.jsonl"}).encode()
+        head, tail = blob[:12], blob[12:]
+        pid = os.fork()
+        if pid == 0:
+            os.close(r)
+            try:
+                os.write(w, head)
+                __import__("time").sleep(0.3)   # force a second read
+                os.write(w, tail)
+                os.close(w)
+            finally:
+                os._exit(0)
+        os.close(w)
+        try:
+            rc, out = self._hook_path_with_stdin(r, budget=4.0)
+        finally:
+            os.close(r)
+            os.waitpid(pid, 0)
+        self.assertIsNotNone(rc, "a split payload hung the read")
+        self.assertIn("/tmp/split.jsonl", out,
+                      "a payload delivered in two chunks was not reassembled")
+
+    def test_a_READ_ERROR_stops_the_loop_instead_of_spinning_out_the_budget(self):
+        # SECOND SURVIVOR FROM MY INJECTION ROUND: turning the loop's
+        # `except (ValueError, OSError): break` into `pass` also shipped green,
+        # because both spellings still return None -- one immediately, the other
+        # after busy-spinning on a raising select for the WHOLE budget. With the
+        # real 12s constant that is twelve seconds of hot CPU inside a hook that
+        # runs every turn, and no test could tell the two apart. This one can:
+        # it hands over a stdin whose descriptor is closed, gives a deliberately
+        # LARGE budget, and demands a fast answer.
+        code = (
+            "import os, sys\n"
+            "import importlib.util as u\n"
+            f"s = u.spec_from_file_location('sr', {str(SRC)!r})\n"
+            "m = u.module_from_spec(s)\n"
+            "s.loader.exec_module(m)\n"
+            "m.STDIN_BUDGET = 10.0\n"
+            "os.close(0)\n"                       # every select/read now raises
+            "print(m._read_payload())\n"
+        )
+        t0 = time.monotonic()
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                           timeout=self.BUDGET)
+        elapsed = time.monotonic() - t0
+        self.assertEqual(r.stdout.decode().strip(), "None")
+        self.assertLess(
+            elapsed, 3.0,
+            f"a stdin that raises on every read spun for {elapsed:.1f}s of a "
+            "10s budget instead of giving up -- that is a hot loop inside a "
+            "hook that runs on every turn")
+
+    def test_the_budget_is_pinned_to_the_configured_hook_timeout(self):
+        # ADVERSARY FINDING 5: the LATE test only pins ~0.8s, so 5.0 -> 0.8
+        # shipped green while racing real callers for real. This pins the
+        # constant against something OUTSIDE it -- the timeout the hook is
+        # actually deployed with -- so it cannot be satisfied by reading itself.
+        # The template is used rather than .claude/settings.json because the
+        # live files are gitignored and would not exist in a fresh clone.
+        tmpl = json.loads((ROOT / "templates" /
+                           "claude-settings.json.template").read_text())
+        timeouts = [h.get("timeout") for groups in tmpl.get("hooks", {}).values()
+                    for g in groups for h in g.get("hooks", [])
+                    if "session_record.py" in h.get("command", "")
+                    and h.get("timeout") is not None]
+        self.assertTrue(timeouts, "the hook lost its configured timeout")
+        ceiling = min(timeouts)
+        self.assertLess(sr.STDIN_BUDGET, ceiling,
+                        "the budget outlives the timeout that kills the hook, "
+                        "so the read is bounded by nothing it controls")
+        self.assertGreaterEqual(
+            sr.STDIN_BUDGET, 0.6 * ceiling,
+            "the budget was shrunk well under the hook's own timeout, which "
+            "buys nothing and widens the window where a slow caller's turn is "
+            "dropped in silence")
+
+    def test_a_payload_that_arrives_LATE_is_still_read(self):
+        # A bounded wait must be long enough for a real caller that is a beat
+        # slow. A zero-timeout readiness check would race and drop real work.
+        r, w = os.pipe()
+        payload = json.dumps({"transcript_path": "/tmp/slow.jsonl"}).encode()
+        pid = os.fork()
+        if pid == 0:  # child: write after a deliberate delay, then exit hard
+            os.close(r)
+            try:
+                __import__("time").sleep(0.75)
+                os.write(w, payload)
+                os.close(w)
+            finally:
+                os._exit(0)
+        os.close(w)
+        try:
+            rc, out = self._hook_path_with_stdin(r, budget=4.0)
+        finally:
+            os.close(r)
+            os.waitpid(pid, 0)
+        self.assertIsNotNone(rc, "a slightly slow caller was treated as a hang")
+        self.assertIn("/tmp/slow.jsonl", out,
+                      "a real payload that arrived 0.75s late was dropped")
 
 
 if __name__ == "__main__":
