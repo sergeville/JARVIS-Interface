@@ -92,3 +92,8 @@ __pycache__/
 # prove is now structural.
 .claude/settings.json
 Jarvis Visual/.claude/settings.json
+
+# Serge's own brain-deck example, handed over 2026-08-12. A byte-identical
+# copy is kept in Jarvis Visual/references/ (itself ignored). His file, and
+# this repo is public -- it must never be published by a stray `git add .`.
+jarvis-os/test.html
