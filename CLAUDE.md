@@ -50,6 +50,7 @@ At the start of every session:
 ## Habits that compound
 
 - **Bank the working method.** When a recurring operation fails on your first approach and you find one that works, record the winning method (and the dead end to skip) in that operation's note before moving on — so no future session pays the discovery tax twice. Recurring operations only; don't journal one-off fixes.
+- **"Add a webhook" / "send a heads-up" has a drill.** (Serge, 2026-08-09) Follow `05 - Resources/Discord Webhook Notifications.md` — language first, platform asked, placeholder URL never the real one, trigger at the point of interest, and a one-line curl test in his hands.
 - **Deliverables go in my folders, never session temp dirs.** Anything I'll look at, use, or upload lands in the relevant project folder in my space. Temp and scratch directories are for your intermediates only.
 - **Document a behavior or system change only after it's tested and I confirm it works.** Pure note edits can be recorded immediately.
 

@@ -55,8 +55,12 @@ function boardOpen(v) { if (v === false) boardClosedCalls++; }
 // same rule as BOARD_COLS in test_board.js.
 const OBS_CONSTS = src.match(/const OBS_VAULT[\s\S]*?const OBS_NOTE[^\n]*\n/);
 assert.ok(OBS_CONSTS, 'the vault link constants are gone from the page');
+// setCount is pulled in from the page, not stubbed. renderIdeas gained a
+// header count on 2026-08-09 and so genuinely depends on it; a stub here
+// would let the real setter rot while these tests stayed green.
 eval(OBS_CONSTS[0] + '\n' + grab('obsidianHref') + '\n'
-   + grab('esc') + '\n' + grab('renderIdeas') + '\n' + grab('ideasOpen'));
+   + grab('esc') + '\n' + grab('setCount') + '\n'
+   + grab('renderIdeas') + '\n' + grab('ideasOpen'));
 
 let passed = 0, failed = 0;
 function test(name, fn) {

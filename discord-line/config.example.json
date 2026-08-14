@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy this file to config.json and fill in the real ids. config.json is gitignored on purpose: the channel id and the family's user ids are personal, and this repo is public. Get ids in Discord: Settings -> Advanced -> Developer Mode ON, then right-click a channel or a person -> Copy ID.",
+  "channel_id": "PASTE_CHANNEL_ID_HERE",
+  "people": {
+    "PASTE_SERGE_USER_ID": "Serge",
+    "PASTE_MIKE_USER_ID": "Mike",
+    "PASTE_MARC_USER_ID": "Marc"
+  }
+}

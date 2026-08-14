@@ -510,8 +510,36 @@ do_start() {
     sleep 2
   done
   echo ""
+  # THE WAIT RUNNING OUT IS NOT A FAILURE -- ASK THE MACHINE BEFORE SAYING SO.
+  # (Serge, 2026-08-09, on his own 1:52 PM start.) The old code declared
+  # "brain did not warm in time" and wrote a `down` event the moment this
+  # loop ended. That start was FINE: the server was up 8 seconds in and the
+  # brain warmed at 14:00:39 -- 7m40s after the request, five and a half
+  # minutes after this loop gave up at its two-minute budget. So he was told
+  # his stack had failed when it had not, and -- far worse -- a false "start
+  # failed" went into the APPEND-ONLY event log, which is the one record
+  # every session trusts at boot and which nothing can retract.
+  #
+  # Raising the budget alone would only move the wrong answer later. The
+  # honest question is not "did it warm inside my patience" but "is it
+  # alive": a page that answers and a brain process in the table mean it is
+  # still warming, and the server writes its own "brain warm" line when it
+  # gets there. ONLY A DEAD SERVER EARNS THE WORD FAILED.
+  local code brain
+  code=$(page_code)
+  brain=$(find_others "$P_BRAIN")
+  if [ "$code" = "200" ] && [ -n "$brain" ]; then
+    echo "still warming after $((60 * 2))s -- the server is up and the brain is alive."
+    echo "  page:  http://127.0.0.1:8765/ (answering)"
+    echo "  brain: pid $brain"
+    echo "It will announce itself in $LOG; nothing is wrong and nothing needs restarting."
+    # Deliberately NO event. The server logs "brain warm" itself when it is
+    # ready, so the record stays true without this script guessing.
+    return 0
+  fi
   echo "brain did not warm in time -- check $LOG" >&2
-  log_event "down" "stack" "start failed -- brain did not warm in time"
+  echo "  page answered: $code   brain pids: ${brain:-none}" >&2
+  log_event "down" "stack" "start failed -- page $code, brain ${brain:-none}"
   return 1
 }
 

@@ -1,0 +1,6 @@
+{
+  "name": "jarvis-os",
+  "private": true,
+  "type": "module",
+  "description": "JARVIS Adaptive OS skeleton. No dependencies and no build step, by decision (2026-08-11): this manifest exists solely so node and the browser agree that every .js file here is an ES module."
+}

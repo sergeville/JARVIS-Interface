@@ -1,0 +1,330 @@
+/* ui/skeleton.css -- the S1 look: the concept's field, the zones, the core.
+ *
+ * Values sampled from the 2026-08-11 concept reference
+ * (Jarvis Visual/references/jarvis-os-concept-2026-08-11.jpg): near-black
+ * blue-green field, quiet hairlines, cyan accent, soft bloom. The full
+ * measured pass is Phase 9 work; S1 carries the field, not the finery.
+ */
+
+:root {
+  --os-field: #04090f;          /* the page ground */
+  --os-panel: #060d15;          /* zone fill, barely above the field */
+  --os-hair: rgba(110, 235, 250, 0.14);
+  --os-text: #b8d4dc;
+  --os-text-dim: #4d6a75;
+  --os-accent: #6eebfa;
+  --os-ok: #34d17b;
+  --os-warn: #e0a63c;
+  --os-bad: #e0523c;
+  --os-info: var(--os-accent);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; }
+
+body {
+  background: var(--os-field);
+  color: var(--os-text);
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 13px;
+}
+
+/* ---- The zone grid ------------------------------------------------------ */
+
+.os-root {
+  height: 100%;
+  display: grid;
+  grid-template-areas:
+    'header header header'
+    'left   stage  right'
+    'dock   dock   dock'
+    'footer footer footer';
+  grid-template-rows: 48px 1fr 64px 36px;
+  grid-template-columns: 260px 1fr 300px;
+  gap: 1px;
+}
+
+.os-zone {
+  background: var(--os-panel);
+  border: 1px solid var(--os-hair);
+  position: relative;
+  overflow: hidden;
+}
+
+.os-zone__label {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--os-text-dim);
+}
+
+.os-zone--header     { grid-area: header; }
+.os-zone--left-rail  { grid-area: left; }
+.os-zone--core-stage { grid-area: stage; display: flex; align-items: center; justify-content: center; }
+.os-zone--right-rail { grid-area: right; }
+.os-zone--command-dock { grid-area: dock; }
+.os-zone--footer     { grid-area: footer; }
+
+/* The two layers float over the grid; empty in S1, homes for later slices.
+ * They ride over the STAGE, never over the rails -- an empty placeholder
+ * that covers a real label is furniture in the wrong spot (seen in the S1
+ * render, invisible to the suite). */
+.os-zone--floating-layer,
+.os-zone--notification-layer {
+  position: fixed;
+  inset: auto 320px 110px auto;
+  width: 260px;
+  min-height: 24px;
+  background: transparent;
+  border-style: dashed;
+  pointer-events: none;
+}
+.os-zone--notification-layer { inset: 60px 320px auto auto; }
+
+@media (max-width: 760px) {
+  .os-zone--floating-layer { inset: auto 12px 110px auto; }
+  .os-zone--notification-layer { inset: 60px 12px auto auto; }
+}
+
+/* Mobile navigation exists as a zone always; it is SHOWN small-screen only. */
+.os-zone--mobile-nav { display: none; }
+
+@media (max-width: 760px) {
+  .os-root {
+    grid-template-areas:
+      'header'
+      'stage'
+      'dock'
+      'mobile-nav'
+      'footer';
+    grid-template-rows: 48px 1fr 64px 44px 36px;
+    grid-template-columns: 1fr;
+  }
+  .os-zone--left-rail, .os-zone--right-rail { display: none; }
+  .os-zone--mobile-nav { display: block; grid-area: mobile-nav; }
+}
+
+/* ---- The core ----------------------------------------------------------- */
+
+.os-core {
+  position: relative;
+  width: min(46vmin, 420px);
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.os-core__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--os-hair);
+}
+.os-core__ring--outer  { animation: os-spin 60s linear infinite; border-top-color: var(--os-accent); }
+.os-core__ring--middle { inset: 12%; animation: os-spin 40s linear infinite reverse; border-bottom-color: var(--os-accent); }
+.os-core__ring--inner  { inset: 24%; animation: os-pulse 4s ease-in-out infinite; }
+
+.os-core__heart {
+  width: 46%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 42%, rgba(110, 235, 250, 0.16), transparent 65%), #030b12;
+  border: 1px solid var(--os-hair);
+  box-shadow: 0 0 34px rgba(110, 235, 250, 0.12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  padding: 8%;
+}
+
+.os-core__title { font-size: 17px; letter-spacing: 0.42em; text-indent: 0.42em; color: var(--os-accent); }
+.os-core__state { font-size: 10px; letter-spacing: 0.3em; }
+.os-core__goal, .os-core__operation {
+  font-size: 9px;
+  color: var(--os-text-dim);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.os-core__meter {
+  width: 70%;
+  height: 2px;
+  background: rgba(110, 235, 250, 0.12);
+  margin-top: 4px;
+}
+.os-core__meter[data-empty='true'] { visibility: hidden; }
+.os-core__meter-fill { height: 100%; background: var(--os-accent); transition: width 0.6s ease; }
+
+/* ---- State visuals: one rule per system state, each distinct ------------ */
+
+[data-os-state='starting']       .os-core__state { color: var(--os-info); }
+[data-os-state='ready']          .os-core__state { color: var(--os-ok); }
+[data-os-state='working']        .os-core__state { color: var(--os-info); animation: os-blink 2.4s ease-in-out infinite; }
+[data-os-state='degraded']       .os-core__state { color: var(--os-warn); }
+[data-os-state='offline']        .os-core__state { color: var(--os-warn); opacity: 0.6; }
+[data-os-state='maintenance']    .os-core__state { color: var(--os-info); font-style: italic; }
+[data-os-state='emergency-stop'] .os-core__state { color: var(--os-bad); animation: os-blink 0.9s steps(2) infinite; }
+[data-os-state='recovering']     .os-core__state { color: var(--os-warn); animation: os-blink 3s ease-in-out infinite; }
+
+[data-os-tone='bad'] .os-core__ring { border-color: rgba(224, 82, 60, 0.35); }
+[data-os-tone='warn'] .os-core__heart { box-shadow: 0 0 34px rgba(224, 166, 60, 0.12); }
+
+@keyframes os-spin  { to { transform: rotate(360deg); } }
+@keyframes os-pulse { 50% { transform: scale(1.03); opacity: 0.7; } }
+@keyframes os-blink { 50% { opacity: 0.35; } }
+
+/* ---- The orbit: instruments ride rings around the core ------------------ */
+
+.os-zone--core-stage { position: relative; }
+
+.os-orbit {
+  position: absolute;
+  inset: 0;
+  pointer-events: none; /* the stage stays clickable; only the nodes take it */
+}
+
+.os-orbit__lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.os-orbit__line {
+  stroke: rgba(110, 235, 250, 0.12);
+  stroke-width: 0.2;
+}
+
+.os-instrument {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  color: var(--os-text);
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  padding: 4px;
+}
+
+.os-instrument__roundel {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--os-hair);
+  background: radial-gradient(circle at 50% 40%, rgba(110, 235, 250, 0.14), transparent 70%), #04101a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--os-accent);
+  box-shadow: 0 0 18px rgba(110, 235, 250, 0.10);
+}
+
+.os-instrument__name { font-size: 9px; letter-spacing: 0.08em; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.os-instrument__type { font-size: 8px; color: var(--os-text-dim); text-transform: uppercase; letter-spacing: 0.14em; }
+.os-instrument__state { font-size: 8px; letter-spacing: 0.18em; }
+
+.os-instrument__demo {
+  position: absolute;
+  top: -2px;
+  right: -6px;
+  font-size: 7px;
+  letter-spacing: 0.12em;
+  color: var(--os-warn);
+  border: 1px solid rgba(224, 166, 60, 0.5);
+  padding: 1px 3px;
+  border-radius: 2px;
+  background: rgba(224, 166, 60, 0.08);
+}
+
+/* Tone drives the ring; state drives the wording and its color. One visual
+ * rule per instrument state -- a test holds the list complete. */
+.os-instrument[data-instrument-tone='ok'] .os-instrument__roundel { border-color: rgba(52, 209, 123, 0.5); }
+.os-instrument[data-instrument-tone='warn'] .os-instrument__roundel { border-color: rgba(224, 166, 60, 0.5); }
+.os-instrument[data-instrument-tone='bad'] .os-instrument__roundel { border-color: rgba(224, 82, 60, 0.6); box-shadow: 0 0 18px rgba(224, 82, 60, 0.18); }
+.os-instrument[data-instrument-tone='off'] .os-instrument__roundel { opacity: 0.45; }
+
+.os-instrument[data-instrument-state='unconfigured'] .os-instrument__state { color: var(--os-warn); opacity: 0.8; }
+.os-instrument[data-instrument-state='configuring'] .os-instrument__state { color: var(--os-info); font-style: italic; }
+.os-instrument[data-instrument-state='ready'] .os-instrument__state { color: var(--os-ok); }
+.os-instrument[data-instrument-state='idle'] .os-instrument__state { color: var(--os-text-dim); }
+.os-instrument[data-instrument-state='active'] .os-instrument__state { color: var(--os-ok); animation: os-blink 2.4s ease-in-out infinite; }
+.os-instrument[data-instrument-state='waiting'] .os-instrument__state { color: var(--os-warn); animation: os-blink 3s ease-in-out infinite; }
+.os-instrument[data-instrument-state='paused'] .os-instrument__state { color: var(--os-info); opacity: 0.7; }
+.os-instrument[data-instrument-state='blocked'] .os-instrument__state { color: var(--os-warn); text-decoration: line-through; }
+.os-instrument[data-instrument-state='offline'] .os-instrument__state { color: var(--os-warn); opacity: 0.55; }
+.os-instrument[data-instrument-state='error'] .os-instrument__state { color: var(--os-bad); animation: os-blink 0.9s steps(2) infinite; }
+.os-instrument[data-instrument-state='completed'] .os-instrument__state { color: var(--os-ok); opacity: 0.7; }
+.os-instrument[data-instrument-state='disabled'] .os-instrument__state { color: var(--os-text-dim); opacity: 0.5; }
+
+/* ---- The detail shell: only declared sections --------------------------- */
+
+.os-detail {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  width: 300px;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  background: var(--os-panel);
+  border: 1px solid var(--os-hair);
+  pointer-events: auto;
+  display: none;
+  z-index: 30;
+}
+.os-detail[data-open='true'] { display: block; }
+
+.os-detail__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--os-hair);
+}
+.os-detail__title { font-size: 12px; letter-spacing: 0.1em; }
+.os-detail__type { font-size: 8px; color: var(--os-text-dim); text-transform: uppercase; letter-spacing: 0.14em; }
+.os-detail__state { font-size: 8px; letter-spacing: 0.18em; margin-left: auto; }
+.os-detail__state[data-instrument-tone='ok'] { color: var(--os-ok); }
+.os-detail__state[data-instrument-tone='warn'] { color: var(--os-warn); }
+.os-detail__state[data-instrument-tone='bad'] { color: var(--os-bad); }
+.os-detail__close {
+  background: none;
+  border: 1px solid var(--os-hair);
+  color: var(--os-text-dim);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.os-detail__section { padding: 8px 12px; border-bottom: 1px solid rgba(110, 235, 250, 0.06); }
+.os-detail__heading { font-size: 8px; letter-spacing: 0.2em; color: var(--os-text-dim); margin-bottom: 4px; }
+.os-detail__content { font-size: 10px; line-height: 1.5; }
+.os-detail__row { padding: 1px 0; }
+
+/* While the detail occupies the floating layer, the placeholder dashes and
+ * label stand down -- two boxes would read as two truths. */
+.os-zone--floating-layer:has(.os-detail[data-open='true']) { border: none; }
+.os-zone--floating-layer:has(.os-detail[data-open='true']) .os-zone__label { display: none; }
+
+/* ---- Reduced motion: the truth stays, the theatre stops ----------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .os-core__ring, .os-core__state, .os-instrument__state { animation: none !important; }
+  .os-core__meter-fill { transition: none; }
+}

@@ -33,6 +33,9 @@
     --accent-rgb: 0, 150, 255;   /* every rgba() border and glow keys off this */
     --bg-deep:     #050a14;
     --bg-panel:    rgba(2, 12, 26, 0.85);
+    --bg-card:     #000d1b;
+    --chrome-line: 137, 164, 187;
+    --chrome-peak: 110, 235, 250;
     --bg-bar:      rgba(2, 12, 24, 0.85);
     --bg-inset:    rgba(0, 20, 40, 0.5);
     --bg-input:    #04101f;
@@ -77,6 +80,129 @@
   /* Alert: a permission request is pending and Jarvis is blocked on Serge.
      Same layout, same information -- only the mood changes, so the state is
      unmissable from across the room without anything moving. */
+
+  /* ================= THE FACE REGISTRY — Phase 1 of JarvisOS 5000 =========
+     Serge, 2026-08-08: a FACE is style only — colours, glow, mood. It never
+     changes what is shown; that is the JOB's dial (Phase 7).
+
+     The mechanism is the one `body.alert` already proves: one class on the
+     body redefines the complete chrome token set. Nothing else in the page
+     knows a face exists, which is what keeps a face from leaking into
+     behaviour.
+
+     THREE INVARIANTS, and they are load-bearing:
+
+     1. A face defines the COMPLETE set — every token `:root` defines. A
+        partial face inherits the previous world's colour for whatever it
+        forgot, and that reads as a rendering bug nobody can find.
+     2. THE STATUS COLOURS BELONG TO NO FACE. --ok/--warn/--bad mean up,
+        off-by-choice and broken in every world. A status that repaints with
+        the mood has stopped being a status. Each palette is chosen around
+        them, not over them.
+     3. body.alert BEATS EVERY FACE. A pending permission looks the same in
+        all four worlds, because that amber is the one colour that means
+        "he is being asked" — so the alert block is defined AFTER the faces
+        in source order, and tested in both class orders.
+
+     CIVILIAN is today's Mark III palette, promoted to a first-class face on
+     his word — the old look is one click away, not gone. It is expressed as
+     an explicit block rather than as "the absence of a class", so that all
+     four faces are the same kind of thing. */
+  body.face-civilian {
+    --accent-rgb: 0, 150, 255;
+    --bg-deep:     #050a14;
+    --bg-panel:    rgba(2, 12, 26, 0.85);
+    --bg-card:     #000d1b;
+    --chrome-line: 137, 164, 187;
+    --chrome-peak: 110, 235, 250;
+    --bg-bar:      rgba(2, 12, 24, 0.85);
+    --bg-inset:    rgba(0, 20, 40, 0.5);
+    --bg-input:    #04101f;
+    --bg-track:    #04182e;
+    --text:        #9fd0ff;
+    --text-soft:   #7fc4ff;
+    --text-val:    #bfe6ff;
+    --text-bright: #eaf6ff;
+    --sec:         #35b6ff;
+    --stage-core:  #0a1830;
+    --fill-lo:     #0066aa;
+    --fill-hi:     #00ccff;
+  }
+  /* NAVY — navy and gold, the first new face. The accent stays a blue so the
+     instruments keep their contrast; the GOLD is the section voice
+     (--sec), which is where the branch reads without touching a status. */
+  body.face-navy {
+    --accent-rgb: 96, 150, 210;
+    --bg-deep:     #00060f;
+    --bg-panel:    rgba(4, 14, 30, 0.88);
+    --bg-card:     #000a17;
+    --chrome-line: 120, 152, 190;
+    --chrome-peak: 142, 200, 255;
+    --bg-bar:      rgba(3, 11, 24, 0.88);
+    --bg-inset:    rgba(6, 22, 44, 0.55);
+    --bg-input:    #030d1c;
+    --bg-track:    #06182c;
+    --text:        #b6cfe6;
+    --text-soft:   #93b6d4;
+    --text-val:    #d8e8f7;
+    --text-bright: #f2f8ff;
+    --sec:         #d8b25a;
+    --stage-core:  #04101f;
+    --fill-lo:     #1d4f86;
+    --fill-hi:     #8fc4f0;
+  }
+
+  /* ARMY — olive drab and sand. The accent is deliberately a SAND, not the
+     branch's green: --ok is green and means "up" in every world, and an
+     olive accent would sit close enough to it that a lit border and a
+     healthy dot start reading as the same thing. Invariant 2 says the
+     palette is chosen AROUND the status colours; this is what that costs.
+     The branch reads in --sec and in the field tint instead. */
+  body.face-army {
+    --accent-rgb: 176, 158, 106;
+    --bg-deep:     #080803;
+    --bg-panel:    rgba(20, 20, 10, 0.88);
+    --bg-card:     #0d0d05;
+    --chrome-line: 176, 165, 122;
+    --chrome-peak: 240, 226, 170;
+    --bg-bar:      rgba(17, 17, 8, 0.88);
+    --bg-inset:    rgba(32, 31, 14, 0.55);
+    --bg-input:    #12120a;
+    --bg-track:    #1e1d0e;
+    --text:        #d6cca6;
+    --text-soft:   #b8ad86;
+    --text-val:    #ece4c8;
+    --text-bright: #fbf7e8;
+    --sec:         #8a9a5b;
+    --stage-core:  #14150a;
+    --fill-lo:     #5c5a2e;
+    --fill-hi:     #c3bb84;
+  }
+  /* AIR FORCE — air-force blue and silver. Close to civilian by branch, and
+     kept apart from it on purpose: colder, greyer, and its section voice is
+     silver rather than civilian's bright cyan. Two faces that read the same
+     are one face with two names. */
+  body.face-airforce {
+    --accent-rgb: 122, 156, 190;
+    --bg-deep:     #05080d;
+    --bg-panel:    rgba(12, 18, 26, 0.88);
+    --bg-card:     #070b11;
+    --chrome-line: 150, 172, 194;
+    --chrome-peak: 205, 228, 250;
+    --bg-bar:      rgba(10, 15, 22, 0.88);
+    --bg-inset:    rgba(20, 30, 42, 0.55);
+    --bg-input:    #0a1018;
+    --bg-track:    #131e2a;
+    --text:        #c3d2e0;
+    --text-soft:   #a2b5c8;
+    --text-val:    #dde8f2;
+    --text-bright: #f4f9ff;
+    --sec:         #b9c6d2;
+    --stage-core:  #0b1420;
+    --fill-lo:     #3d5a76;
+    --fill-hi:     #a9c6e0;
+  }
+
   body.alert {
     --accent-rgb: 255, 176, 60;
     --bg-deep:     #0f0a02;
@@ -131,10 +257,182 @@
     background: var(--bg-bar);
   }
   #instr-left, #instr-right { display: flex; align-items: center; gap: 16px; }
-  #clock {
-    font-family: "Menlo", monospace; font-size: 11px;
-    letter-spacing: 0.1em; color: var(--text-soft);
+
+  /* THE TWO DIALS (Phase 7). Deliberately quiet: they are settings, not
+     instruments, and this row is already the page's busiest strip. */
+  #switcher { display: flex; align-items: center; gap: 6px; }
+  #switcher .sw-label {
+    font-size: 8.5px; letter-spacing: 0.24em; opacity: 0.45;
+    text-transform: uppercase;
   }
+  #switcher .sw-label + span { display: flex; gap: 4px; margin-right: 8px; }
+  button.sw {
+    font: inherit; font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; cursor: pointer;
+    padding: 2px 7px; border-radius: 2px;
+    color: var(--text-soft); background: transparent;
+    border: 1px solid rgba(var(--accent-rgb), 0.22);
+  }
+  button.sw:hover { background: rgba(var(--accent-rgb), 0.12); }
+  /* The current one is stated, not merely lit -- a dial you cannot read at a
+     glance costs a click to find out where you are. */
+  button.sw.on {
+    color: var(--text); border-color: rgba(var(--accent-rgb), 0.65);
+    background: rgba(var(--accent-rgb), 0.16);
+  }
+
+  /* PANEL EMPHASIS -- the half of the JOB dial that was designed and unbuilt
+     until the terminal session's red pen named it: with only stage and type
+     scale, WORKSHOP and BRAINSTORM rendered byte-identically, and this page's
+     own rule says two things that render alike are one thing with two names.
+     A job may only SHOW, HIDE or EMPHASISE instruments that exist. Nothing
+     below adds or removes a panel; they change how much room each gets. */
+
+  /* WORKSHOP condenses the left column and gives the room to the board --
+     Serge, 2026-08-08, decision 15, his first ruling made from inside a job:
+     "I look at the board, don't like what I see... give more real estate to
+     the board, and I got a quick system monitor in the bottom part." */
+  body.job-workshop #main { grid-template-columns: 56px 180px 1fr 360px; }
+  body.job-workshop #left { gap: 10px; }
+  body.job-workshop #left .spark { display: none; }
+
+  /* BRIEFING gives the queue the room and lets the machinery recede. */
+  body.job-briefing #main { grid-template-columns: 56px 200px 1fr 360px; }
+
+  /* BRAINSTORM is the quiet one: chrome recedes, the stage takes the room. */
+  body.job-brainstorm #main { grid-template-columns: 56px 200px 1fr 260px; }
+  body.job-brainstorm #left, body.job-brainstorm #right { opacity: 0.78; }
+
+  /* THE TYPE SCALE rides the JOB, never the face (decision 1). One multiplier
+     on the panels' text so a job can make the page easier to read across the
+     room without moving a single element. */
+  #left, #right { font-size: calc(12px * var(--type-scale, 1)); }
+  /* THE STACKED CLOCK (Phase 2). The concept's top-right block is a large
+     time over a small tracked date caption -- one glance for the hour, the
+     date available without taking a second line of the bar. Same 1 s tick as
+     before; only the shape changed, so no clock on this page can disagree. */
+  #clock {
+    font-family: "Menlo", monospace; letter-spacing: 0.1em;
+    color: var(--text-soft); text-align: right; line-height: 1.15;
+  }
+  #clock .ctime { font-size: 17px; color: var(--text); letter-spacing: 0.06em; }
+  #clock .cdate { font-size: 8.5px; letter-spacing: 0.24em; opacity: 0.62; }
+
+  /* THE BRAND BLOCK (Phase 2). Two lines: what the page IS, and which
+     version of it is running. The version is NOT typed here -- it is written
+     from the SHIP_VERSION constant the version stamper owns, so the page can
+     only ever name a version the repo actually shipped. */
+  #brand { line-height: 1.2; }
+  #brand .bname {
+    font-size: 15px; letter-spacing: 0.3em; color: var(--text);
+  }
+  #brand .bsub {
+    font-size: 8.5px; letter-spacing: 0.28em; opacity: 0.6;
+  }
+
+  /* THE USER BADGE (Phase 2). Real data only: his name, the live session
+     count off `sessions`, the running model off `stats`. Nothing here is
+     hardcoded and nothing here is invented -- a badge that guesses is the
+     fake-instrument failure in a new corner. Fields read as placeholders
+     until the first payload arrives, never as a plausible wrong number. */
+  #badge {
+    display: flex; align-items: center; gap: 10px;
+    padding: 3px 11px; border-radius: 2px;
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    background: rgba(var(--accent-rgb), 0.05);
+  }
+  #badge .bwho { font-size: 11px; letter-spacing: 0.22em; color: var(--text); }
+  #badge .bmeta {
+    font-size: 8.5px; letter-spacing: 0.16em; opacity: 0.62;
+    text-transform: none; line-height: 1.3; text-align: right;
+  }
+
+  /* The idle welcome. Serge asked for it with the brand block. It is the one
+     piece of the concept's hero that survives, and it survives only because
+     it gets out of the way: visible while Jarvis is idle with nothing
+     pending, faded the instant any work starts. It never covers the waiting
+     banner -- that is the one thing on this stage that outranks everything. */
+  #welcome {
+    /* Sits UNDER the status line, which lives at top 5%. Sharing that line
+       would put two pieces of text on one row at two type scales. */
+    position: absolute; left: 50%; top: calc(5% + 24px);
+    transform: translateX(-50%);
+    font-size: 11px; letter-spacing: 0.42em; color: var(--text-soft);
+    opacity: 0; transition: opacity 900ms ease; pointer-events: none;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  #welcome.on { opacity: 0.5; }
+
+  /* THE DEMOTED AVATAR CARD. Small, quiet, and pressable -- a border says
+     pressable on this page, and this one genuinely is. */
+  #avcard {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 11px; margin-bottom: 10px; cursor: pointer;
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    border-radius: 2px; background: rgba(var(--accent-rgb), 0.05);
+    user-select: none;
+  }
+  #avcard-ring {
+    width: 26px; height: 26px; border-radius: 50%; flex: none;
+    border: 1px solid rgba(var(--accent-rgb), 0.55);
+    display: flex; align-items: center; justify-content: center;
+    /* It BREATHES, like the stage avatar -- a still portrait would read as a
+       screenshot of Jarvis rather than as Jarvis. */
+    animation: avbreathe 3.4s ease-in-out infinite;
+  }
+  #avcard-core {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--fill-hi);
+    box-shadow: 0 0 8px 1px rgba(var(--accent-rgb), 0.7);
+  }
+  @keyframes avbreathe {
+    0%, 100% { transform: scale(1); opacity: 0.75; }
+    50%      { transform: scale(1.12); opacity: 1; }
+  }
+  #avcard-state {
+    font-size: 9px; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--text-soft);
+  }
+  /* Hot means the microphone is open, and it is the SAME word the talk
+     button uses so the two can never disagree about what hot means. */
+  #avcard.hot { border-color: var(--warn); background: rgba(var(--warn-rgb), 0.12); }
+  #avcard.hot #avcard-core { background: var(--warn); }
+
+  /* The offer card. Bottom-right of the stage, deliberately away from the
+     talk button and clear of the waiting banner -- it must never sit where
+     his hand or his eye is already going. */
+  #offer {
+    position: absolute; right: 18px; bottom: 96px; z-index: 40;
+    width: 236px; padding: 11px 13px;
+    background: var(--bg-panel);
+    border: 1px solid rgba(var(--accent-rgb), 0.42);
+    border-radius: 2px;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity 420ms ease, visibility 0s linear 420ms;
+  }
+  #offer.on {
+    opacity: 1; visibility: visible; pointer-events: auto;
+    transition: opacity 420ms ease;
+  }
+  #offer .of-head {
+    font-size: 8.5px; letter-spacing: 0.28em; opacity: 0.5;
+    text-transform: uppercase;
+  }
+  #offer .of-job {
+    font-size: 14px; letter-spacing: 0.16em; color: var(--text);
+    text-transform: uppercase; margin-top: 4px;
+  }
+  /* The réplique -- his word for it. A suggestion with no case is a nag. */
+  #offer .of-why { font-size: 10px; opacity: 0.66; margin-top: 3px; }
+  #offer .of-btns { display: flex; gap: 6px; margin-top: 9px; }
+  #offer .of-btns button {
+    font: inherit; font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; cursor: pointer; flex: 1;
+    padding: 4px 0; border-radius: 2px;
+    color: var(--text-soft); background: transparent;
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+  }
+  #offer .of-btns button:hover { background: rgba(var(--accent-rgb), 0.14); }
   /* Usage moved up here from the left panel (Serge, 2026-08-05: the page "is
      starting to be crowded"). Three percentages are a glance, not a panel --
      the bars and reset clocks they used to carry are on the hover title, so
@@ -569,8 +867,31 @@
   /* ===== main grid ===== */
   #main {
     flex: 1; display: grid;
-    grid-template-columns: 230px 1fr 300px;
+    /* Phase 5 added the 56 px rail as a FOURTH column rather than overlaying
+       it, so it takes its width from the stage honestly instead of covering
+       the thing underneath. */
+    grid-template-columns: 56px 230px 1fr 300px;
     min-height: 0;
+  }
+  #rail {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 8px; padding: 14px 0;
+    background: var(--bg-panel);
+    border-right: 1px solid rgba(var(--accent-rgb), 0.16);
+  }
+  button.rl {
+    width: 32px; height: 32px; font-size: 14px; line-height: 1;
+    cursor: pointer; border-radius: 2px;
+    color: var(--text-soft); background: transparent;
+    border: 1px solid rgba(var(--accent-rgb), 0.22);
+  }
+  button.rl:hover { background: rgba(var(--accent-rgb), 0.14); color: var(--text); }
+  /* Lit means the thing it shortcuts is ON -- read from the real control, not
+     from the rail's own memory, so the two can never disagree. */
+  button.rl.on {
+    color: var(--text-bright);
+    border-color: rgba(var(--accent-rgb), 0.65);
+    background: rgba(var(--accent-rgb), 0.18);
   }
   .panel {
     background: var(--bg-panel); padding: 16px 14px;
@@ -578,15 +899,124 @@
   }
   #left  { border-right: 1px solid rgba(var(--accent-rgb), 0.28); overflow-y: auto; }
   #right { border-left:  1px solid rgba(var(--accent-rgb), 0.28); overflow: hidden; }
+
+  /* ==================================================================
+     PHASE 8 -- ONE CARD STYLE, DEFINED ONCE.
+     Serge dictated this standard 2026-08-08 (Jarvis Conventions §5):
+     "use the CSS for one card, with all its knick-knack... then use that
+     for everything, so you don't have to repeat yourself -- you do one fix
+     and all the cards are changing at the same time." Every value below is
+     MEASURED from JarvisOS5000-concept-v2.png, not chosen by taste.
+
+       page field  #000b1a      card body  #000d1b   -- THREE points apart.
+       The panels are NOT lighter than the page. All the depth in that
+       image is drawn with LIGHT: a hairline and its halo over near-black.
+       Every instinct to "lift the card" by lightening its fill pushes AWAY
+       from the reference, and did, twice.
+
+       border RUN rgb(137,164,187) at .85 -- a long edge measures dull.
+       #6eebfa is a PEAK, and it lives ONLY at the notch vertices. A
+       hairline held at peak along its whole length reads as neon, not as
+       machined metal.
+
+     THE MECHANICAL TRAP, found by rendering and not by reading: clip-path
+     clips the border AND the outer box-shadow with the shape, so a notched
+     card cannot carry its own frame or glow that way -- they simply vanish,
+     which reads as "the glow isn't working." The halo therefore rides
+     filter: drop-shadow on the ::after layer, which is not clipped.
+     ================================================================== */
+  .card, #stage, #botbar > div {
+    position: relative;
+    background: var(--bg-card);
+    border: 1px solid rgba(var(--chrome-line), 0.85);
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px,
+                       100% 100%, 0 100%, 0 14px);
+    padding: 12px;
+    box-shadow: 0 0 6px rgba(var(--chrome-line), 0.18);
+  }
+  /* the near-white is spent on the corners, and only there */
+  .card::after, #stage::after, #botbar > div::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background:
+      linear-gradient(135deg, rgb(var(--chrome-peak)) 0 1.5px, transparent 1.5px) top left / 18px 18px no-repeat,
+      linear-gradient(225deg, rgb(var(--chrome-peak)) 0 1.5px, transparent 1.5px) top right / 18px 18px no-repeat;
+    filter: drop-shadow(0 0 4px rgba(var(--chrome-peak), 0.8));
+  }
+  /* Interior frames run FAR dimmer in the concept -- ~0.2 alpha. The stage
+     is a panel there, not open field, but it must not shout over the left
+     and right columns that surround it. */
+  #stage { border-color: rgba(var(--chrome-line), 0.28); box-shadow: none; }
   .panel::-webkit-scrollbar { width: 4px; }
   .panel::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb), 0.3); }
 
+  /* ONE LINE, and the TITLE is what survives. Serge, 2026-08-09 ~4:53 PM,
+     in a narrower window: "SYS MONITOR" broke in half and STACK and EVENTS
+     pushed their new counts onto a second row. A header that wraps stops
+     being a header. The title never wraps; the count is the part that
+     yields, because a card whose name you cannot read is worse than a card
+     whose tally you cannot. */
   .sec-title {
     font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase;
     color: var(--sec); display: flex; align-items: center; gap: 6px;
     margin-bottom: 10px; flex-shrink: 0;
+    white-space: nowrap; overflow: hidden; min-width: 0;
   }
   .sec-title::before { content: "\25CF"; font-size: 8px; }
+  /* THE HEADER ANATOMY, 2026-08-09. In the concept every card header is
+     icon · title · live count, and that is the single reason the reference
+     reads as instrumentation while ours read as a list. The icon replaces
+     the generic bullet only where a card has one, so a header without one
+     still looks like the rest of the page rather than half-converted. */
+  .sec-title[data-icon]::before {
+    content: attr(data-icon); font-size: 11px;
+    color: rgba(var(--accent-rgb), 0.8);
+  }
+  /* THE COUNT IS EMPTY UNTIL ITS RENDERER FILLS IT, and every renderer fills
+     it from the SAME list it just drew -- never from a second source and
+     never from a constant. A header count is exactly the shape of thing that
+     would sit there being plausibly wrong for weeks, so an unknown count
+     shows NOTHING. Cards with no honest number (Sys Monitor, Command Input)
+     have no slot at all. */
+  .sec-count {
+    margin-left: auto; font-size: 9px; letter-spacing: 0.18em;
+    color: rgba(var(--accent-rgb), 0.7); text-transform: uppercase;
+    /* The count gives up its width first and then disappears entirely
+       rather than pushing the title around. `min-width: 0` is what lets it
+       shrink at all; without it the flex default refuses to go below its
+       own text and the header overflows instead. */
+    min-width: 0; overflow: hidden; text-overflow: clip; white-space: nowrap;
+  }
+  /* The skew note sits straight after the title -- `margin-left: auto` on
+     .sec-count pushes both counts to the right edge, so "partial" reads
+     FIRST, not last. (The old comment here claimed the opposite; corrected
+     2026-08-12 after the adversary measured the header.)
+     `min-width: 0` is not cosmetic: .sec-title clips from the right, and
+     without it the skew note refuses to shrink while the counts do -- which
+     makes the amber unknown count, the last element, the FIRST thing to
+     vanish in a narrow window. The warning must not be the first casualty. */
+  #sessions-skew { margin-left: 6px; min-width: 0; overflow: hidden; }
+  /* The unknown count rides beside the active one and wears the warn colour
+     the unregistered ROWS already wear, so the header and the rows tell the
+     same story. It keeps .sec-count for the shrink behaviour and the type;
+     this rule only overrides the colour and the auto margin the class would
+     otherwise use to claim the right edge for a second time. */
+  #sessions-unknown { margin-left: 6px; color: var(--warn); }
+
+  /* PHASE 8 -- THE HEADER STRIP. In the concept every card's title sits on
+     its own row, on the SAME fill as the body (measured: they are the same
+     black), separated by a hairline rather than by a lighter surface. The
+     negative margins let the strip span the card's padding, so the rule
+     runs edge to edge like the reference. Only inside a card -- headings
+     elsewhere on the page are untouched. */
+  .card > .sec-title, .card > #tasks-head {
+    margin: -12px -12px 10px; padding: 9px 12px;
+    border-bottom: 1px solid rgba(var(--chrome-line), 0.35);
+    color: var(--text-bright);
+    text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.6);
+  }
+  /* The bloom is what makes the concept feel lit. It is HALO, never hue --
+     the fill stays flat, which is the finding two of my passes ignored. */
+  .card, #botbar > div { text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.25); }
 
   /* left panel: monitor.
      Serge, 2026-08-04: "the system monitor put smaller fonts... so it fits
@@ -609,6 +1039,28 @@
     fill: none; stroke: rgba(var(--accent-rgb), 0.55); stroke-width: 1;
     vector-effect: non-scaling-stroke;
   }
+  /* THE HEALTH RING (Phase 4). Status colours, deliberately: this is the one
+     instrument whose whole job is to say up / degraded / down, and those
+     three colours mean the same thing in every face. */
+  #health { display: flex; align-items: center; gap: 11px; }
+  #health-ring { width: 44px; height: 44px; flex: none; transform: rotate(-90deg); }
+  #health-ring .hr-track {
+    fill: none; stroke: var(--bg-track); stroke-width: 3;
+  }
+  #health-ring .hr-arc {
+    fill: none; stroke: var(--ok); stroke-width: 3; stroke-linecap: butt;
+    /* 2πr for r=19, rounded — the dash pattern IS the percentage. */
+    stroke-dasharray: 119.4; stroke-dashoffset: 119.4;
+    transition: stroke-dashoffset 0.6s ease, stroke 0.3s ease;
+  }
+  #health.degraded #health-ring .hr-arc { stroke: var(--warn); }
+  #health.down     #health-ring .hr-arc { stroke: var(--bad); }
+  /* Unknown is NOT green. A ring with nothing to measure must not look
+     healthy -- that is the fake-instrument failure in its purest form. */
+  #health.unknown  #health-ring .hr-arc { stroke: var(--off); }
+  #health-word { font-size: 11px; letter-spacing: 0.2em; color: var(--text); }
+  #health-sub { font-size: 9px; letter-spacing: 0.12em; opacity: 0.6; }
+
   .bar {
     height: 5px; background: var(--bg-track);
     border: 1px solid rgba(var(--accent-rgb), 0.45);
@@ -638,9 +1090,25 @@
     width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
     background: rgba(var(--accent-rgb), 0.35);
   }
-  .st-row .name { color: rgba(var(--accent-rgb), 0.75); flex: 1; }
+  /* Same rule for the name: "browser Jarvis" was wrapping onto a second
+     line and pushing its own timestamp away from it. The PID must never be
+     the thing that yields, so the name clips and the number keeps its
+     place -- a truncated label is still readable, a lost PID is not. */
+  /* THE NAME HOLDS ITS GROUND; THE NUMBER GIVES. Serge caught this at
+     4:53 PM: "browser Jarvis" had been clipped to "br..." because the name
+     was the only flexible thing in the row and the PID column took whatever
+     it wanted. That is backwards -- a two-letter label names nothing, while
+     a PID is recoverable from the tooltip and from `jarvis.sh status`. The
+     floor is wide enough for the longest real component label. */
+  .st-row .name {
+    color: rgba(var(--accent-rgb), 0.75); flex: 1 1 auto;
+    min-width: 6.5em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .st-row .pid {
     font-family: "Menlo", monospace; font-size: 10.5px; color: var(--text-val);
+    min-width: 0; flex: 0 1 auto;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .st-row.up .dot { background: var(--ok); box-shadow: 0 0 7px var(--ok); }
   .st-row.up .pid { color: var(--ok-soft); }
@@ -653,10 +1121,16 @@
   /* Serge, 2026-08-04: start time + how long it has been up, under each row.
      Its own dim line rather than a third column -- the panel is narrow and
      the name/PID line has to stay readable at a glance. */
+  /* ONE LINE, ALWAYS. Serge, 2026-08-09, from his own screen: this broke
+     across THREE lines in a narrow panel -- "13:53:07 · up 12m 07s" is one
+     fact and reading it as three stacked fragments is worse than not
+     showing the tail of it at all. It clips rather than wraps; the full
+     text is already one hover away on the row. */
   .st-sub {
     font-family: "Menlo", monospace; font-size: 9.5px;
     color: rgba(var(--accent-rgb), 0.42); margin: -2px 0 6px 13px;
     letter-spacing: 0.04em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   /* Serge, 2026-08-04: this block read "a bit tight" -- the three port pairs
      and the page clock were shoulder to shoulder under the last stack row.
@@ -691,9 +1165,19 @@
     font-family: "Menlo", monospace; font-size: 9.5px; flex-shrink: 0;
     color: rgba(var(--accent-rgb), 0.42);
   }
-  /* The text wraps rather than ellipsising: an event Serge cannot read is the
-     same as an event that was never logged. */
-  .ev-row .msg { color: rgba(var(--accent-rgb), 0.72); flex: 1; }
+  /* THE OLD RULE STANDS, WITH A CEILING. The text still WRAPS rather than
+     ellipsising on one line -- "an event Serge cannot read is the same as an
+     event that was never logged" -- but in his narrow window one event ran
+     to four lines and three of them filled the whole card, which hides the
+     other events just as effectively. So it wraps to TWO lines and then
+     clamps, and the full text is on the row's own tooltip as well as in the
+     hover fold below. Nothing is lost; the card stops being one event long.
+     (Serge, 2026-08-09 ~5:45 PM, on the narrow-window screenshot.) */
+  .ev-row .msg {
+    color: rgba(var(--accent-rgb), 0.72); flex: 1; min-width: 0;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
   .ev-row.up .dot   { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
   .ev-row.off .dot  { background: var(--off); }
   .ev-row.down .dot { background: var(--bad); box-shadow: 0 0 5px var(--bad); }
@@ -1029,20 +1513,14 @@
     position: absolute; top: 13%; width: 100%;
     text-align: center; pointer-events: none; display: none;
   }
-  #waiting-head {
-    font-size: 24px; letter-spacing: 0.35em; text-transform: uppercase;
-    color: var(--text-soft);
-    text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.65);
-    animation: waitpulse 2.2s ease-in-out infinite;
-  }
+  /* NO SECOND HEADING HERE. The stage status strip already reads
+     WAITING FOR YOUR ANSWER whenever a question is pending (see draw()),
+     so a heading on the banner said it twice — Serge caught it on screen
+     2026-08-09. The banner carries the QUESTION and nothing else. */
   #waiting-q {
-    margin: 20px auto 0; max-width: 76%;
+    margin: 0 auto; max-width: 76%;
     font-size: 26px; font-weight: 600; line-height: 1.35;
     color: var(--text-bright);
-  }
-  @keyframes waitpulse {
-    0%, 100% { opacity: 0.55; }
-    50% { opacity: 1; }
   }
   #label {
     position: absolute; bottom: 9%; width: 100%;
@@ -1054,9 +1532,94 @@
     position: absolute; bottom: 3%; left: 50%; transform: translateX(-50%);
     background: rgba(var(--accent-rgb), 0.08);
     border: 1px solid rgba(var(--accent-rgb), 0.4);
-    color: var(--text-val); padding: 13px 32px; border-radius: 26px;
+    color: var(--text-val); padding: 8px 26px; border-radius: 30px;
     font-size: 12px; letter-spacing: 0.2em; cursor: pointer;
     text-transform: uppercase; font-family: inherit;
+    display: flex; align-items: center; gap: 14px;
+  }
+  /* Nothing inside the pill is its own target. The tap-vs-hold rule and the
+     interrupt suppression both read the button; a child swallowing a
+     pointerdown would silently create a second, unruled mic path. */
+  #talk > * { pointer-events: none; }
+  .tk-label { white-space: nowrap; }
+  /* The page-wide `canvas` rule pins every canvas absolute and inset to its
+     container -- right for the stage layers, and it threw both of these out
+     of the pill and up its top edge. In a flex row a canvas has to be an
+     ordinary item, so this rule takes it back. */
+  .tk-wave {
+    position: static; inset: auto;
+    flex: none; width: 110px; height: 24px; opacity: 0.85;
+  }
+  /* --lv is the SAME smoothed level the two strips are drawn from, written
+     once per frame by the draw loop (Serge, 2026-08-09: "the mic should glow
+     in the same thing, in the same time too"). It is a level, not a state:
+     the halo grows with his voice while `hot` says the microphone is open,
+     and the two are deliberately separate so a lit roundel in a silent room
+     still means "listening" rather than "hearing something". */
+  #tk-mic {
+    --lv: 0;
+    position: relative;      /* the rings position against this */
+    flex: none; width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(var(--accent-rgb), calc(0.65 + var(--lv) * 0.35));
+    background: rgba(var(--accent-rgb), calc(0.14 + var(--lv) * 0.30));
+    box-shadow: 0 0 calc(18px + var(--lv) * 46px)
+                  rgba(var(--accent-rgb), calc(0.35 + var(--lv) * 0.5)),
+                inset 0 0 calc(14px + var(--lv) * 18px)
+                  rgba(var(--accent-rgb), calc(0.18 + var(--lv) * 0.35));
+  }
+  #tk-mic-icon { color: rgba(var(--accent-rgb), 0.95); display: block; position: relative; }
+  /* THE RIPPLE. Serge, 2026-08-09 ~5:10 PM: the halo alone read as static --
+     he expected "a round circle, bigger, that goes away", i.e. a ring
+     travelling outward from the microphone. Two of them, half a cycle
+     apart, so the sound looks continuous rather than blinking.
+     They are DRAWN FROM THE SAME LEVEL as the strips and the halo: the
+     animation runs at a constant rate, and the level scales how far the
+     ring gets and how visible it is -- so silence collapses it to nothing
+     without ever stopping and restarting an animation mid-flight. */
+  /* THE LEVEL LIVES ON THE WRAPPER, NEVER INSIDE THE KEYFRAMES. A custom
+     property read inside an @keyframes block is not reliably re-read while
+     the animation is already running -- the ripple would have been frozen
+     at whatever the level happened to be when it started. So the keyframes
+     are constant, and the wrapper's opacity carries his voice. Opacity
+     multiplies down the tree, so silence hides the rings completely while
+     the animation goes on turning underneath, and there is never an
+     animation restart to make it stutter. */
+  #tk-rings {
+    position: absolute; inset: 0; pointer-events: none;
+    opacity: var(--lv);
+    transition: opacity 90ms linear;
+  }
+  .tk-ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 1px solid rgba(var(--accent-rgb), 0.9);
+    animation: tkripple 1.6s linear infinite;
+  }
+  .tk-ring:nth-child(2) { animation-delay: 0.8s; }
+  /* IT LEAVES FROM THE MIDDLE, like a speaker cone. Serge, 2026-08-09
+     ~5:20 PM: "it would be nice if it started in the middle, wider." The
+     first version began at the roundel's own rim (scale 1), so the ring
+     appeared to peel off the border rather than to come out of the
+     microphone. It now starts small at the centre and travels well past
+     the roundel. The brief fade-in at the start stops it popping into
+     existence as a hard dot in the middle of the icon. */
+  @keyframes tkripple {
+    0%   { transform: scale(0.30); opacity: 0; }
+    14%  { transform: scale(0.55); opacity: 0.95; }
+    100% { transform: scale(2.75); opacity: 0; }
+  }
+  /* Live, the roundel is the loudest thing on the pill -- it is the state
+     the whole control exists to report. */
+  /* Open microphone: the floor rises, and the level still rides on top of it
+     -- so holding the key is visible even in silence, and speaking is
+     visible on top of that. Two different facts, two different signals. */
+  #talk.hot #tk-mic {
+    border-color: rgba(var(--accent-rgb), 1);
+    background: rgba(var(--accent-rgb), calc(0.34 + var(--lv) * 0.34));
+    box-shadow: 0 0 calc(30px + var(--lv) * 54px)
+                  rgba(var(--accent-rgb), calc(0.75 + var(--lv) * 0.25)),
+                inset 0 0 calc(16px + var(--lv) * 22px)
+                  rgba(var(--accent-rgb), calc(0.4 + var(--lv) * 0.4));
   }
   #talk:hover { background: rgba(var(--accent-rgb), 0.18); }
   #talk.hot {
@@ -1210,10 +1773,17 @@
     min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  /* The meta is the row's LAST claim on width, not its first. It was
+     flex-shrink: 0 in a grid, which does nothing -- so the uptime and idle
+     pair took whatever it wanted and the doing word was cut mid-syllable
+     ("running a c..."). Now it clips first and the activity gets the room:
+     an approximate idle time still reads, half a word does not. */
   #sessions .sess .sess-meta {
     grid-column: 3; grid-row: 2;
     font-size: 9.5px; letter-spacing: 0.06em;
-    color: rgba(var(--accent-rgb), 0.7); flex-shrink: 0;
+    color: rgba(var(--accent-rgb), 0.7);
+    min-width: 0; justify-self: end;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   /* WHAT THE SESSION IS DOING. A fact, not a control and not a status:
      no border (a border says pressable, this page's own rule) and no
@@ -1321,12 +1891,20 @@
   #lines .you    { color: rgba(var(--accent-rgb), 0.92); }
   #lines .jarvis { color: var(--text-bright); opacity: 0.88; }
 
+  /* 2026-08-09. The command group is a card in the right column again, as the
+     concept draws it. `margin-top: auto` pins it to the FOOT of that column --
+     it is the way in, so it sits under the state, exactly where the picture
+     puts it. The full-width strip's own rules went with the strip. */
   #cmd-sec { flex-shrink: 0; margin-top: auto; }
+  #cmd-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; flex-wrap: wrap; margin-top: 5px;
+  }
   #cmd-hint {
     font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
     color: rgba(var(--accent-rgb), 0.4); margin-top: 7px;
   }
-  #cmd { display: flex; gap: 6px; }
+  #cmd { display: flex; gap: 6px; align-items: center; }
   #typed {
     flex: 1; min-width: 0;
     background: var(--bg-input);
@@ -1374,27 +1952,75 @@
   #micline.dim { color: rgba(127, 196, 255, 0.45); }
 
   /* ===== bottom bar ===== */
+  /* PHASE 8: the bar is the FIELD, its children are the pods. The flat
+     text strip becomes notched cards wearing the same one rule above --
+     which is the §5 check being real: the pods were not restyled, they
+     were simply added to the selector. */
   #botbar {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 20px; font-size: 10px; letter-spacing: 0.14em;
+    display: flex; align-items: stretch; gap: 10px;
+    padding: 10px 12px; font-size: 10px; letter-spacing: 0.14em;
     text-transform: uppercase;
-    border-top: 1px solid rgba(0, 120, 220, 0.3);
-    background: rgba(2, 12, 24, 0.85);
+    border-top: 1px solid rgba(var(--accent-rgb), 0.3);
+    background: var(--bg-deep);
     color: rgba(111, 194, 255, 0.7);
   }
+  #botbar > div {
+    padding: 8px 14px; display: flex; align-items: center; gap: 10px;
+  }
+  /* The pods do not compete for width; the identity pod takes the slack so
+     the bar reads left-anchored like the concept's. */
+  #botbar > div:last-child { margin-left: auto; }
+  /* The ring came down at full size; in a 34px-tall pod it is the pod. */
+  #pod-health #health-ring { width: 26px; height: 26px; }
+  #pod-health #health { gap: 8px; }
+  #pod-health #health-sub { opacity: 0.65; }
+  /* The row was built for a column: it carried a top rule, a top margin and
+     wrapping, all of which are how it separated itself from the STACK list
+     above it. In a footer pod there is nothing above it, so those become a
+     stacked second line. Stripped here rather than in .ports-row itself --
+     the rule still has to work if the row is ever put back in a column. */
+  #pod-ports .ports-row {
+    display: flex; flex-wrap: nowrap; gap: 12px;
+    margin-top: 0; padding-top: 0; border-top: none; line-height: 1;
+  }
+  #pod-ports #page-age {
+    margin-top: 0; opacity: 0.6;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* The pod is a fixed slot in the footer grid, so its two rows have to fit
+     it rather than grow it -- without this the page clock wrapped under the
+     ports and the pod grew taller than the five beside it. */
+  /* Two ROWS, like every other pod in this bar: the ports, then the page
+     clock under them. Side by side they fought over one line and the clock
+     lost its seconds to the clip -- a truncated time is not a time. */
+  #pod-ports {
+    min-width: 0; flex-direction: column; align-items: flex-start;
+    justify-content: center; gap: 3px;
+  }
+  /* ONE rule for this pod, deliberately. It had two -- an early `gap: 14px`
+     and this one -- and the second silently won. Two rules for one selector
+     is how a change lands in the file and not on the page. */
+  #pod-ports .ports-row > span { white-space: nowrap; }
 </style>
 </head>
 <body>
 
 <div id="topbar">
-  <div>MARK III</div>
-  <div class="mid">
-    J.A.R.V.I.S &nbsp;INTERFACE
-    <!-- The board summary used to sit here, under the title. Serge, 2026-08-06
-         ~6:09 AM: "the Kanban header is still on top. It should be on top of
-         the active task." It moved into the ACTIVE TASKS card's own heading
-         row; see #tasks-head below. -->
+  <!-- PHASE 2 -- identity. "MARK III" and the spaced J.A.R.V.I.S line were
+       two separate flex children saying one thing between them. They are now
+       one brand block: the name, and under it the version the repo actually
+       shipped. MARK III is kept as the sub-line's tail rather than dropped --
+       it is what Serge calls this machine. -->
+  <div id="brand">
+    <div class="bname">JARVIS OS</div>
+    <div class="bsub"><span id="brand-version">v&hellip;</span> &middot; MARK III</div>
   </div>
+  <!-- The board summary used to sit in the middle slot, under the title.
+       Serge, 2026-08-06 ~6:09 AM: "the Kanban header is still on top. It
+       should be on top of the active task." It moved into the ACTIVE TASKS
+       card's own heading row; see #tasks-head below. The slot stays as a
+       spacer so the brand and the badge hold the two ends of the bar. -->
+  <div class="mid"></div>
   <!-- Rolls down over the stage on approach. Read-only in this pass. -->
   <!-- The IDEAS sheet. Same roll-down motion as the board, because it is
        the same gesture and Serge already knows it. What it is NOT is a
@@ -1423,7 +2049,17 @@
     </div>
   </div>
   <div id="topbar-right">
-    <div id="clock">--:--:--</div>
+    <div id="badge" title="">
+      <div class="bwho">SERGE</div>
+      <div class="bmeta">
+        <div id="badge-sessions">&mdash; sessions</div>
+        <div id="badge-model">model &hellip;</div>
+      </div>
+    </div>
+    <div id="clock">
+      <div class="ctime">--:--:--</div>
+      <div class="cdate">&mdash;</div>
+    </div>
   </div>
 </div>
 
@@ -1441,6 +2077,18 @@
     <div id="topbar-usage" title=""></div>
   </div>
   <div id="instr-right">
+    <!-- PHASE 7 -- the two dials. FACE is style, JOB is arrangement; they sit
+         side by side because they are peers, and they are labelled with the
+         face's own language: DEPT in the service faces, JOB in civilian, so
+         the vocabulary is never a riddle. Both are filled by renderSwitcher()
+         from the registries -- no name is written into this markup, or the
+         page could offer a face or a department that does not exist. -->
+    <div id="switcher">
+      <span class="sw-label" id="face-label">FACE</span>
+      <span id="face-dial"></span>
+      <span class="sw-label" id="job-label">JOB</span>
+      <span id="job-dial"></span>
+    </div>
     <button id="usage-toggle" class="paused" title="Polling costs tokens -- each poll asks Claude Code directly">PAUSED</button>
     <!-- Silences the SPEAKERS only: Jarvis keeps going and the text keeps
          writing, so nothing is lost while someone is talking to Serge. -->
@@ -1453,9 +2101,42 @@
 
 <div id="main">
 
+  <!-- PHASE 5 -- THE ICON RAIL. Serge's call, said twice after I argued
+       against it: it spends stage width, and this page's own history runs the
+       other way. He decided; this is his rail.
+       THE RULE THAT KEEPS IT HONEST: every button here is a SHORTCUT to a
+       control that already exists, and it fires that control's own handler.
+       Nothing here implements anything. Sessions and Settings are absent on
+       purpose -- the sessions card is passive and no settings control exists,
+       so railing them would invent the second code path this rule forbids. -->
+  <div id="rail">
+    <button class="rl" id="rl-view" title="Avatar / Vault Graph">◉</button>
+    <button class="rl" id="rl-board" title="Board">▤</button>
+    <button class="rl" id="rl-ideas" title="Ideas">✦</button>
+    <button class="rl" id="rl-music" title="Music">♪</button>
+    <button class="rl" id="rl-usage" title="Usage poller">%</button>
+  </div>
+
   <div id="left" class="panel">
     <div>
-      <div class="sec-title">Sys Monitor</div>
+      <!-- PHASE 4 -- SYSTEM STATUS. One ring, and the only number on this
+           page that is a JUDGEMENT rather than a reading: how much of the
+           stack that is SUPPOSED to be up actually is.
+           The denominator is the honest half. A component that is off BY
+           CHOICE is not a failure and is excluded, matching ./jarvis.sh's own
+           "off -- not in use" wording; counting it would make a healthy
+           machine read as broken every time Serge turns the terminal line
+           off. The tooltip names every component so the ring is never a
+           number he has to take on faith. -->
+      <!-- PHASE 8 -- THE CHROME PORT. Every section is now wrapped in .card,
+           which is the ONE place the notch, the hairline and the halo are
+           defined (Jarvis Conventions section 5, his own standard: "you do
+           one fix and all the cards are changing at the same time"). These
+           two sections had no wrapper at all before -- they were loose
+           siblings in the column -- which is exactly why the chrome had
+           nowhere to land. -->
+      <div class="card">
+      <div class="sec-title" data-icon="▤">Sys Monitor</div>
       <div class="mon">
         <div class="mon-label"><span>CPU</span><span class="val" id="cpu-v">--</span></div>
         <div class="bar"><i id="cpu-b"></i></div>
@@ -1473,20 +2154,19 @@
       <div class="stat-row"><span class="k">UPTIME</span><span class="v" id="up-v">--</span></div>
       <div class="stat-row"><span class="k">PROC</span><span class="v" id="proc-v">--</span></div>
       <div class="stat-row"><span class="k">OS</span><span class="v" id="os-v">--</span></div>
+      </div>
 
-      <div class="stack-sec">
-        <div class="sec-title">Stack</div>
+      <div class="stack-sec card">
+        <div class="sec-title" data-icon="▦">Stack<span class="sec-count" id="stack-count"></span></div>
         <div id="stack-list"></div>
-        <div class="ports-row" id="ports-row"></div>
-        <div class="st-sub" id="page-age" style="margin-left:0"></div>
       </div>
 
       <!-- Serge, 2026-08-05: "something visual, so we could see the server
            going on and off and restarting". The STACK block above is the
            present tense; this is the past. Hidden until there is history. -->
       <!-- Newest three stand on the panel; the rest unfold on hover. -->
-      <div class="events-sec" id="events-sec" style="display:none">
-        <div class="sec-title">Events</div>
+      <div class="events-sec card" id="events-sec" style="display:none">
+        <div class="sec-title" data-icon="◷">Events<span class="sec-count" id="events-count"></span></div>
         <div id="events-list"></div>
         <div id="events-more"></div>
         <div id="events-hint"></div>
@@ -1496,25 +2176,81 @@
 
   <div id="stage">
     <canvas id="cv"></canvas>
+    <!-- Phase 2, on Serge's ask with the brand block. The concept's hero
+         line, reduced to the only part that is true: he is here, and Jarvis
+         is not doing anything. It fades the instant work starts, and it never
+         shows while a question is pending -- the waiting banner owns the
+         stage then, and two things asking for his eye is one too many. -->
+    <div id="welcome">Welcome, Serge</div>
+    <!-- THE OFFER (Phase 7). It suggests; it never switches. Both buttons are
+         real answers: SWITCH takes it, STAY refuses it AND mutes that
+         suggestion for a long stretch, so the page can never nag. -->
+    <div id="offer" aria-hidden="true">
+      <div class="of-head">Suggestion</div>
+      <div class="of-job"></div>
+      <div class="of-why"></div>
+      <div class="of-btns">
+        <button id="offer-yes">Switch</button>
+        <button id="offer-no">Stay</button>
+      </div>
+    </div>
     <div id="status">CONNECTING</div>
     <div id="waiting">
-      <div id="waiting-head">Waiting for your answer</div>
       <div id="waiting-q"></div>
     </div>
     <div id="log"><div id="lines"></div></div>
     <div id="label">J A R V I S</div>
     <div id="graph-hint">Drag to spin &nbsp;&middot;&nbsp; scroll to zoom</div>
     <button id="viewbtn">Vault Graph</button>
-    <button id="talk">Hold to talk &nbsp;&middot;&nbsp; or hold Right &#8984;</button>
+    <!-- THE TALK PILL, drawn as the concept draws it (2026-08-09, his ask:
+         "the microphone, and the sound wave coming out of the microphone").
+         Label, waveform, MIC ROUNDEL, waveform, label -- symmetrical about
+         the roundel, which is the thing the eye lands on.
+         The two canvases are fed the SAME smoothed level the stage ring is
+         drawn from, passed in rather than re-read, so no two instruments on
+         this page can disagree about how loud he is. They mirror each other:
+         the left one runs outward to the left, the right one outward to the
+         right, so the sound reads as coming OUT of the microphone.
+         Everything inside is pointer-transparent -- the whole pill is one
+         button, and press()/release() must never see a child as the target. -->
+    <button id="talk">
+      <span class="tk-label" id="tk-left">Hold to talk</span>
+      <canvas class="tk-wave" id="tk-wave-l" width="110" height="24"></canvas>
+      <!-- Drawn, not typed. An emoji microphone renders in whatever colour
+           the platform's font decides, which on this machine is grey — it
+           cannot follow the face dial, and every other lit thing here does.
+           This one inherits currentColor, so it turns with the accent. -->
+      <span id="tk-mic"><span id="tk-rings"><span class="tk-ring"></span><span
+        class="tk-ring"></span></span><svg id="tk-mic-icon" viewBox="0 0 24 24" width="19" height="19"
+        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <rect x="9" y="2.5" width="6" height="11" rx="3"></rect>
+        <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"></path>
+        <path d="M12 18v3.5"></path>
+      </svg></span>
+      <canvas class="tk-wave" id="tk-wave-r" width="110" height="24"></canvas>
+      <span class="tk-label" id="tk-right">or hold Right &#8984;</span>
+    </button>
   </div>
 
   <div id="right" class="panel">
+    <!-- THE DEMOTED AVATAR (decisions 9 and 10). It appears only when the
+         stage is showing something else, so the avatar is never off screen:
+         "the avatar should be on every page and also all jobs."
+         AND IT IS A WORKING MICROPHONE. Serge: "Make the avatar reachable at
+         all time so we can talk to it." Hold it to talk, tap it to bring the
+         avatar back full stage -- the page's existing tap-vs-hold rule, and
+         it calls press()/release() directly rather than growing a second mic
+         path, so every rule those carry travels with it untouched. -->
+    <div id="avcard" class="card" style="display:none" title="Hold to talk · tap for the full avatar">
+      <div id="avcard-ring"><span id="avcard-core"></span></div>
+      <div id="avcard-state">IDLE</div>
+    </div>
     <!-- Serge, 2026-08-06 ~6:09 AM: "It should be on top of the active task."
          So the board's summary is not top-bar chrome sitting near the title --
          it IS this card's heading row, and the board rolls down from it. The
          hover zone is this whole row, which the wiring picks up on its own by
          reading the strip's parent. -->
-    <div id="tasks" style="display:none">
+    <div id="tasks" class="card" style="display:none">
       <div id="tasks-head">
         <span class="th-title">Active Tasks</span>
         <div id="board-strip" style="display:none"></div>
@@ -1531,40 +2267,57 @@
          new page that goes to the vault."
          It sits ABOVE Sessions by his placement. Hidden until the note has
          something in it -- an empty panel is chrome, not information. -->
-    <div id="ideas-sec" style="display:none">
-      <div class="sec-title" id="ideas-head">Ideas<span class="caret"
+    <div id="ideas-sec" class="card" style="display:none">
+      <div class="sec-title" data-icon="✦" id="ideas-head">Ideas<span class="sec-count" id="ideas-count"></span><span class="caret"
            id="ideas-caret">&#9660;</span></div>
     </div>
-    <div id="sessions" style="display:none">
-      <div class="sec-title">Sessions<span id="sessions-skew"
-           style="display:none"> &middot; partial</span></div>
+    <div id="sessions" class="card" style="display:none">
+      <div class="sec-title" data-icon="◉">Sessions<span id="sessions-skew"
+           style="display:none"> &middot; partial</span><span class="sec-count" id="sessions-count"></span><span
+           class="sec-count" id="sessions-unknown" style="display:none"></span></div>
       <div id="sessions-body"></div>
     </div>
     <!-- The session bus. Notices are FACTS, never questions, and every word
          drawn here is built locally from a closed vocabulary -- nothing a
          sender wrote is rendered as language. Hidden until there is mail. -->
-    <div class="mail-sec" id="mail-sec" style="display:none">
-      <div class="sec-title">Mail</div>
+    <div class="mail-sec card" id="mail-sec" style="display:none">
+      <div class="sec-title" data-icon="✉">Mail<span class="sec-count" id="mail-count"></span></div>
       <div id="mail-list"></div>
       <div id="mail-more"></div>
       <div id="mail-hint"></div>
     </div>
     <!-- The activity log used to live here. It is now an overlay on the
          stage (see #log in the stylesheet) -- this column is state only. -->
-    <div id="cmd-sec">
-      <div class="sec-title">Command Input</div>
+    <!-- THE COMMAND GROUP CAME BACK, 2026-08-09, on Serge's explicit word --
+         and this REVERSES Phase 3's full-width strip, which he had approved.
+         It is recorded rather than done quietly: he put the concept and the
+         page side by side and asked why we were not simply doing what the
+         picture does. The picture splits the two ways in instead of merging
+         them -- TALKING belongs to the avatar, inside the stage, as a pill
+         with a real mic roundel between two waveforms; TYPING is just
+         another card in this column. That split is also why the merged
+         control we had been sketching is not needed: his cursor never sits
+         inside the microphone, so the Right-Command focus guard keeps
+         meaning exactly what it always meant.
+         Every binding still reaches these by id, so the move carries no
+         behaviour with it -- the placement tests below are what prove that,
+         because the JS-slicing tests are blind to where markup sits. -->
+    <div id="cmd-sec" class="card">
+      <div class="sec-title" data-icon="❯">Command Input</div>
       <div id="cmd">
-        <input id="typed" placeholder="Type a command or question..." autocomplete="off">
+        <input id="typed" placeholder="Type a command or question&#8230;" autocomplete="off">
         <button id="send">&#9654;</button>
       </div>
       <!-- One row per attached image, built by renderAttachments(). It was a
            single fixed chip until 2026-08-05, which is why a second image
            replaced the first instead of joining it. -->
       <div id="attach"></div>
-      <!-- The hint sits with the thing it describes, not in the far bottom
-           corner of the page where it used to duplicate the talk button. -->
-      <div id="cmd-hint">Enter to send &nbsp;&middot;&nbsp; hold Right &#8984; to talk</div>
-      <div id="micline" class="dim">&#9679; standing by</div>
+      <div id="cmd-foot">
+        <!-- The hint sits with the thing it describes, not in the far bottom
+             corner of the page where it used to duplicate the talk button. -->
+        <div id="cmd-hint">Enter to send &nbsp;&middot;&nbsp; hold Right &#8984; to talk</div>
+        <div id="micline" class="dim">&#9679; standing by</div>
+      </div>
     </div>
   </div>
 
@@ -1581,7 +2334,27 @@
     <span class="bs" id="chip-core"><i class="dot"></i><span class="t">AI CORE</span></span>
     <span class="bs" id="chip-line"><i class="dot"></i><span class="t">TERMINAL LINE</span></span>
   </div>
+  <!-- PHASE 8. These three readings came DOWN from the left column on
+       Serge's word, 2026-08-09: "yeah, move them." MOVED, never copied --
+       his own decision 11 forbids the page saying the same thing twice, and
+       a duplicated reading is also two places for one number to go stale. -->
+  <div id="pod-ports">
+    <span class="ports-row" id="ports-row"></span>
+    <span class="st-sub" id="page-age" style="margin-left:0"></span>
+  </div>
   <div>Local core &nbsp;&middot;&nbsp; 127.0.0.1:8765</div>
+  <div id="pod-health">
+    <div id="health" title="">
+      <svg id="health-ring" viewBox="0 0 44 44">
+        <circle class="hr-track" cx="22" cy="22" r="19"></circle>
+        <circle class="hr-arc" cx="22" cy="22" r="19"></circle>
+      </svg>
+      <div class="h-txt">
+        <div id="health-word">&mdash;</div>
+        <div id="health-sub">&mdash;</div>
+      </div>
+    </div>
+  </div>
   <div>Jarvis Systems &nbsp;&middot;&nbsp; <span id="model-v">model &hellip;</span></div>
 </div>
 
@@ -1672,9 +2445,13 @@ const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function tickClock(){
   const n = new Date(), p = (x) => String(x).padStart(2, '0');
-  document.getElementById('clock').textContent =
-    `${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}` +
-    `  ·  ${DAYS[n.getDay()]} ${n.getDate()} ${MONTHS[n.getMonth()]} ${n.getFullYear()}`;
+  // Two elements, one tick (Phase 2). Written separately so the date can
+  // carry its own type scale; both still come from ONE Date, so the time and
+  // the date can never straddle a midnight between two reads.
+  const tEl = document.querySelector('#clock .ctime');
+  const dEl = document.querySelector('#clock .cdate');
+  if (tEl) tEl.textContent = `${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}`;
+  if (dEl) dEl.textContent = `${DAYS[n.getDay()]} ${n.getDate()} ${MONTHS[n.getMonth()]} ${n.getFullYear()}`;
 }
 setInterval(tickClock, 1000); tickClock();
 
@@ -2356,6 +3133,34 @@ function release(){
   } else { state = 'offline'; }
 }
 
+// ---- the demoted avatar card is a second ENTRY POINT, never a second path --
+// It calls press() and release() exactly as the talk button does, so every
+// rule those carry -- pickMic, the min-capture guard, the approval-interrupt
+// suppression, the terminal-line stand-down -- travels with it untouched. A
+// card that opened its own microphone would be a second place for all four to
+// be forgotten.
+//
+// Decision 10: HOLD talks, TAP brings the avatar back full stage. That is the
+// page's existing gesture, not a new one -- release() already treats a
+// sub-250 ms press as interrupt-only, so the tap costs no spoken turn.
+{
+  const av = document.getElementById('avcard');
+  if (av) {
+    let avT = 0;
+    const down = (e) => { if (e.cancelable) e.preventDefault(); avT = Date.now(); press(); };
+    const up = () => {
+      const tap = Date.now() - avT < 250;
+      release();
+      if (tap) setView('avatar');
+    };
+    av.addEventListener('mousedown', down);
+    av.addEventListener('mouseup', up);
+    av.addEventListener('mouseleave', () => { if (capturing) release(); });
+    av.addEventListener('touchstart', down);
+    av.addEventListener('touchend', (e) => { if (e.cancelable) e.preventDefault(); up(); });
+  }
+}
+
 talkBtn.addEventListener('mousedown', press);
 talkBtn.addEventListener('mouseup', release);
 talkBtn.addEventListener('mouseleave', () => { if (capturing) release(); });
@@ -2655,8 +3460,10 @@ function renderIdeas(ideas){
     sec.style.display = 'none';
     ideasOpen(false);
     list.innerHTML = '';
+    setCount('ideas-count', null);
     return;
   }
+  setCount('ideas-count', ideas.length, 'open');
   sec.style.display = '';
   // THE THINKING IS ON THE CARD, FOLDED (Serge, 2026-08-07 ~6:00 PM: he asked
   // to see the whole argument, not the one-line gist). Folded rather than
@@ -3429,6 +4236,261 @@ function sessSig(list){
                         s.doing || '',
                         sessBusy(s) ? 1 : 0].join(':')).join('|');
 }
+
+// The version this page was shipped at, STAMPED BY vault-tools/ship-version.py
+// at ship time -- never typed by hand (Serge, 2026-08-07: "the upgrade version
+// should increment automatically"). It is a label, and deliberately NOT
+// PAGE_VERSION, which is a raw file-mtime float driving the self-heal reload:
+// one is what the page CALLS itself, the other is how it notices it changed.
+//
+// It exists from Phase 1 rather than Phase 2 because the stamper refuses to
+// invent markup it was not shown -- so the constant has to precede the brand
+// block that will display it. Until then it is stamped and unread, which is
+// the harmless order of the two.
+const SHIP_VERSION = 'v3.2.0';
+
+// Phase 2 reads it. The brand block's version is WRITTEN from the constant,
+// never typed into the markup -- so there is exactly one place a version can
+// come from, and it is the one the stamper edits at ship time. If this line
+// were markup instead, the page could name a version the repo never shipped.
+{
+  const bv = document.getElementById('brand-version');
+  if (bv) bv.textContent = SHIP_VERSION;
+}
+
+// ---- the user badge (Phase 2) --------------------------------------------
+// Real data only, from the payload the page already polls: how many Jarvis
+// sessions are live, and which model the brain is running. No name of a
+// count is written unless the count arrived -- a badge that guesses is the
+// fake-instrument failure wearing a different hat.
+function renderBadge(sessions, stats) {
+  const sEl = document.getElementById('badge-sessions');
+  const mEl = document.getElementById('badge-model');
+  if (sEl && Array.isArray(sessions)) {
+    const n = sessions.length;
+    sEl.textContent = n + (n === 1 ? ' session' : ' sessions');
+  }
+  if (mEl) mEl.textContent = (stats && stats.model) ? stats.model : 'model …';
+  // The globe's callouts read the same values as the badge, from the same
+  // payload, so the two can never disagree about how many sessions are up.
+  calloutSessions = Array.isArray(sessions) ? sessions.length : null;
+  calloutModel = (stats && stats.model) ? stats.model : null;
+  const badge = document.getElementById('badge');
+  if (badge) {
+    const n = Array.isArray(sessions) ? sessions.length : null;
+    badge.title = 'Serge' +
+      (n === null ? '' : ' · ' + n + ' live Jarvis session' + (n === 1 ? '' : 's')) +
+      ((stats && stats.model) ? ' · brain on ' + stats.model : '');
+  }
+}
+
+// ---- the FACE dial (Phase 1) ---------------------------------------------
+// Style only. A face is one class on <body>; nothing else in the page knows
+// faces exist. Restored THROUGH VALIDATION -- junk in localStorage falls back
+// to civilian rather than to an unstyled page, the clampVol lesson.
+// All four worlds. Army and airforce joined 2026-08-08 on his "yes"; their
+// department rows shipped with the switcher a phase earlier, so the naming
+// layer needed no change at all -- which is the registry doing its job.
+const FACES = ['civilian', 'navy', 'army', 'airforce'];
+// Cached accent. Two canvas passes read --accent-rgb on EVERY animation
+// frame; getComputedStyle forces a style recalculation and this runs at 60
+// Hz. The face is the only thing that can change it, so it is cached at the
+// one invalidation point that already exists. (Terminal red pen, finding 9.)
+let ACCENT_RGB = '0,150,255';
+function refreshAccent() {
+  ACCENT_RGB = getComputedStyle(document.body)
+                 .getPropertyValue('--accent-rgb').trim() || ACCENT_RGB;
+}
+function applyFace(name) {
+  const face = FACES.includes(name) ? name : 'civilian';
+  for (const f of FACES) document.body.classList.remove('face-' + f);
+  document.body.classList.add('face-' + face);
+  refreshAccent();
+  try { localStorage.setItem('jarvisFace', face); } catch (e) {}
+  return face;
+}
+function currentFace() {
+  for (const f of FACES) if (document.body.classList.contains('face-' + f)) return f;
+  return 'civilian';
+}
+// Restored through validation: junk in storage falls back to civilian rather
+// than to an unstyled page (the clampVol lesson). CIVILIAN is the standing
+// default and it is today's look -- Serge, 2026-08-08, after seeing navy in
+// his own tab: "later I want civilian to be the default again."
+//
+// The loan that briefly forced navy is gone. What it taught stays in the
+// tests: the boot line PERSISTS what it applies, so a default can be vetoed
+// by the previous run's own save -- and any non-civilian default must carry
+// a TEMPORARY note or the suite goes red.
+try { applyFace(localStorage.getItem('jarvisFace')); } catch (e) { applyFace('civilian'); }
+
+// ---- the JOB dial (Phase 7) ----------------------------------------------
+// The second dial, and it does the OTHER thing: a face changes how the page
+// looks, a job changes how it is arranged. Neither does the other's work
+// (decision 1) -- which is why the type scale rides the JOB and no face may
+// touch layout.
+//
+// A job may only SHOW, HIDE or EMPHASISE instruments that already exist. It
+// never invents data, and it reaches the stage through setView(), the same
+// function the Vault Graph button calls -- one code path, per the plan.
+//
+// THE ONE EXEMPTION, decision 9: no job may hide the avatar. It is furniture
+// (decision 12), and furniture that moves is a screen that rearranges itself.
+const JOBS = {
+  briefing:   { stage: 'avatar', typeScale: 1.08 },
+  workshop:   { stage: 'avatar', typeScale: 1.00 },
+  brainstorm: { stage: 'avatar', typeScale: 1.00 },
+  // WATCH TAKES THE GRAPH, and it may do so ONLY because the demoted avatar
+  // card now exists. The history is worth keeping: the plan gives watch the
+  // vault-graph stage, decision 9 forbids any job from hiding the avatar, and
+  // for one version those two contradicted each other. Serge ruled "Keep the
+  // avatar", so watch held the avatar stage until the card was built -- and
+  // the card is what resolved the contradiction rather than either decision
+  // giving way. The guard below is now the real invariant: a job may take the
+  // graph only while the card is there to hold the avatar.
+  watch:      { stage: 'graph', typeScale: 0.96 },
+};
+const JOB_NAMES = Object.keys(JOBS);
+
+// DEPARTMENTS -- the naming layer, decision 7's approved table, exactly.
+// Names only: no behaviour attaches to a department beyond its job's. The
+// three service faces call the four universal jobs by their own language;
+// civilian says the plain word, which is why its column repeats the job name.
+const DEPTS = {
+  navy:      { briefing: 'COMMS',   workshop: 'ENGINEERING', brainstorm: 'CHART ROOM', watch: 'BRIDGE' },
+  army:      { briefing: 'SIGNALS', workshop: 'MOTOR POOL',  brainstorm: 'WAR ROOM',   watch: 'COMMAND POST' },
+  airforce:  { briefing: 'FLIGHT BRIEF', workshop: 'HANGAR', brainstorm: 'PLANNING',   watch: 'TOWER' },
+  civilian:  { briefing: 'BRIEFING', workshop: 'WORKSHOP',   brainstorm: 'BRAINSTORM', watch: 'WATCH' },
+};
+// A face with no table falls back to the universal job name rather than to an
+// empty button -- a switcher with a blank label is unusable. All four faces
+// ship as of v2.4.0, so the fallback guards a future face rather than a
+// present gap; it stays because the next one will arrive the same way.
+function deptName(face, job) {
+  const row = DEPTS[face];
+  const name = row && row[job];
+  return name || job.toUpperCase();
+}
+
+let job = 'watch';
+function applyJob(name) {
+  const j = JOB_NAMES.includes(name) ? name : 'watch';
+  for (const n of JOB_NAMES) document.body.classList.remove('job-' + n);
+  document.body.classList.add('job-' + j);
+  document.body.style.setProperty('--type-scale', String(JOBS[j].typeScale));
+  job = j;
+  setView(JOBS[j].stage);
+  try { localStorage.setItem('jarvisJob', j); } catch (e) {}
+  renderSwitcher();
+  return j;
+}
+function currentJob() { return job; }
+
+// ---- THE OFFER (Phase 7, slice two) --------------------------------------
+// The page may SUGGEST a job. It may never take one. Serge, decision 2:
+// "Jarvis offers and I decide, but Jarvis can réplique" -- so the card carries
+// its one-line case, and SWITCH / STAY are the only two ways it resolves.
+//
+// Decision 14 ranks the trigger, and the ranking is structural even though
+// every number below is tunable: SILENCE beats PATIENCE beats EVIDENCE.
+//   silence  -- never while he speaks or types, never while a permission
+//               pends. An offer on top of a question he is being asked is
+//               the page interrupting its own interruption.
+//   patience -- not until the page has been quiet a while (his number: five
+//               minutes), and not until the signal itself has held steady.
+//   evidence -- only then does what the data says matter at all.
+const OFFER = {
+  QUIET_MS: 5 * 60 * 1000,   // his number, after I argued for one minute
+  HOLD_MS: 60 * 1000,        // a signal must mean it
+  MUTE_MS: 45 * 60 * 1000,   // a STAY is not a "ask me again in a minute"
+};
+
+// PURE. Given a snapshot, name the job the data argues for and the one-line
+// case for it -- or null when the data argues for nothing, which is the
+// common answer and must stay cheap to say.
+//
+// Every signal below is read from something the page ALREADY polls. Nothing
+// here infers a mood, and nothing invents a reading: the board-never-lies
+// doctrine applies to a suggestion exactly as it applies to a gauge.
+function suggestJob(sig) {
+  // ONLY `status` is ever read off a task. The guard on this used to be a
+  // blacklist of field names, and the terminal's red pen named the obvious:
+  // `.gist`, `.body`, `.label`, bracket access -- all walk past a blacklist.
+  // The test is now an allow-list over the properties this function touches,
+  // which fails closed on the first spelling nobody thought of.
+  const tasks = sig.tasks || [];
+  const busy = tasks.filter(t => t.status === 'active' || t.status === 'test').length;
+  const waiting = tasks.filter(t => t.status === 'review').length;
+  const queued = tasks.filter(t => t.status === 'open').length;
+  // Ranked, most specific first. The order IS the design: two signals can be
+  // true at once, and the page must not oscillate between them.
+  if (busy > 0)
+    return { job: 'workshop', because: busy + (busy === 1 ? ' card is' : ' cards are') + ' in flight' };
+  if (waiting > 0)
+    return { job: 'briefing', because: waiting + ' waiting for your eyes' };
+  if (sig.ideasChanged)
+    return { job: 'brainstorm', because: 'the ideas note has changed' };
+  if (queued > 0 && (sig.sessionsBusy || 0) > 0)
+    return { job: 'watch', because: 'sessions working, nothing needs you' };
+  return null;
+}
+
+// PURE. Everything that can refuse an offer, in the order decision 14 ranks
+// them. Written as one function precisely so no caller can honour three of
+// the four rules -- the failure this project keeps paying for is a guard that
+// exists and is never consulted.
+function offerGate(g) {
+  if (!g.suggestion) return false;
+  if (g.suggestion === g.currentJob) return false;
+  // SILENCE
+  if (g.speaking || g.typing) return false;
+  if (g.permissionPending || g.questionPending) return false;
+  // PATIENCE
+  if ((g.quietMs || 0) < OFFER.QUIET_MS) return false;
+  if ((g.heldMs || 0) < OFFER.HOLD_MS) return false;
+  if ((g.mutedMsLeft || 0) > 0) return false;
+  // EVIDENCE has already spoken -- suggestion is its output.
+  return true;
+}
+
+// The switcher draws itself from the registries, never from markup. A button
+// can therefore only ever offer a face or a department that really exists.
+function renderSwitcher() {
+  const fd = document.getElementById('face-dial');
+  const jd = document.getElementById('job-dial');
+  if (!fd || !jd) return;
+  const face = currentFace();
+  const build = (host, items, active, label, onPick) => {
+    host.textContent = '';
+    for (const it of items) {
+      const b = document.createElement('button');
+      b.className = 'sw' + (it === active ? ' on' : '');
+      b.textContent = label(it);
+      b.title = label(it) + (it === active ? ' — current' : '');
+      b.onclick = () => onPick(it);
+      host.appendChild(b);
+    }
+  };
+  build(fd, FACES, face, (f) => f.toUpperCase(), (f) => { applyFace(f); renderSwitcher(); });
+  // Hovering a department names the universal job underneath, so the two
+  // vocabularies never have to be memorised against each other.
+  // The job reads as CURRENT only while its stage is actually on screen. The
+  // avatar card's tap and the Vault Graph button call setView() directly and
+  // leave `job` alone -- so without this the dial could light BRIDGE while
+  // watch's one distinguishing arrangement was gone. Named by the terminal
+  // session's red pen: harmless at today's thinness, a trap the day jobs gain
+  // real arrangements. The dial must never assert a job the stage contradicts.
+  const stageAgrees = (view === JOBS[job].stage);
+  build(jd, JOB_NAMES, stageAgrees ? job : null,
+        (j) => deptName(face, j), (j) => applyJob(j));
+  for (const b of jd.children) {
+    const j = JOB_NAMES[[...jd.children].indexOf(b)];
+    b.title = deptName(face, j) + ' · the ' + j + ' job';
+  }
+  const jl = document.getElementById('job-label');
+  if (jl) jl.textContent = (face === 'civilian') ? 'JOB' : 'DEPT';
+}
+
 function renderSessions(list){
   const card = document.getElementById('sessions');
   const body = document.getElementById('sessions-body');
@@ -3449,6 +4511,30 @@ function renderSessions(list){
     skew.title = stale
       ? 'This server predates the process-table scan, so it can only list '
         + 'sessions that registered at boot. Restart Jarvis to see them all.'
+      : '';
+  }
+  // From the list just handed in, before the change guard -- the count must
+  // be right even on a poll where the DOM is left alone.
+  //
+  // ACTIVE MEANS REGISTERED, and the rest are counted separately rather than
+  // folded in. (Serge's own screen, 2026-08-11 5:17 PM: the card read
+  // "6 ACTIVE" while three of the six were bare shells with no session
+  // metadata at all.) An unregistered row is a live claude in this folder
+  // that never wrote a start record -- the registry lists it deliberately,
+  // over-report never under-report, and that rule is not in question here.
+  // What was wrong is the WORD: calling an unidentified process active is a
+  // number that reads as truth and is not. The rows have worn the warn
+  // colour for this all along; now the header says the same thing.
+  const unknown = list.filter(s => !!s.unregistered).length;
+  setCount('sessions-count', list.filter(s => !s.unregistered).length, 'active');
+  const unkEl = document.getElementById('sessions-unknown');
+  if (unkEl) {
+    unkEl.textContent = unknown ? '· ' + unknown + ' unknown' : '';
+    unkEl.style.display = unknown ? 'inline' : 'none';
+    unkEl.title = unknown
+      ? unknown + ' live Claude process(es) in the Jarvis folder that never '
+        + 'registered at boot. Listed on purpose -- but unidentified, so not '
+        + 'counted as active.'
       : '';
   }
   const sig = sessSig(list);
@@ -4118,6 +5204,62 @@ function tickLogIdle(){
 setInterval(tickAges, 1000);
 
 let stackSig = '';
+// ---- SYSTEM STATUS (Phase 4) --------------------------------------------
+// PURE. The up-fraction over the components that are SUPPOSED to be up.
+//
+// The denominator is the whole design. A component that is off BY CHOICE is
+// not a failure: ./jarvis.sh says "off -- not in use" and means it, and the
+// terminal line is off most of the day. Counting it would make a healthy
+// machine read DEGRADED forever, and an instrument that cries wolf gets
+// ignored, which is worse than not having it.
+//
+// NO PATH RETURNS 100% WITHOUT HAVING COUNTED SOMETHING. Nothing to measure
+// is `unknown`, never OPTIMAL -- a ring that looks healthy because the
+// payload was empty is exactly the lie this page's whole doctrine forbids.
+function stackHealth(components) {
+  if (!Array.isArray(components)) return { up: 0, expected: 0, pct: null, word: 'UNKNOWN' };
+  const expected = components.filter(c => c && c.state !== 'off');
+  const up = expected.filter(c => c.state === 'up');
+  if (expected.length === 0) return { up: 0, expected: 0, pct: null, word: 'UNKNOWN' };
+  const pct = up.length / expected.length;
+  const word = pct === 1 ? 'OPTIMAL' : (pct === 0 ? 'DOWN' : 'DEGRADED');
+  return { up: up.length, expected: expected.length, pct, word };
+}
+
+function renderHealth(sk) {
+  const box = document.getElementById('health');
+  if (!box) return;
+  const h = stackHealth(sk && sk.components);
+  box.classList.remove('degraded', 'down', 'unknown');
+  if (h.pct === null) box.classList.add('unknown');
+  else if (h.pct === 0) box.classList.add('down');
+  else if (h.pct < 1) box.classList.add('degraded');
+  const arc = document.querySelector('#health-ring .hr-arc');
+  if (arc) arc.style.strokeDashoffset = String(119.4 * (1 - (h.pct === null ? 0 : h.pct)));
+  const w = document.getElementById('health-word');
+  const s = document.getElementById('health-sub');
+  if (w) w.textContent = h.word;
+  if (s) s.textContent = h.pct === null ? 'nothing to measure'
+                                        : h.up + ' of ' + h.expected + ' up';
+  // The tooltip names every component, so the ring is never a number he has
+  // to take on faith -- including the ones excluded from the denominator,
+  // said out loud rather than silently dropped.
+  const comps = (sk && sk.components) || [];
+  box.title = comps.map(c => c.label + ' — ' +
+    (c.state === 'off' ? 'off, not counted' : c.state)).join('\n');
+}
+
+// ONE SETTER FOR EVERY HEADER COUNT, so the honesty rule lives in one place
+// instead of six. A count it cannot state is BLANK -- never a zero, never a
+// dash, never a stale number left over from the last poll. The concept's
+// headers are instruments, and an instrument that keeps showing its last
+// reading after the source goes away is worse than an empty one.
+function setCount(id, n, word) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = (typeof n === 'number' && isFinite(n) && n >= 0)
+    ? n + ' ' + word : '';
+}
 function renderStack(sk){
   if (!sk || !sk.components) return;
   const sig = JSON.stringify(sk);
@@ -4130,12 +5272,22 @@ function renderStack(sk){
                 : 'down';
       const sub = (c.state === 'up' && c.since)
         ? '<div class="st-sub" data-since="' + c.since + '"></div>' : '';
+      // The name CLIPS now rather than wrapping, so the full one has to be
+      // recoverable -- a label a narrow panel cut in half and nothing can
+      // restore is worse than the wrap it replaced. Escaped: the label
+      // comes off disk, like the events strip's does.
       return '<div class="st-row ' + c.state + '">'
            + '<span class="dot"></span>'
-           + '<span class="name">' + c.label + '</span>'
-           + '<span class="pid">' + pid + '</span></div>' + sub;
+           + '<span class="name" title="' + esc(c.label) + '">' + c.label + '</span>'
+           + '<span class="pid" title="' + esc(pid) + '">' + pid
+           + '</span></div>' + sub;
     }).join('');
   tickAges();
+  // The header count, from the list this function just drew. `up` is the
+  // only state that means online -- `off` is a deliberate stand-down and
+  // `down` is a fault, and counting either as online is the exact lie the
+  // stack panel exists to prevent.
+  setCount('stack-count', sk.components.filter(c => c.state === 'up').length, 'online');
   document.getElementById('ports-row').innerHTML =
     Object.keys(sk.ports || {}).map(p =>
       '<span><b>' + p + '</b> <span class="port ' + sk.ports[p] + '">'
@@ -4159,6 +5311,7 @@ function renderEvents(evs){
   const sec = document.getElementById('events-sec');
   if (!sec) return;
   if (!evs || !evs.length){ sec.style.display = 'none'; return; }
+  setCount('events-count', evs.length, 'logged');
   const sig = JSON.stringify(evs);
   if (sig === eventsSig) return;
   eventsSig = sig;
@@ -4166,10 +5319,14 @@ function renderEvents(evs){
   const row = (e) => {
     const kind = (e.kind === 'up' || e.kind === 'off' || e.kind === 'down')
       ? e.kind : 'off';
-    return '<div class="ev-row ' + kind + '">'
+    // The row carries the whole thing in its tooltip, because the message is
+    // clamped at two lines now. Escaped twice over: once for the attribute,
+    // once for the text -- bash writes some of these details.
+    const full = esc(e.label) + ' — ' + esc(e.detail);
+    return '<div class="ev-row ' + kind + '" title="' + full + '">'
          + '<span class="dot"></span>'
          + '<span class="t">' + esc(fmtClock(e.ts)) + '</span>'
-         + '<span class="msg">' + esc(e.label) + ' — ' + esc(e.detail)
+         + '<span class="msg">' + full
          + '</span></div>';
   };
   // Fold, don't truncate: the newest EV_SHOWN stand on the panel and the
@@ -4228,6 +5385,9 @@ function renderMail(ms){
          + esc(verb) + (shortP ? ' ' + esc(shortP) : '')
          + '</span></div>';
   };
+  // NOT "unread" -- the bus has no read state and inventing one would be a
+  // plausible number that means nothing. It is the count of notices held.
+  setCount('mail-count', ms.length, 'notices');
   const head = ms.slice(0, MAIL_SHOWN), rest = ms.slice(MAIL_SHOWN);
   document.getElementById('mail-list').innerHTML = head.map(row).join('');
   const more = document.getElementById('mail-more');
@@ -4351,9 +5511,18 @@ async function poll(){
             lineAlive ? 'bs on' : 'bs off');
     talkBtn.disabled = lineAlive;
     talkBtn.style.opacity = lineAlive ? 0.35 : 1;
-    talkBtn.innerHTML = lineAlive
-      ? 'Terminal line active &nbsp;&middot;&nbsp; speak there or type here'
-      : 'Hold to talk &nbsp;&middot;&nbsp; or hold Right &#8984;';
+    // ⚠ THIS USED TO BE `talkBtn.innerHTML = ...`, AND IT RAN AT 15 Hz.
+    // The moment the pill grew a mic roundel and two canvases, that line
+    // deleted them on the very next poll -- and worse, silently: the drawing
+    // code went on writing into canvas elements that were no longer in the
+    // document, so there was no error to notice, just an empty pill. No test
+    // in the suite could see it; only rendering the running page did.
+    // So the pill's STRUCTURE is markup and only its WORDS are state.
+    const tkL = document.getElementById('tk-left');
+    const tkR = document.getElementById('tk-right');
+    if (tkL) tkL.textContent = lineAlive ? 'Terminal line active' : 'Hold to talk';
+    if (tkR) tkR.textContent = lineAlive ? 'speak there or type here'
+                                         : 'or hold Right \u2318';
     // One conversation: while the terminal line is up, mirror its
     // transcript into the activity log -- appending only what isn't
     // already on screen, so replayed history survives.
@@ -4368,7 +5537,9 @@ async function poll(){
     renderBoard(d.tasks || []);
     renderSessions(d.sessions || []);
     renderStats(d.stats);
+    renderBadge(d.sessions || [], d.stats);
     renderStack(d.stack);
+    renderHealth(d.stack);
     renderEvents(d.events);
     renderMail(d.mail);
     renderUsage(d.usage || null);
@@ -4380,6 +5551,7 @@ async function poll(){
     // hidden until the route is really there. See verdictButtons().
     taskMoveOK = !!d.task_move;
     approvalPoll(d);
+    offerTick(d);
     // Stale-tab self-heal: the server stamps each served copy with its
     // file version and reports the live one here; a mismatch means this
     // tab missed a reload push -- reload between turns like any push.
@@ -4977,8 +6149,100 @@ const viewBtn = document.getElementById('viewbtn');
 const hintEl = document.getElementById('graph-hint');
 const labelEl = document.getElementById('label');
 let graphTimer = null, dragging = false, dragX = 0, dragY = 0;
-viewBtn.onclick = () => {
-  view = view === 'avatar' ? 'graph' : 'avatar';
+// ---- the offer's wiring (Phase 7) ---------------------------------------
+// The two pure functions above decide; this only measures and draws. Keeping
+// the measuring out of them is what makes the ranking testable at all.
+let offerHeldSince = 0, offerHeldJob = null, offerShown = null, offerShownFace = null;
+let lastBusyAt = Date.now();          // the "quiet" clock
+const offerMuted = {};                 // job -> epoch ms until which it is muted
+let ideasSig = null, ideasChangedAt = 0;
+
+function offerTick(d) {
+  const now = Date.now();
+  // QUIET is measured from the last thing HE or Jarvis actually did. A page
+  // polling itself is not activity; that is the whole point of the clock.
+  // TYPING COUNTS AS ACTIVITY. Named by the terminal session's red pen: the
+  // reset set left typing out entirely, so four minutes composing a long
+  // command counted as four minutes of QUIET and the offer could land on him
+  // mid-sentence -- the exact interruption the silence rule outranks
+  // everything to prevent.
+  const tEl2 = document.getElementById('typed');
+  const isTyping = !!(tEl2 && document.activeElement === tEl2 && tEl2.value);
+  if (webActive() || state === 'listening' || state === 'speaking'
+      || state === 'thinking' || capturing || isTyping) lastBusyAt = now;
+
+  // The ideas signal, derived rather than announced: the note's own content
+  // is what changed, so its shape is the signal. A count would miss an edit.
+  const sig = JSON.stringify((d.ideas || []).map(i => i.title || i));
+  if (ideasSig !== null && sig !== ideasSig) ideasChangedAt = now;
+  ideasSig = sig;
+
+  const suggestion = suggestJob({
+    tasks: d.tasks || [],
+    ideasChanged: (now - ideasChangedAt) < 10 * 60 * 1000 && ideasChangedAt > 0,
+    sessionsBusy: (d.sessions || []).filter(s => s.busy).length,
+  });
+
+  // A signal only counts once it has HELD. Restarting the clock whenever the
+  // suggestion changes is what stops the page flickering between two jobs.
+  if (!suggestion || suggestion.job !== offerHeldJob) {
+    offerHeldJob = suggestion ? suggestion.job : null;
+    offerHeldSince = now;
+  }
+
+  const show = offerGate({
+    suggestion: suggestion ? suggestion.job : null,
+    currentJob: job,
+    speaking: state === 'speaking' || state === 'listening' || capturing,
+    typing: isTyping,
+    permissionPending: document.body.classList.contains('alert'),
+    questionPending: !!waitingQ,
+    quietMs: now - lastBusyAt,
+    heldMs: now - offerHeldSince,
+    mutedMsLeft: Math.max(0, (offerMuted[suggestion ? suggestion.job : ''] || 0) - now),
+  });
+
+  const card = document.getElementById('offer');
+  if (!card) return;
+  if (show && suggestion) {
+    // Relabelled when the FACE changes too, not only when the suggestion
+    // does. Named by the terminal's red pen: switch navy → civilian with an
+    // ENGINEERING offer showing and the card and the dial would speak two
+    // different languages about the same job.
+    const shownFace = currentFace();
+    if (offerShown !== suggestion.job || offerShownFace !== shownFace) {
+      offerShownFace = shownFace;
+      card.querySelector('.of-job').textContent = deptName(currentFace(), suggestion.job);
+      card.querySelector('.of-why').textContent = suggestion.because;
+      offerShown = suggestion.job;
+    }
+    card.classList.add('on');
+    card.setAttribute('aria-hidden', 'false');
+  } else {
+    card.classList.remove('on');
+    card.setAttribute('aria-hidden', 'true');
+    offerShown = null;
+  }
+}
+
+function offerAnswer(take) {
+  const j = offerShown;
+  const card = document.getElementById('offer');
+  if (card) { card.classList.remove('on'); card.setAttribute('aria-hidden', 'true'); }
+  offerShown = null;
+  if (!j) return;
+  // A STAY is a real answer, not a dismissal: it mutes THAT suggestion for a
+  // long stretch, so the page cannot ask again in a minute. Nothing switches
+  // without this click.
+  if (take) applyJob(j); else offerMuted[j] = Date.now() + OFFER.MUTE_MS;
+}
+
+// Extracted from the button's handler in Phase 7 so the JOB dial can reach
+// the stage WITHOUT a second code path. The plan's own rule for jobs is that
+// a job may only invoke a control that already exists; a job that reimplemented
+// the view swap would be a second place for the graph timer to leak.
+function setView(v) {
+  view = (v === 'graph') ? 'graph' : 'avatar';
   viewBtn.textContent = view === 'graph' ? 'Avatar' : 'Vault Graph';
   labelEl.textContent = view === 'graph' ? 'V A U L T' : 'J A R V I S';
   hintEl.style.display = view === 'graph' ? 'block' : 'none';
@@ -4989,7 +6253,61 @@ viewBtn.onclick = () => {
     loadGraph();
     graphTimer = setInterval(loadGraph, 30000);
   } else if (graphTimer) { clearInterval(graphTimer); graphTimer = null; }
-};
+}
+viewBtn.onclick = () => setView(view === 'avatar' ? 'graph' : 'avatar');
+
+// The job is restored HERE rather than beside the registry, and the reason is
+// mechanical: applyJob() calls setView(), which closes over `viewBtn` -- a
+// const declared just above. Restoring at the registry would run inside its
+// temporal dead zone and throw at boot.
+//
+// Restored THROUGH VALIDATION, the clampVol lesson: junk in storage restores
+// to `watch`, never to an unarranged page.
+try { applyJob(localStorage.getItem('jarvisJob')); } catch (e) { applyJob('watch'); }
+
+// ---- THE ICON RAIL (Phase 5) --------------------------------------------
+// Every entry CLICKS the real control or calls the real function. Not one of
+// them reimplements anything: the music and usage buttons are clicked because
+// their handlers own state the rail must not duplicate, and the board and
+// ideas sheets are toggled through the same functions their own gestures use.
+//
+// A shortcut that reimplements its target is not a shortcut, it is a second
+// version of the feature that drifts silently -- which is the failure this
+// project has paid for more than any other.
+const RAIL = [
+  ['rl-view',  () => setView(view === 'avatar' ? 'graph' : 'avatar'),
+               () => view === 'graph'],
+  ['rl-board', () => boardOpen(!document.body.classList.contains('board-open')),
+               () => document.body.classList.contains('board-open')],
+  ['rl-ideas', () => { ideasLatched = !document.body.classList.contains('ideas-open');
+                       ideasOpen(ideasLatched); },
+               () => document.body.classList.contains('ideas-open')],
+  ['rl-music', () => document.getElementById('music-toggle').click(),
+               () => document.getElementById('music-toggle').classList.contains('on')],
+  ['rl-usage', () => document.getElementById('usage-toggle').click(),
+               () => !document.getElementById('usage-toggle').classList.contains('paused')],
+];
+for (const [id, act] of RAIL) {
+  const b = document.getElementById(id);
+  if (b) b.onclick = act;
+}
+// The lit state is READ from the real control every frame rather than
+// remembered here. If the rail kept its own copy, pressing the original
+// button would leave the rail lying about it.
+function tickRail() {
+  for (const [id, , isOn] of RAIL) {
+    const b = document.getElementById(id);
+    if (b) b.classList.toggle('on', !!isOn());
+  }
+}
+setInterval(tickRail, 250); tickRail();
+
+{
+  const y = document.getElementById('offer-yes');
+  const n = document.getElementById('offer-no');
+  if (y) y.onclick = () => offerAnswer(true);
+  if (n) n.onclick = () => offerAnswer(false);
+}
 cv.addEventListener('mousedown', (e) => {
   if (view !== 'graph') return;
   dragging = true; dragX = e.clientX; dragY = e.clientY;
@@ -5008,6 +6326,60 @@ cv.addEventListener('wheel', (e) => {
   e.preventDefault();
   gZoom = Math.max(0.35, Math.min(3, gZoom * (e.deltaY < 0 ? 1.08 : 0.92)));
 }, {passive: false});
+
+// The command bar's waveform (Phase 3). It is fed the SAME smoothed level the
+// stage ring is drawn from -- passed in rather than re-read, so the two can
+// never disagree about how loud he is. A second meter with its own source is
+// how two instruments start telling different stories about one microphone.
+const cmdWaves = [
+  {el: document.getElementById('tk-wave-l'), out: 'left'},
+  {el: document.getElementById('tk-wave-r'), out: 'right'},
+];
+const cmdWaveHist = [];
+const tkMic = document.getElementById('tk-mic');
+let lastMicLv = -1;
+function drawCmdWave(lv) {
+  // THE ROUNDEL AND THE STRIPS ARE ONE READING. Serge asked for the mic to
+  // light "in the same time" as the waves, so it is driven from the SAME
+  // argument, in the same call -- not from a second read of the microphone,
+  // which is how two instruments start disagreeing about one voice.
+  // Quantised to 1/50th before it is written: at 60 fps an unrounded value
+  // would set a style property on every single frame and never repeat.
+  if (tkMic) {
+    const q = Math.round(Math.min(1, Math.max(0, lv * 3)) * 50) / 50;
+    if (q !== lastMicLv) { tkMic.style.setProperty('--lv', q); lastMicLv = q; }
+  }
+  cmdWaveHist.push(lv);
+  // One history, two views. A second buffer is how two meters on one
+  // microphone start telling different stories about the same second.
+  while (cmdWaveHist.length > 40) cmdWaveHist.shift();
+  for (const w of cmdWaves) {
+    if (!w.el) continue;
+    const g = w.el.getContext('2d');
+    const W2 = w.el.width, H2 = w.el.height;
+    g.clearRect(0, 0, W2, H2);
+    g.strokeStyle = 'rgba(' + ACCENT_RGB + ', 0.75)';
+    g.lineWidth = 1;
+    g.beginPath();
+    // ANCHORED AT THE MICROPHONE, and the two strips mirror each other, so
+    // the newest sample is always the bar nearest the roundel and the sound
+    // reads as travelling outward from it. The stage ring, these two, and
+    // the mic level are one number drawn four ways.
+    for (let i = 0; i < cmdWaveHist.length; i++) {
+      const age = cmdWaveHist.length - 1 - i;
+      const x = w.out === 'left' ? W2 - 1 - age * 3 : 1 + age * 3;
+      if (x < 0 || x > W2) continue;
+      // A FLOOR, so the strip is legible as a waveform when the room is
+      // silent instead of vanishing into empty pill. It is 1 px — the
+      // instrument stays visible without ever being able to imply a level
+      // that is not there, because 1 px is plainly the bottom of the scale.
+      const a = 1 + Math.min(1, cmdWaveHist[i] * 3) * (H2 / 2 - 2);
+      g.moveTo(x, H2 / 2 - a);
+      g.lineTo(x, H2 / 2 + a);
+    }
+    g.stroke();
+  }
+}
 
 let t = 0, smooth = 0;
 function draw(){
@@ -5029,6 +6401,22 @@ function draw(){
     waitEl.style.display = 'none';
     statusEl.textContent = LABELS[state] || state.toUpperCase();
   }
+  // The welcome rides the same frame as the status it defers to: idle, no
+  // question pending, no turn open. Anything else and it is gone.
+  const wEl = document.getElementById('welcome');
+  if (wEl) wEl.classList.toggle('on', state === 'idle' && !showWait && !turnOpen
+                                && !document.body.classList.contains('alert'));
+  // THE AVATAR IS NEVER OFF SCREEN (decision 9). The card appears exactly
+  // when the stage is showing something else, so between the two the avatar
+  // is always somewhere -- and it is a microphone in both places.
+  const avEl = document.getElementById('avcard');
+  if (avEl) {
+    avEl.style.display = (view === 'avatar') ? 'none' : 'flex';
+    avEl.classList.toggle('hot', capturing);
+    const avS = document.getElementById('avcard-state');
+    if (avS) avS.textContent = capturing ? 'LISTENING' : (LABELS[state] || state);
+  }
+  drawCmdWave(smooth);
   renderMicLine();
 
   ctx.clearRect(0, 0, W, H);
@@ -5127,6 +6515,22 @@ function draw(){
     ctx.stroke();
   }
 
+  // ---- PHASE 6: ATMOSPHERE ------------------------------------------------
+  // A rim glow OUTSIDE the limb, brightest on the lit side. It is drawn
+  // additively over the synapse field, so the globe stops sitting flat on
+  // the background and starts having an edge that catches light.
+  {
+    const rimIn = emberR * 0.98, rimOut = emberR * 1.22;
+    const rim = ctx.createRadialGradient(cx, cy, rimIn, cx, cy, rimOut);
+    rim.addColorStop(0, `rgba(120,190,255,${0.16 + smooth * 0.22})`);
+    rim.addColorStop(0.45, `rgba(90,150,235,${0.06 + smooth * 0.10})`);
+    rim.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rim;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rimOut, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // white-hot core: pulled toward the light source and kept tighter than
   // the ring version so the globe's shading still reads underneath
   const coreR = emberR * (0.38 + smooth * 0.4);
@@ -5141,6 +6545,68 @@ function draw(){
   ctx.fill();
 
   ctx.globalCompositeOperation = 'source-over';
+
+  // ---- PHASE 6: THE TERMINATOR --------------------------------------------
+  // Drawn in source-over, AFTER the additive pass, because a shadow that is
+  // added to what is under it is not a shadow. It is clipped to the sphere so
+  // it darkens the globe's far side without touching the field behind it --
+  // the light comes from up-left, as the body gradient and the core already
+  // assume, so all three agree about where the sun is.
+  {
+    const lx = cx - emberR * 0.30, ly = cy - emberR * 0.32;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, emberR, 0, Math.PI * 2);
+    ctx.clip();
+    const term = ctx.createRadialGradient(lx, ly, emberR * 0.35, lx, ly, emberR * 1.75);
+    term.addColorStop(0, 'rgba(0,0,0,0)');
+    term.addColorStop(0.55, 'rgba(0,0,0,0.22)');
+    term.addColorStop(1, 'rgba(0,2,8,0.62)');
+    ctx.fillStyle = term;
+    ctx.fillRect(cx - emberR, cy - emberR, emberR * 2, emberR * 2);
+    ctx.restore();
+  }
+
+  drawGlobeCallouts(emberR);
+}
+
+// ---- PHASE 6: THE CALLOUTS -----------------------------------------------
+// The concept annotates its Earth. Ours annotates with TRUE numbers or with
+// nothing at all -- the board-never-lies doctrine, in the one place on this
+// page where a decorative number would be easiest to forgive.
+//
+// Each line is drawn ONLY when its value is really known. The vault count in
+// particular is unknown until the graph has been loaded once, and "0 notes"
+// beside a full vault is a worse lie than saying nothing.
+let calloutSessions = null, calloutModel = null;
+function drawGlobeCallouts(r) {
+  const lines = [];
+  if (gNodes.length > 0) lines.push(gNodes.length + ' notes');
+  if (calloutSessions !== null)
+    lines.push(calloutSessions + (calloutSessions === 1 ? ' session' : ' sessions'));
+  if (calloutModel) lines.push(calloutModel);
+  if (!lines.length) return;
+  ctx.save();
+  ctx.font = '9px Menlo, monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const rgb = ACCENT_RGB;
+  // Anchored off the globe's lower-right, with a short leader line each --
+  // the concept's own gesture, and it keeps the text clear of the core.
+  let y = cy + r * 0.42;
+  for (const line of lines) {
+    const x0 = cx + r * 0.72, x1 = cx + r * 1.02;
+    ctx.strokeStyle = `rgba(${rgb}, 0.35)`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+    ctx.stroke();
+    ctx.fillStyle = `rgba(${rgb}, 0.62)`;
+    ctx.fillText(line, x1 + 6, y);
+    y += 15;
+  }
+  ctx.restore();
 }
 draw();
 </script>

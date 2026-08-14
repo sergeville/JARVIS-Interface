@@ -69,7 +69,9 @@ const MAIL_SHOWN = (() => {
   return parseInt(m[1], 10);
 })();
 
-eval(grab('fmtClock') + '\n' + grab('esc') + '\n'
+// setCount comes from the page, never a stub: this renderer gained a header
+// count on 2026-08-09 and depends on the real one.
+eval(grab('fmtClock') + '\n' + grab('esc') + '\n' + grab('setCount') + '\n'
      + 'const MAIL_VERBS = ' + VERBS_SRC + ';\n'
      + 'const MAIL_SHOWN = ' + MAIL_SHOWN + ';\n'
      + grab('renderMail'));
