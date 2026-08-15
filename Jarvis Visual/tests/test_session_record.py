@@ -530,20 +530,30 @@ class AHookMustNeverBlock(unittest.TestCase):
         # live files are gitignored and would not exist in a fresh clone.
         tmpl = json.loads((ROOT / "templates" /
                            "claude-settings.json.template").read_text())
+        # The SMALLEST timeout of ANY hook, not this hook's own. The bounded
+        # reader moved into vault-tools/hookio.py and is shared, so whatever
+        # this budget is, the next hook to adopt it inherits. Pinning it to
+        # this hook's 15s Stop timeout is how 12.0 got chosen while
+        # UserPromptSubmit sat at 10s.
         timeouts = [h.get("timeout") for groups in tmpl.get("hooks", {}).values()
                     for g in groups for h in g.get("hooks", [])
-                    if "session_record.py" in h.get("command", "")
-                    and h.get("timeout") is not None]
-        self.assertTrue(timeouts, "the hook lost its configured timeout")
+                    if h.get("timeout") is not None]
+        self.assertTrue(timeouts, "the hooks lost their configured timeouts")
         ceiling = min(timeouts)
-        self.assertLess(sr.STDIN_BUDGET, ceiling,
-                        "the budget outlives the timeout that kills the hook, "
-                        "so the read is bounded by nothing it controls")
+        # A BAND, because the two one-sided pins contradict each other and I
+        # shipped both in the same afternoon. A floor alone ("do not shrink
+        # it") permitted 8.0 and then 9.9 under a 10s timeout -- 0.1s left for
+        # a hook whose real work measures ~20ms. A ceiling alone ("leave room")
+        # permitted 0.8, which races a genuinely slow caller and drops the turn
+        # in silence. 30-60% is generous at both ends and refuses both.
         self.assertGreaterEqual(
+            sr.STDIN_BUDGET, 0.3 * ceiling,
+            "the budget was shrunk until it races real callers, and a turn "
+            "dropped for slowness is dropped in silence")
+        self.assertLessEqual(
             sr.STDIN_BUDGET, 0.6 * ceiling,
-            "the budget was shrunk well under the hook's own timeout, which "
-            "buys nothing and widens the window where a slow caller's turn is "
-            "dropped in silence")
+            "the budget crowds out the hook's own work under the smallest "
+            "timeout that kills it")
 
     def test_a_payload_that_arrives_LATE_is_still_read(self):
         # A bounded wait must be long enough for a real caller that is a beat

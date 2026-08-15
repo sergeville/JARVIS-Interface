@@ -21,6 +21,7 @@ What these actually guard:
     other sessions edit that note.
 """
 
+import ast
 import importlib.util
 import io
 import json
@@ -315,8 +316,25 @@ Path(idle).write_text(FIXTURE.replace("  - status: active\n", "  - status: open\
 
 out = run_hook(payload("Edit", file_path=code), idle, work)
 ok("an edit with nothing In Progress DOES warn", "[board]" in out)
-ok("the warning is valid hook JSON",
-   json.loads(out)["hookSpecificOutput"]["hookEventName"] == "PostToolUse")
+def _hook_event(text):
+    """The hookEventName, or a reason -- never an exception.
+
+    THE BARE json.loads THAT USED TO BE HERE TOOK THE WHOLE FILE DOWN. This is
+    a straight-line script, so when an upstream fault made the guard silent,
+    this line raised JSONDecodeError at module level and the remaining ~300
+    lines -- including every stdin-boundedness check added later -- never ran
+    at all. The adversary proved it: four of eight injections "passed" the gate
+    only because the gate stopped executing before reaching the tests aimed at
+    them. A test file that can be truncated by the fault it is testing is not
+    a gate.
+    """
+    try:
+        return json.loads(text)["hookSpecificOutput"]["hookEventName"]
+    except Exception as exc:
+        return f"<no hook JSON: {type(exc).__name__}>"
+
+
+ok("the warning is valid hook JSON", _hook_event(out) == "PostToolUse")
 
 reset_throttle(work)
 out = run_hook(payload("Edit", file_path=code), busy, work)
@@ -343,7 +361,288 @@ for hostile in ({"tool_name": "Edit", "tool_input": {"file_path": f"{ROOT}/{LEAK
     got = run_hook(json.dumps(hostile), idle, work)
     ok("no payload text reaches the model context", LEAK not in got)
 
-ok("a huge payload cannot hang the hook", bg.MAX_STDIN <= 1_000_000)
+# ------------------------------------------------ rule 4: it actually RETURNS
+# THE LINE THAT USED TO SIT HERE READ:
+#
+#     ok("a huge payload cannot hang the hook", bg.MAX_STDIN <= 1_000_000)
+#
+# It asserts a CONSTANT'S VALUE and measures nothing whatever about hanging,
+# and it is the reason the hang below survived a week under a green suite: a
+# test NAMED for the property, checking something else entirely. The hook read
+# `sys.stdin.read(MAX_STDIN)`, which waits for that many bytes OR EOF -- so the
+# cap bounded MEMORY and never bounded TIME, exactly as rule 4's own wording in
+# board-guard.py claimed it did. The constant check survives below because it
+# is a real memory bound; it is simply named for what it checks now.
+_hookio_path = Path(ROOT) / "vault-tools" / "hookio.py"
+# Loaded defensively. Deleting hookio.py IS a real failure mode -- it is what
+# "fails to nothing and looks installed" looks like -- but it used to take this
+# whole file down with a traceback from somewhere else entirely, which names
+# the wrong culprit. A red suite has to say which thing broke.
+try:
+    _hookio = _load("hookio_mod", str(_hookio_path))
+    _sr = _load("session_record_mod", f"{ROOT}/vault-tools/session_record.py")
+except Exception as _e:
+    _hookio = _sr = None
+    ok(f"the shared reader and its callers import ({type(_e).__name__})", False)
+
+if _hookio is not None:
+    check("the two budget constants have not drifted apart",
+          _sr.STDIN_BUDGET, _hookio.DEFAULT_BUDGET)
+_tmpl = json.loads((Path(ROOT) / "templates" /
+                    "claude-settings.json.template").read_text())
+_timeouts = [h.get("timeout") for groups in _tmpl.get("hooks", {}).values()
+             for g in groups for h in g.get("hooks", []) if h.get("timeout")]
+
+
+# THE LINE THAT USED TO SIT HERE was `ok("a huge payload cannot hang the hook",
+# bg.MAX_STDIN <= 1_000_000)` -- a test NAMED for a property, asserting a
+# constant's value, measuring nothing. Renaming it (the first attempt at this
+# fix) did not help either: the adversary deleted the cap ENFORCEMENT outright
+# and the suite stayed green, because a value was still all anyone checked. So
+# the cap is now pinned by BEHAVIOUR at its own boundary, and its SIZE is
+# pinned against this repo rather than against a number typed here.
+_biggest = max((f.stat().st_size for f in Path(ROOT).rglob("*.html")
+                if ".git" not in f.parts and "node_modules" not in f.parts),
+               default=0)
+ok("the cap clears the largest file a Write payload could carry",
+   _biggest and bg.MAX_STDIN > _biggest * 1.5)
+
+
+def _hookio_reads(raw, **kw):
+    """read_json_stdin over a real file descriptor, in-process. Bounded.
+
+    A FILE and not a pipe, and that is not laziness. The first version wrote
+    the payload into a pipe before reading it, which deadlocks the moment the
+    payload exceeds the 64KB pipe buffer -- and the deep-nesting case below is
+    80KB, so the test hung the suite rather than testing anything. A regular
+    fd exercises the same select+os.read loop without needing a second thread
+    to drain it. The pipe-specific behaviour -- an open writer, no EOF -- is
+    covered by the subprocess checks above, which is where it belongs.
+    """
+    with tempfile.NamedTemporaryFile() as fh:
+        fh.write(raw)
+        fh.flush()
+        fh.seek(0)
+        return _hookio.read_json_stdin(stream=fh, budget=1.0, **kw)
+
+
+if _hookio is not None:
+    check("a payload exactly AT the cap is read",
+          _hookio_reads(b'{"k":"' + b"x" * 70 + b'"}', max_bytes=80) is None, False)
+    check("a payload one byte OVER the cap is refused",
+          _hookio_reads(b'{"k":"' + b"x" * 200 + b'"}', max_bytes=80), None)
+
+    # ADVERSARY FINDING 4-D. This diff DELETED board-guard's own
+    # `isinstance(data, dict)` check, so _object_or_none is now the only thing
+    # standing between a `[1,2,3]` payload and `.get` on a list -- and deleting
+    # it shipped green.
+    for _bad in (b"[1,2,3]", b"null", b'"a string"', b"42", b"true"):
+        check(f"a non-object payload {_bad.decode()} is refused",
+              _hookio_reads(_bad), None)
+    check("an object payload is still returned",
+          _hookio_reads(b'{"tool_name":"Edit"}'), {"tool_name": "Edit"})
+
+    # ADVERSARY FINDING 6: this ESCAPED the function whose docstring promises
+    # it always returns. Both callers only survived it by wrapping everything
+    # in `except Exception` -- a contract kept by the caller is not a contract.
+    _deep = (b"[" * 40_000) + (b"]" * 40_000)
+    _raised = None
+    try:
+        _raised = _hookio_reads(_deep)
+    except RecursionError:
+        _raised = "RecursionError escaped"
+    check("nesting too deep to parse returns None rather than raising",
+          _raised, None)
+
+    # The budget is pinned as a BAND. A floor alone permitted 9.9 under a 10s
+    # timeout (0.1s left for the hook's real work, which measures ~20ms); a
+    # ceiling alone permitted 0.8, which races a real caller.
+    ok("the read budget sits in the 30-60% band of the smallest hook timeout",
+       min(_timeouts) * 0.3 <= _hookio.DEFAULT_BUDGET <= min(_timeouts) * 0.6)
+    check("the two byte caps have not drifted apart",
+          bg.MAX_STDIN, _hookio.DEFAULT_MAX_BYTES)
+
+# ADVERSARY FINDING 4-A / REVIEWER FINDING 3, and it is the SAME finding the
+# previous adversary round called "most damning", rebuilt one file over. This
+# diff deleted board-guard's own isatty check, so hookio's line is now its ONLY
+# tty protection -- and the pty test that exists pins session_record's guard,
+# which short-circuits before hookio is ever reached. Deleting hookio's isatty
+# shipped green. This drives a pty THROUGH board-guard, so it cannot.
+def _hook_over_pty(typed):
+    import pty
+    master, slave = pty.openpty()
+    os.write(master, typed)
+    code = ("import sys\n"
+            f"sys.path.insert(0, {ROOT + '/vault-tools'!r})\n"
+            "import hookio\n"
+            "hookio.DEFAULT_BUDGET = 3.0\n"
+            "import importlib.util as u\n"
+            f"s = u.spec_from_file_location('bg', {ROOT + '/vault-tools/board-guard.py'!r})\n"
+            "m = u.module_from_spec(s); s.loader.exec_module(m)\n"
+            "import time; t0=time.monotonic()\n"
+            "r = m.read_payload()\n"
+            "print(r, round(time.monotonic()-t0, 2))\n")
+    proc = subprocess.Popen([sys.executable, "-c", code], stdin=slave,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        out, _ = proc.communicate(timeout=10)
+        text = out.decode().strip()
+    except subprocess.TimeoutExpired:
+        proc.kill(); proc.communicate(); text = "<never returned>"
+    os.close(slave); os.close(master)
+    return text
+
+
+# A terminal is never a hook caller, and the guard has to answer INSTANTLY
+# rather than burn the budget -- that is what makes it not redundant with the
+# readiness check. Both a bare line and a line that happens to be valid JSON:
+# without isatty the second is accepted as a payload someone typed by hand.
+_pty_plain = _hook_over_pty(b"just some typing, no Ctrl-D\n")
+_pty_json = _hook_over_pty(b'{"tool_name": "Edit"}\n')
+ok("a terminal with a line typed and no EOF returns at once, empty-handed",
+   _pty_plain.startswith("(False, False)")
+   and float(_pty_plain.rsplit(" ", 1)[1]) < 1.0)
+ok("a terminal is never mistaken for a hook caller, even typing valid JSON",
+   _pty_json.startswith("(False, False)")
+   and float(_pty_json.rsplit(" ", 1)[1]) < 1.0)
+
+# ADVERSARY FINDING 8 / the reviewer said it too: hookio.py was UNTRACKED. A
+# `git commit -am` would have pushed hooks importing a file not in the repo,
+# and nothing local could ever go red -- only a fresh clone. Every file a hook
+# imports must be tracked.
+for _dep in ("vault-tools/hookio.py", "vault-tools/activity.py"):
+    ok(f"{_dep} is tracked by git",
+       subprocess.run(["git", "-C", ROOT, "ls-files", "--error-unmatch", _dep],
+                      capture_output=True).returncode == 0)
+
+
+def _hook_returns(payload_bytes, close_writer, wait_s=8.0):
+    """(did_it_return, stdout) for the REAL read_payload, in a subprocess.
+
+    A subprocess because a parent that blocks cannot report that it blocked --
+    the in-process run_hook() above uses io.StringIO, which can never hang and
+    therefore can never catch this.
+    """
+    code = ("import sys\n"
+            f"sys.path.insert(0, {ROOT + '/vault-tools'!r})\n"
+            "import hookio\n"
+            "hookio.DEFAULT_BUDGET = 0.5\n"   # prove boundedness, not the number
+            "import importlib.util as u\n"
+            f"s = u.spec_from_file_location('bg', {ROOT + '/vault-tools/board-guard.py'!r})\n"
+            "m = u.module_from_spec(s); s.loader.exec_module(m)\n"
+            "print(m.read_payload())\n")
+    r, w = os.pipe()
+    if payload_bytes is not None:
+        os.write(w, payload_bytes)
+    if close_writer:
+        os.close(w)
+    proc = subprocess.Popen([sys.executable, "-c", code], stdin=r,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        out, _ = proc.communicate(timeout=wait_s)
+        returned, rc = True, proc.returncode
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        out, returned, rc = b"", False, None
+    os.close(r)
+    if not close_writer:
+        os.close(w)
+    return returned, out.decode(), rc
+
+
+def _returns_cleanly(payload_bytes, close_writer, expect):
+    """Returned in time, exited 0, AND said the right thing.
+
+    ADVERSARY FINDING 3: the first version of these checks asked only "did the
+    process exit inside the budget", and `proc.returncode` was thrown away. A
+    board-guard replaced wholesale by `raise RuntimeError(...)` passed two of
+    them -- it does exit, promptly, having done nothing. "It came back" is not
+    the property; "it came back, alive, with the right answer" is.
+    """
+    returned, out, rc = _hook_returns(payload_bytes, close_writer)
+    return returned and rc == 0 and out.strip() == expect
+
+
+# NO session_id, deliberately. ADVERSARY FINDING 6: these run the REAL
+# read_payload(), which calls record_activity() -> activity.write() ->
+# voice-line/.activity.json. With a session_id present, every suite run wrote a
+# fake session carrying a dead subprocess's pid into the file the HUD reads as
+# live -- and that file is capped at 12 rows, oldest-dropped, so a test run
+# could EVICT A GENUINELY LIVE SESSION. The field bought nothing: no assertion
+# here depends on it. A test that writes into production state is not a test.
+_real_payload = json.dumps({
+    "tool_name": "Edit",
+    "tool_input": {"file_path": f"{ROOT}/vault-tools/whatever.py"}}).encode()
+
+ok("a normal hook call still reads its payload",
+   _returns_cleanly(_real_payload, True, "(True, False)"))
+ok("a COMPLETE payload on a pipe the caller never closes still RETURNS",
+   _returns_cleanly(_real_payload, False, "(True, False)"))
+ok("a silent stdin RETURNS, alive and empty-handed",
+   _returns_cleanly(None, False, "(False, False)"))
+ok("an incomplete payload on an open pipe RETURNS, alive and empty-handed",
+   _returns_cleanly(b'{"tool_name": "Ed', False, "(False, False)"))
+
+# ADVERSARY FINDING 6, the one that made the docblock false: a COMPLETE payload
+# followed by any trailing byte -- a stray newline from a wrapper, a second
+# object, anything -- never parsed, because the code tested the WHOLE buffer
+# instead of its front. It sat out the entire budget and returned nothing.
+ok("a payload with a trailing byte, pipe still open, is read anyway",
+   _returns_cleanly(_real_payload + b"\n", False, "(True, False)"))
+ok("a payload followed by a whole second object is still read",
+   _returns_cleanly(_real_payload + b'{"tool_name":"Bash"}', False, "(True, False)"))
+
+# The fallback in _read_stdin() turns this hook OFF if hookio cannot be
+# imported -- correct, because rule 4 outranks the reminder. But "fails to
+# nothing and looks installed" is the shape board-guard.py's own statuses()
+# docstring says has already cost this project two days, so it is checked
+# rather than trusted.
+ok("the shared reader exists", _hookio_path.is_file())
+ok("the shared reader imports cleanly",
+   subprocess.run([sys.executable, "-c",
+                   f"import sys; sys.path.insert(0, {ROOT + '/vault-tools'!r}); "
+                   "import hookio; hookio.read_json_stdin"],
+                  capture_output=True).returncode == 0)
+for _name in ("board-guard.py", "session_record.py", "hookio.py"):
+    _src = (Path(ROOT) / "vault-tools" / _name).read_text()
+    if _name != "hookio.py":
+        ok(f"{_name} routes stdin through the shared reader",
+           "hookio" in _src and "read_json_stdin" in _src)
+    # Read the CODE, not the prose. The first spelling of this check was a
+    # substring search, and it went red against the very comments explaining
+    # the bug -- both files quote `sys.stdin.read(...)` while describing what
+    # used to be wrong. A guard that a docstring can trip is a guard that gets
+    # weakened until it stops tripping.
+    _calls = []
+    for _n in ast.walk(ast.parse(_src)):
+        if not isinstance(_n, ast.Call):
+            continue
+        _f = _n.func
+        if (isinstance(_f, ast.Attribute) and _f.attr == "read"
+                and isinstance(_f.value, ast.Attribute)
+                and _f.value.attr == "stdin"):
+            _calls.append("sys.stdin.read")
+        if (isinstance(_f, ast.Attribute) and _f.attr in ("load", "loads")
+                and any(isinstance(a, ast.Attribute) and a.attr == "stdin"
+                        for a in _n.args)):
+            _calls.append("json.load(sys.stdin)")
+    check(f"{_name} makes no raw blocking stdin call", _calls, [])
+
+# Compare the VALUES the two modules actually hold, never a spelling of the
+# number written into this file -- a test carrying its own copy of the constant
+# is a third place for it to drift.
+
+# EVERY hook gets a timeout. board-guard was the only one in the template
+# without one -- the hook that fires after nearly every tool call was the
+# single one with nothing bounding it from above.
+_missing = [h.get("command", "?")
+            for groups in _tmpl.get("hooks", {}).values()
+            for g in groups for h in g.get("hooks", [])
+            if h.get("timeout") is None]
+check("every hook in the template carries a timeout", _missing, [])
+ok("the shared read budget fits under the smallest hook timeout",
+   _hookio is not None and _hookio.DEFAULT_BUDGET < min(_timeouts))
 check("garbage stdin exits 0 in silence",
       run_hook("{not json at all", idle, work), "")
 check("a missing note exits 0 in silence",
@@ -495,11 +794,49 @@ for where, path in SETTINGS.items():
     ok(f"{where} guard matches edits", "Edit" in m and "Write" in m)
     ok(f"{where} guard matches Bash", "Bash" in m)
 
+# ADVERSARY FINDING 1: the template was fixed and the machine was not, and
+# install.sh's render_settings() never clobbers, so re-running the installer
+# will not deliver it either. The gate looked at the template alone -- which is
+# how the record came to read as if the deployment gap were closed.
+for _where, _path in SETTINGS.items():
+    _dep = json.loads(Path(_path).read_text())
+    _bare = [h.get("command", "?") for groups in _dep.get("hooks", {}).values()
+             for g in groups for h in g.get("hooks", [])
+             if h.get("timeout") is None]
+    check(f"{_where}: every DEPLOYED hook carries a timeout", _bare, [])
+
 if len(SETTINGS) == 2:
     a, b = [json.loads(Path(p).read_text()) for p in SETTINGS.values()]
     ga = [c for c in post_cmds(a) if "board-guard" in (c or "")]
     gb = [c for c in post_cmds(b) if "board-guard" in (c or "")]
     check("both files run the IDENTICAL guard command", ga, gb)
+
+# ADVERSARY FINDING 2: this file is straight-line, so a fault upstream used to
+# raise at module level and silently skip every remaining assertion -- four of
+# eight injections "passed" only because the gate stopped running before the
+# tests aimed at them. The count below is the floor this file is known to
+# reach; if it ever runs fewer, something truncated it and the total is a lie.
+REACHED_END = 109  # RAISE THIS when you add checks -- it is a floor, and a
+                   # floor nobody maintains is a floor that stops catching
+#
+# Only enforced in a COMPLETE checkout, and the condition lists every file the
+# blocks above are conditional on. Getting that list wrong is not cosmetic: my
+# first attempt gated on the settings files alone, and the sandbox -- which
+# also lacks voice-web-server.py for the read_tasks cross-check -- reported
+# "this file stopped early" on a tree that was simply smaller. A sentinel that
+# cries wolf in every sandbox is one the next person deletes to get a clean
+# baseline, which would be this guard failing exactly the way board-guard.py
+# was written to prevent.
+#
+# ITS HONEST LIMIT: this is a floor on a count, so it catches truncation only
+# once the file has grown past it. The real protection against the fault that
+# prompted it is that the crash site above no longer raises at module level.
+_COMPLETE = (len(SETTINGS) == 2 and _hookio is not None
+             and (Path(ROOT) / "Jarvis Visual" / "voice-web-server.py").is_file())
+if _COMPLETE and passed + failed < REACHED_END:
+    failed += 1
+    print(f"  FAIL this file stopped early: {passed + failed - 1} checks ran, "
+          f"at least {REACHED_END} expected -- the total above is not a verdict")
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

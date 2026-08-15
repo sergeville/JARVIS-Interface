@@ -33,11 +33,9 @@ Run:  python3 vault-tools/session_record.py            # hook mode, reads stdin
       python3 vault-tools/session_record.py <file.jsonl>
       python3 vault-tools/session_record.py --all      # backfill every session
 """
-import io
 import json
 import os
 import re
-import select
 import sys
 import time
 from pathlib import Path
@@ -51,12 +49,14 @@ from pathlib import Path
 # is the real upper bound and the first version of this constant was picked
 # against nothing. Those timeouts DISAGREE -- the deployed .claude/settings.json
 # files say 20s and templates/claude-settings.json.template says 15s -- which is
-# carded separately as its own defect. 12.0 sits under BOTH, so under either
-# config this returns on its own rather than being killed mid-read, and the
-# window in which a genuinely slow caller is dropped in silence is 3s against
-# the template and 8s against the live files. Raising this is safe only up to
-# whichever timeout is smaller; shrinking it widens the silent-drop window.
-STDIN_BUDGET = 12.0
+# carded separately as its own defect. It must also clear the SMALLEST timeout
+# in the template, 10s, because vault-tools/hookio.py is shared and the next
+# hook to adopt it inherits this ceiling. 8.0 sits under all three. Raising it
+# is safe only up to the smallest of them; shrinking it widens the window in
+# which a genuinely slow caller's turn is dropped in silence.
+# Must equal hookio.DEFAULT_BUDGET; a test pins them. Passed explicitly rather
+# than left to default so the tests can override it per-run.
+STDIN_BUDGET = 5.0
 
 JARVIS_ROOT = Path(__file__).resolve().parents[1]
 TRANSCRIPTS = JARVIS_ROOT / "Jarvis Visual" / "transcripts"
@@ -252,56 +252,29 @@ def _read_payload():
     """Whatever object the caller piped in, or None -- bounded either way.
 
     THE FIRST FIX HERE WAS ONLY NEARLY RIGHT, and both review agents caught
-    the same edge. Guarding with select and then handing the descriptor to
+    the same edge: guarding with select and then handing the descriptor to
     `json.load` bounds the wait for the FIRST BYTE and nothing after it,
-    because `json.load` calls `read()`, which runs to EOF. So a COMPLETE,
-    perfectly valid payload still hung forever if the writer held its end
-    open -- the residual was never about partial writes, it was about the
-    absence of EOF, and the first comment written here said the wrong one.
+    because `json.load` calls `read()`, which runs to EOF. A COMPLETE, valid
+    payload still hung if the writer held its end open.
 
-    So stop waiting for EOF. Read what is there, and stop the moment the
-    bytes so far parse as JSON: a complete object is the whole answer, and
-    nothing is gained by waiting for a close that may never come. The
-    deadline covers the WHOLE read, not just its first byte, so no path
-    through this function is unbounded and the docblock's promise above is
-    now true rather than nearly true.
+    That logic now lives in vault-tools/hookio.py and is shared with
+    board-guard.py, which had the same bug behind a different wrong proxy --
+    two authors reaching for two bad guards is the argument against a third
+    copy. Import failure returns None: a hook that cannot read stdin has no
+    session to record, and rule "never block, never crash" outranks recording.
+
+    ONE BEHAVIOUR CHANGE THAT CAME WITH THE MOVE, claimed here rather than left
+    to be discovered: this now inherits hookio's byte cap, which it did not
+    have before. Both agents flagged it as an unclaimed delta. The cap is 4MB
+    and a Stop-hook payload is a path and a session id, so nothing real is near
+    it -- but it is a cap where there was none, and above it a turn is dropped
+    in silence.
     """
     try:
-        fd = sys.stdin.fileno()
-    except (io.UnsupportedOperation, ValueError, OSError, AttributeError):
-        # No real file descriptor -- an in-memory stdin (io.StringIO), which
-        # is how hooks get tested in-process. It cannot block, so read it
-        # directly. Returning None here instead, as the first fix did, turned
-        # a working read into a silent drop: io.UnsupportedOperation subclasses
-        # BOTH ValueError and OSError, so a plain `except (ValueError, OSError)`
-        # swallows it and nothing anywhere says the turn was lost.
-        try:
-            return json.load(sys.stdin)
-        except (ValueError, TypeError, OSError):
-            return None
-
-    deadline = time.monotonic() + STDIN_BUDGET
-    chunks: list[bytes] = []
-    while True:
-        left = deadline - time.monotonic()
-        if left <= 0:
-            break
-        try:
-            if not select.select([fd], [], [], left)[0]:
-                break           # nothing coming; there is no session to record
-            chunk = os.read(fd, 65536)
-        except (ValueError, OSError):
-            break
-        if not chunk:
-            break               # EOF, the ordinary case
-        chunks.append(chunk)
-        try:
-            return json.loads(b"".join(chunks))
-        except ValueError:
-            continue            # not a whole object yet -- keep reading
-    try:
-        return json.loads(b"".join(chunks))
-    except ValueError:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import hookio
+        return hookio.read_json_stdin(budget=STDIN_BUDGET)
+    except Exception:
         return None
 
 

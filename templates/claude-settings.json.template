@@ -111,7 +111,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 {{JARVIS_ROOT}}/vault-tools/board-guard.py"
+            "command": "python3 {{JARVIS_ROOT}}/vault-tools/board-guard.py",
+            "timeout": 15
           }
         ]
       }

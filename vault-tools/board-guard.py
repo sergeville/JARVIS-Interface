@@ -81,7 +81,19 @@ Six rules hold that shut, and every one is tested.
 
 4. NEVER RAISE, NEVER BLOCK. Every path returns 0. A hook that crashes
    or stalls costs Serge his session; a board reminder is never worth
-   that. It reads stdin with a size cap so a huge payload cannot hang it.
+   that.
+
+   THE SECOND HALF OF THAT RULE WAS FALSE FOR A WEEK, and this comment
+   was the reason nobody looked. It used to read: "It reads stdin with a
+   size cap so a huge payload cannot hang it." A size cap bounds MEMORY,
+   not TIME -- `sys.stdin.read(200_000)` waits for two hundred thousand
+   bytes or EOF, whichever comes first, so a small payload on a pipe the
+   caller never closed blocked forever. Reproduced 2026-08-14: a real,
+   complete payload with the write end left open never returned, and this
+   hook fires after nearly every tool call and carries no timeout in any
+   settings file. The reading is now done by vault-tools/hookio.py, whose
+   whole job is that it returns; the cap survives there and is documented
+   as bounding memory alone.
 
 5. BOUNDED. The note is read with a size cap, the scan is line-capped,
    and the message is length-capped.
@@ -108,7 +120,11 @@ STAMP = "voice-line/.board-guard.json"
 # Rule 5: bounds.
 MAX_BYTES = 400_000     # a note larger than this is not this note
 MAX_LINES = 20_000
-MAX_STDIN = 200_000
+# Matches hookio.DEFAULT_MAX_BYTES, and a test pins the two equal -- one number
+# in two files is exactly the drift this project keeps being bitten by. It has
+# to clear the largest file a Write payload could carry; at 200_000 it did not
+# even clear this repo's own jarvis.html.
+MAX_STDIN = 4_000_000
 MAX_CONTEXT = 600
 THROTTLE_S = 90         # do not say the same thing twice in a row-of-edits
 
@@ -237,6 +253,35 @@ def record_activity(data) -> None:
         return          # rule 4: a hook never costs Serge his session
 
 
+def _read_stdin():
+    """The hook payload, via the shared bounded reader. Never raises.
+
+    hookio is imported HERE rather than at module scope, and a failure to
+    import it turns this hook OFF rather than crashing the session -- rule 4
+    outranks the reminder. That is deliberately the same shape as the
+    `import activity` inside record_activity().
+
+    Being silently off is its own failure mode, and this file already says so
+    in `statuses()`: "a component that fails to nothing and looks installed
+    has already cost this project two days." So it is not left to trust --
+    test_board_guard.py asserts that hookio exists, that it imports, that this
+    file routes through it, and (behaviourally, in a subprocess) that a payload
+    still comes back. Deleting hookio.py takes this file's own tests red.
+
+    Named that way ON PURPOSE. The first draft of this docstring cited a test
+    called `test_the_shared_reader_is_importable_and_used`, which does not
+    exist anywhere in the repo -- the properties are real but the labels are
+    `ok(...)` strings. A future session greps the name, finds nothing, and
+    concludes the guard was deleted. Cite what can be found.
+    """
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import hookio
+        return hookio.read_json_stdin(max_bytes=MAX_STDIN)
+    except Exception:
+        return None
+
+
 def read_payload() -> tuple:
     """Rule 2: reduce the payload to (is_edit, is_test_run) and drop it.
 
@@ -247,11 +292,8 @@ def read_payload() -> tuple:
     reason the booleans are: this is the one place the payload exists, and
     it must not exist anywhere after it.
     """
-    raw = sys.stdin.read(MAX_STDIN) if not sys.stdin.isatty() else ""
-    if not raw:
-        return (False, False)
-    data = json.loads(raw)
-    if not isinstance(data, dict):
+    data = _read_stdin()
+    if data is None:
         return (False, False)
     record_activity(data)
     tool = data.get("tool_name")
