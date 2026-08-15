@@ -579,6 +579,33 @@ def cmd_list() -> int:
     return 0
 
 
+
+def _read_stdin():
+    """The hook payload, via the shared bounded reader. Never raises, never blocks.
+
+    ALL THREE OF THESE HOOKS HUNG FOREVER before 2026-08-15, and the proof was
+    six for six: a silent pipe and a complete payload on a pipe the caller had
+    not closed, against every one of them. `sys.stdin.read()` runs to EOF and
+    `json.load` calls it, so an inherited descriptor that never delivers -- or
+    never closes -- simply stops the hook. These fire on SessionStart,
+    SessionEnd, Stop, UserPromptSubmit and Notification, which is to say on
+    nearly every turn of every session on the machine.
+
+    Same class as session_record.py and board-guard.py, fixed 2026-08-14, and
+    the fourth and fifth and sixth instance of it. vault-tools/hookio.py exists
+    because two authors independently reached for the same wrong guard; these
+    three reached for none at all.
+
+    Import failure returns None rather than raising: a hook that cannot read
+    stdin has nothing to act on, and never-crash outranks the work.
+    """
+    try:
+        sys.path.insert(0, os.path.join(JARVIS_ROOT, "vault-tools"))
+        import hookio
+        return hookio.read_json_stdin()
+    except Exception:
+        return None
+
 def main(argv: list[str]) -> int:
     """Always exits 0 on the hook paths. A registry that can kill a session
     would cost far more than the registry is worth."""
@@ -593,9 +620,7 @@ def main(argv: list[str]) -> int:
         print(__doc__.strip().splitlines()[0], file=sys.stderr)
         return 0
     try:
-        payload = json.loads(sys.stdin.read() or "{}")
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = _read_stdin() or {}
         table = process_table()
         session = owning_session(os.getpid(), table)
         chain = channel_chain(os.getpid(), table)

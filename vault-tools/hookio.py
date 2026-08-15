@@ -118,6 +118,14 @@ def read_json_stdin(budget=None, max_bytes=None, stream=None):
     try:
         if stream is None or stream.isatty():
             return None
+    except AttributeError:
+        # A duck-typed stand-in with only .read() -- which is how
+        # session_registry.py's own tests drive their hook, and how this was
+        # found. It cannot be a terminal, so carry on rather than treating a
+        # missing method as a reason to drop the payload. The `fileno` branch
+        # below already had this; the isatty branch did not, and the whole
+        # hook silently stopped recording.
+        pass
     except (ValueError, OSError):
         return None
 

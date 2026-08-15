@@ -448,7 +448,7 @@ ok("no networking is imported -- there is no push path at all",
                     "requests", "asyncio"}))
 ok("it imports only the standard bits it needs",
    _imports <= {"json", "os", "re", "sys", "time", "pathlib",
-                "session_registry"})
+                "session_registry", "hookio"})
 
 # The template is always present; the rendered files only after install.sh has
 # run. Check whichever exist -- the template is what they are made from, so a
