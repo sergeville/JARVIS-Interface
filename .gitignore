@@ -92,6 +92,13 @@ __pycache__/
 # prove is now structural.
 .claude/settings.json
 Jarvis Visual/.claude/settings.json
+# And the backups render_settings.py takes before it changes one. These are
+# BYTE COPIES of the two lines above -- same absolute paths, same hand-granted
+# allow-list -- and the lines above are literal filenames with no glob, so
+# without these the first real ./install.sh leaves two untracked files in
+# `git status`, one `git add -A` from a public repo.
+.claude/settings.json.backup-*
+Jarvis Visual/.claude/settings.json.backup-*
 
 # Serge's own brain-deck example, handed over 2026-08-12. A byte-identical
 # copy is kept in Jarvis Visual/references/ (itself ignored). His file, and

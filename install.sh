@@ -209,15 +209,50 @@ render_settings() {
       would_install "settings.json ($(basename "$(dirname "$(dirname "$dest")")"))" || continue
     fi
     mkdir -p "$(dirname "$dest")"
-    if [[ -f "$dest" ]]; then
-      # Never clobber. This file carries a user's own permission grants.
-      if grep -q "{{JARVIS_ROOT}}" "$dest" 2>/dev/null; then
-        sed -i '' "s|{{JARVIS_ROOT}}|$ROOT|g" "$dest"; made=$((made+1))
+    # NEVER CLOBBER -- but "never clobber" used to mean "never look at it
+    # again", and those are not the same promise. An already-rendered file
+    # took the else branch and was counted as `kept`, so every later template
+    # change was silently never delivered to any machine that had run this
+    # before. board-guard.py's missing timeout was fixed in the template on
+    # 2026-08-14 and had to be applied to both deployed files BY HAND,
+    # because re-running this installer would not have done it.
+    #
+    # The template owns `hooks` -- absolute paths, timeouts, which script runs
+    # on which event, none of which a clone has any business holding a stale
+    # copy of. The user KEEPS every other key. Said that way deliberately: the
+    # first version of this comment said the user "owns everything else and
+    # those are carried across untouched", and both review agents caught that
+    # it is false in one direction -- `hooks` is replaced WHOLE, so a hook the
+    # user added is deleted and one they deliberately removed comes back. The
+    # boundary is right; the sentence was not, and the helper now PRINTS every
+    # hook it adds or removes on the write path, not only under --check.
+    # Anything changed is backed up first. The logic lives in vault-tools/render_settings.py because it is a
+    # JSON merge with a preservation rule, and a `grep -q` in bash could only
+    # ever check the shape of it -- which is exactly how it was wrong before.
+    local out rc
+    if [[ $CHECK_ONLY -eq 1 ]]; then
+      out="$(python3 "$ROOT/vault-tools/render_settings.py" --root "$ROOT" \
+             --template "$tpl" --dest "$dest" --check 2>&1)"; rc=$?
+      if [[ $rc -eq 1 ]]; then
+        warn "settings.json is behind the template ($(basename "$(dirname "$(dirname "$dest")")"))"
+        while IFS= read -r line; do [[ -n "$line" ]] && note "    $line"; done <<<"$out"
+        FAILED+=("settings.json out of date")
+      elif [[ $rc -ne 0 ]]; then
+        fail "settings.json ($out)"
       else
         kept=$((kept+1))
       fi
+      continue
+    fi
+    out="$(python3 "$ROOT/vault-tools/render_settings.py" --root "$ROOT" \
+           --template "$tpl" --dest "$dest" 2>&1)"; rc=$?
+    if [[ $rc -ne 0 ]]; then
+      fail "settings.json ($out)"
+    elif [[ "$out" == "current" ]]; then
+      kept=$((kept+1))
     else
-      sed "s|{{JARVIS_ROOT}}|$ROOT|g" "$tpl" > "$dest"; made=$((made+1))
+      made=$((made+1))
+      while IFS= read -r line; do [[ -n "$line" ]] && note "    $line"; done <<<"$out"
     fi
   done
   # Proof, not intent: whatever exists must parse and carry the real root.
