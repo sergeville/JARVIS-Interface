@@ -18,6 +18,8 @@ export class EventBus {
     this.refusedEmits = 0;
     /** count of subscriptions refused for lack of documentation */
     this.refusedSubscribes = 0;
+    /** @type {Set<Function>} notified the moment a new type is documented */
+    this.documentWatchers = new Set();
   }
 
   /**
@@ -29,7 +31,33 @@ export class EventBus {
   document(type, description = '') {
     if (typeof type === 'string' && type.trim() !== '' && !this.vocabulary.has(type)) {
       this.vocabulary.set(type, description);
+      // Tell anyone who tracks the vocabulary, IMMEDIATELY.
+      //
+      // Added for S4's activity meter, and the reason is worth keeping: a
+      // listener that re-reads the vocabulary when it is next polled is
+      // still deaf to an event documented and emitted before that poll --
+      // which is the ordinary shape, since whoever documents a type
+      // usually emits it in the next breath. Polling narrowed the window;
+      // it did not close it. This closes it.
+      //
+      // A watcher that throws is isolated and counted, exactly like a
+      // listener: registering interest in the vocabulary must not become a
+      // way to break the bus.
+      for (const fn of [...this.documentWatchers]) {
+        try { fn(type); } catch (e) { this.listenerFaults += 1; }
+      }
     }
+  }
+
+  /**
+   * Watch the vocabulary itself. Called with each newly documented type.
+   * @param {Function} fn
+   * @returns {() => void} unwatch
+   */
+  onDocument(fn) {
+    if (typeof fn !== 'function') return () => {};
+    this.documentWatchers.add(fn);
+    return () => { this.documentWatchers.delete(fn); };
   }
 
   /** @param {string} type @returns {boolean} */

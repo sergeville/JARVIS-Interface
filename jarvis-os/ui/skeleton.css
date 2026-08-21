@@ -119,30 +119,53 @@ body {
   justify-content: center;
 }
 
-.os-core__ring {
+/* S4: the three .os-core__ring divs are gone. The bezels are generated SVG
+   (ui/core-rings.js) and the centre belongs to the brain (ui/brain-canvas.js).
+   The two tone rules that used to point at those divs are re-pointed below
+   rather than left as furniture that reads like protection and styles
+   nothing. */
+
+.os-core__stage {
   position: absolute;
   inset: 0;
-  border-radius: 50%;
-  border: 1px solid var(--os-hair);
+  display: block;
 }
-.os-core__ring--outer  { animation: os-spin 60s linear infinite; border-top-color: var(--os-accent); }
-.os-core__ring--middle { inset: 12%; animation: os-spin 40s linear infinite reverse; border-bottom-color: var(--os-accent); }
-.os-core__ring--inner  { inset: 24%; animation: os-pulse 4s ease-in-out infinite; }
 
-.os-core__heart {
-  width: 46%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 42%, rgba(110, 235, 250, 0.16), transparent 65%), #030b12;
-  border: 1px solid var(--os-hair);
-  box-shadow: 0 0 34px rgba(110, 235, 250, 0.12);
+.os-brain,
+.os-rings {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.os-brain {
+  filter: drop-shadow(0 0 26px rgba(110, 235, 250, 0.16));
+}
+
+.os-rings__tick { stroke: var(--os-hair); }
+.os-rings__bin {
+  fill: var(--os-accent);
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+/* A bin's energy is written as an attribute by the painter; the CSS reads
+   it, so "is anything firing" is legible in the DOM as well as on screen. */
+.os-rings__bin[data-energy='0'] { opacity: 0; }
+.os-rings__bin:not([data-energy='0']) { opacity: 0.85; }
+
+.os-core__caption {
+  position: absolute;
+  left: 50%;
+  bottom: -14%;
+  transform: translateX(-50%);
+  width: 92%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 4px;
   text-align: center;
-  padding: 8%;
 }
 
 .os-core__title { font-size: 17px; letter-spacing: 0.42em; text-indent: 0.42em; color: var(--os-accent); }
@@ -176,8 +199,12 @@ body {
 [data-os-state='emergency-stop'] .os-core__state { color: var(--os-bad); animation: os-blink 0.9s steps(2) infinite; }
 [data-os-state='recovering']     .os-core__state { color: var(--os-warn); animation: os-blink 3s ease-in-out infinite; }
 
-[data-os-tone='bad'] .os-core__ring { border-color: rgba(224, 82, 60, 0.35); }
-[data-os-tone='warn'] .os-core__heart { box-shadow: 0 0 34px rgba(224, 166, 60, 0.12); }
+/* Tone still changes the core -- S1's acceptance line, re-proven against the
+   new elements instead of assumed to have survived the rebuild. These two
+   used to name .os-core__ring and .os-core__heart, which no longer exist. */
+[data-os-tone='bad'] .os-rings__tick { stroke: rgba(224, 82, 60, 0.55); }
+[data-os-tone='bad'] .os-brain { filter: drop-shadow(0 0 26px rgba(224, 82, 60, 0.28)); }
+[data-os-tone='warn'] .os-brain { filter: drop-shadow(0 0 26px rgba(224, 166, 60, 0.22)); }
 
 @keyframes os-spin  { to { transform: rotate(360deg); } }
 @keyframes os-pulse { 50% { transform: scale(1.03); opacity: 0.7; } }
@@ -325,6 +352,10 @@ body {
 /* ---- Reduced motion: the truth stays, the theatre stops ----------------- */
 
 @media (prefers-reduced-motion: reduce) {
-  .os-core__ring, .os-core__state, .os-instrument__state { animation: none !important; }
+  /* .os-core__ring named a element that S4 deleted; the bezels are SVG now
+     and their motion is driven from JS, which brain-canvas quiets by not
+     starting a loop at all under reduced motion. */
+  .os-rings, .os-core__state, .os-instrument__state { animation: none !important; }
+  .os-rings__bin { transition: none; }
   .os-core__meter-fill { transition: none; }
 }

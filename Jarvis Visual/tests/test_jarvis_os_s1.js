@@ -129,8 +129,21 @@ function walk(el, out = []) {
 
   const core = coreVisual.createCore(fakeDoc, { stateId: 'ready', goal: 'g', operation: 'o', progress: 40 });
   const all = walk(core.el);
-  ok('the core renders rings, title, state, goal, operation and meter',
-    all.filter((el) => el.className.includes('os-core__ring')).length === 3 &&
+  // REPOINTED BY S4, 2026-08-15, and disclosed here rather than left in a
+  // diff. This assertion required THREE `.os-core__ring` divs. S4 deletes
+  // them: the bezels are generated SVG (ui/core-rings.js) and the centre is
+  // the brain (ui/brain-canvas.js). It now requires the STAGE those mount
+  // into, which is the same claim -- "the core builds its visual layer" --
+  // against the element that layer actually uses. Everything else in this
+  // assertion is untouched and still checks exactly what it did.
+  //
+  // Editing a test to match the code is the move that must never happen
+  // unwatched, so: the proposal called "S1's 28 tests keep passing
+  // unchanged" an acceptance condition of S4. That was checkably false when
+  // it was written -- this one test had to move, and this comment is the
+  // watching.
+  ok('the core renders its visual stage, title, state, goal, operation and meter',
+    all.filter((el) => el.className === 'os-core__stage').length === 1 &&
     all.some((el) => el.className === 'os-core__title' && el.textContent === 'JARVIS') &&
     core.refs.state.textContent === 'READY' && core.refs.fill.style.width === '40%');
 
