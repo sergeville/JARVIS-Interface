@@ -13,6 +13,7 @@ and A NAG YOU CANNOT CHEAPLY SATISFY BECOMES NOISE, which is the failure
 being fixed rebuilt one level up.
 
     python3 vault-tools/task.py list
+    python3 vault-tools/task.py stale
     python3 vault-tools/task.py move <part of title> <status> ["note"]
     python3 vault-tools/task.py add "<title>" [P1|P2|P3] ["note"]
 
@@ -79,6 +80,71 @@ TASK_RE = re.compile(r"^- \[([ x])\] \*\*(.+?)\*\*")
 # on a finished card the owner is the record of who did it, and clearing it
 # would throw that away at the exact moment it becomes history.
 OWNED = ("active", "review", "test")
+
+# THE STATUSES THAT CLAIM SOMEBODY IS WORKING RIGHT NOW, which is a claim
+# that can go stale on its own while nobody is looking. `review` and
+# `waiting-on-serge` are deliberately NOT here: their owner is the record of
+# who built the thing, and nobody is expected to be mid-keystroke on them.
+# `active` and `test` are different -- they say work is happening.
+WORKING = ("active", "test")
+
+
+def live_pids():
+    """The pids of Jarvis sessions alive right now, or None if unknowable.
+
+    NONE IS A REAL ANSWER AND MUST NOT BECOME AN EMPTY SET. "no sessions
+    are alive" and "I could not find out" lead to opposite conclusions about
+    every card on the board, and collapsing them is how a guess gets printed
+    as a fact. Same rule `session_mail.live_session_ids()` states for the
+    same reason.
+    """
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        vl = os.path.join(os.path.dirname(here), "voice-line")
+        if vl not in sys.path:
+            sys.path.insert(0, vl)
+        import session_registry
+        return {r["pid"] for r in session_registry.read_sessions()
+                if r.get("pid") and not r.get("ended")}
+    except Exception:
+        return None
+
+
+def owner_pid(owner):
+    """The pid named in an owner label, or None if it names none.
+
+    NEVER `ps -p`. A pid is an integer the operating system RECYCLES, and on
+    2026-08-21 that cost six days: a card sat in `test` under "terminal
+    (Jarvis root) (pid 2330)" while 2330 had become a Spotlight process
+    started that morning. I checked `ps -p 2330`, got a hit, and reported the
+    session ALIVE -- measuring that SOMETHING holds the number rather than
+    that the SESSION does. The registry knows the difference; the process
+    table cannot.
+    """
+    if not owner:
+        return None
+    m = re.search(r"pid\s+(\d+)", owner)
+    return int(m.group(1)) if m else None
+
+
+def stale_owner(status, owner, live):
+    """Is this card claiming a worker who no longer exists?
+
+    Returns 'stale', 'ok', or 'unknown'. The three are kept apart on purpose:
+    an unreadable registry must never render as a dead session, because the
+    board's whole job is to stop confident wrong answers.
+    """
+    if status not in WORKING:
+        return "ok"
+    if owner is None or owner.strip() in ("", "unassigned"):
+        # Honest already: it says nobody holds it, and it is not pretending.
+        return "ok"
+    if live is None:
+        return "unknown"
+    pid = owner_pid(owner)
+    if pid is None:
+        return "unknown"
+    return "ok" if pid in live else "stale"
 
 
 def owner_label():
@@ -213,13 +279,63 @@ def save(lines, mtime_ns):
 
 def cmd_list():
     lines, _ = load()
+    live = live_pids()
+    stale, unknown = [], []
     for title, s, e in blocks(lines):
         st = field(lines, s, e, "status")
         nt = field(lines, s, e, "note")
+        ow = field(lines, s, e, "owner")
         stv = lines[st].split(":", 1)[1].strip() if st else "?"
         ntv = lines[nt].split(":", 1)[1].strip()[:60] if nt else ""
-        print(f"{stv:17} {title[:52]:54} {ntv}")
+        owv = lines[ow].split(":", 1)[1].strip() if ow else None
+        verdict = stale_owner(stv, owv, live)
+        if verdict == "stale":
+            stale.append((title, stv, owv))
+        elif verdict == "unknown":
+            unknown.append((title, stv, owv))
+        mark = {"stale": " <-- OWNER IS GONE", "unknown": " <-- owner unverifiable"}.get(verdict, "")
+        print(f"{stv:17} {title[:52]:54} {ntv}{mark}")
+    # SAID AGAIN AT THE BOTTOM, because the marks above scroll away in a
+    # board this long and a warning nobody sees is not a warning. This is
+    # the half that makes it a guard rather than a decoration.
+    if stale:
+        print(f"\n{len(stale)} card(s) claim a worker who no longer exists:")
+        for title, stv, owv in stale:
+            print(f"  {stv:6} {title[:60]}  owner: {owv}")
+        print("  Nobody is working on these. Move them back to `open`, or take them.")
+    if unknown:
+        print(f"\n{len(unknown)} card(s) could not be checked "
+              f"(no live registry, or the owner names no pid):")
+        for title, stv, owv in unknown:
+            print(f"  {stv:6} {title[:60]}  owner: {owv}")
     return 0
+
+
+def cmd_stale():
+    """Exit 1 if any card claims a worker who is gone -- so it can gate.
+
+    A separate command rather than making `list` exit non-zero: `list` is
+    read by people and by scripts that just want the board, and an exit code
+    that changes under them is its own trap.
+    """
+    lines, _ = load()
+    live = live_pids()
+    bad = []
+    for title, s, e in blocks(lines):
+        st = field(lines, s, e, "status")
+        ow = field(lines, s, e, "owner")
+        stv = lines[st].split(":", 1)[1].strip() if st else "?"
+        owv = lines[ow].split(":", 1)[1].strip() if ow else None
+        if stale_owner(stv, owv, live) == "stale":
+            bad.append((title, stv, owv))
+    if not bad:
+        print("every working card has a live owner"
+              if live is not None else
+              "could not read the session registry -- nothing checked")
+        return 0
+    for title, stv, owv in bad:
+        print(f"STALE {stv:6} {title[:60]}  owner: {owv}")
+    return 1
 
 
 def move(needle, status, note, exact=False, only_from=None,
@@ -377,11 +493,14 @@ def main(argv):
     if len(argv) < 2:
         sys.exit(__doc__.strip().splitlines()[0] + "\n\n" +
                  "  task.py list\n"
+                 "  task.py stale\n"
                  "  task.py move <part of title> <status> [note]\n"
                  "  task.py add \"<title>\" [P1|P2|P3] [note]")
     verb = argv[1]
     if verb == "list":
         return cmd_list()
+    if verb == "stale":
+        return cmd_stale()
     if verb == "move":
         if len(argv) < 4:
             sys.exit("usage: task.py move <part of title> <status> [note]")
@@ -392,7 +511,7 @@ def main(argv):
         return cmd_add(argv[2],
                        argv[3] if len(argv) > 3 else "P3",
                        argv[4] if len(argv) > 4 else "")
-    sys.exit(f"unknown verb {verb!r} -- list, move or add")
+    sys.exit(f"unknown verb {verb!r} -- list, stale, move or add")
 
 
 if __name__ == "__main__":

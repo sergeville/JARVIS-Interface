@@ -57,6 +57,11 @@ voice-line/.voice_transcript
 # ids and pids -- this repo is public, so it is excluded for both reasons.
 voice-line/.activity.json
 
+# The disk watcher's rolling sample buffer -- timestamps and free-byte counts
+# for this machine's volume. Live state, regenerated on every run, and nothing
+# a clone of a public repo should carry.
+voice-line/.disk-watch.json
+
 # ---- Large, and reproducible from the README rather than from git ---------
 # whisper GGML weights ~465 MB (install step 3); kokoro-fastapi ~1.5 GB
 # (step 4); the uv venv (step 2); public-domain ambient tracks ~41 MB (step 5).
@@ -104,3 +109,9 @@ Jarvis Visual/.claude/settings.json.backup-*
 # copy is kept in Jarvis Visual/references/ (itself ignored). His file, and
 # this repo is public -- it must never be published by a stray `git add .`.
 jarvis-os/test.html
+
+# The S5 gate spawns a copy of itself to prove it can report a failure.
+# Cleanup only runs on the happy path, so a copy killed mid-spawn is left
+# behind -- a 36KB executable copy of the suite, untracked, in a public
+# repo (test-adversary, 2026-08-15).
+.s5-metatest-*.js

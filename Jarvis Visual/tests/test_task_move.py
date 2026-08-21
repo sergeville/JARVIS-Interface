@@ -764,5 +764,253 @@ class TestOwnerLabelIsWired(Base):
                     del sys.modules["session_registry"]
 
 
+
+# ---------------------------------------------------------------------------
+# THE BOARD CATCHES ITS OWN STALE CARDS
+# ---------------------------------------------------------------------------
+#
+# Found 2026-08-21 by getting it wrong. A card sat in `test` for SIX DAYS
+# under "terminal (Jarvis root) (pid 2330)" while nobody proved anything.
+# Sweeping by hand found it -- and then I checked whether that session was
+# alive with `ps -p 2330`, got a hit, and reported ALIVE. 2330 had become
+# `spotlightknowledged`, started that morning. A pid is a number the OS
+# RECYCLES; checking that SOMETHING holds it is not checking that the SESSION
+# does, and the board's own header has said so since 2026-08-05.
+#
+# So the rule became code. `active` and `test` are the two statuses that
+# claim work is happening NOW, and a claim that can rot unwatched is exactly
+# what this project keeps learning must be checked rather than remembered.
+#
+# THE THIRD ANSWER IS THE POINT. "stale", "ok" and "unknown" are kept apart,
+# because an unreadable registry rendering as "the session is dead" would be
+# a confident wrong answer -- the failure mode every honesty rule in this
+# repo exists to refuse.
+
+
+STALE_BOARD = """---
+status: active
+project: meta
+type: plan
+---
+# Active Priorities
+
+### Open Tasks
+
+- [ ] **Ghost the abandoned thing** (learning-ai)
+  - status: active
+  - owner: terminal (Jarvis root) (pid 2330)
+  - priority: P1
+  - updated: 2026-08-15 10:10
+  - note: nobody has touched this in six days
+
+- [ ] **Live the worked thing** (learning-ai)
+  - status: active
+  - owner: voice line (pid 4242)
+  - priority: P1
+  - updated: 2026-08-21 11:00
+  - note: genuinely in flight
+
+- [ ] **Backlog the untaken thing** (learning-ai)
+  - status: open
+  - owner: unassigned
+  - priority: P3
+  - updated: 2026-08-21 11:00
+  - note: nobody claims it and it does not pretend to
+
+- [ ] **Reviewed the finished thing** (learning-ai)
+  - status: review
+  - owner: terminal (Jarvis root) (pid 2330)
+  - priority: P2
+  - updated: 2026-08-15 10:10
+  - note: built, waiting on his eyes -- the owner is history, not a worker
+"""
+
+
+class TestTheStaleOwnerVerdict(unittest.TestCase):
+    """The pure decision, every square of the matrix."""
+
+    def setUp(self):
+        self.task = load("_task_stale", TASK_PY)
+
+    def test_a_working_card_owned_by_a_dead_session_is_STALE(self):
+        self.assertEqual(
+            self.task.stale_owner("active", "voice line (pid 999)", {1, 2}), "stale")
+
+    def test_a_working_card_owned_by_a_live_session_is_ok(self):
+        self.assertEqual(
+            self.task.stale_owner("active", "voice line (pid 2)", {1, 2}), "ok")
+
+    def test_TEST_counts_as_working_too(self):
+        # The six-day card was in `test`, not `active`. Missing this status
+        # would have left the exact bug this exists for.
+        self.assertEqual(
+            self.task.stale_owner("test", "voice line (pid 999)", {1}), "stale")
+
+    def test_REVIEW_is_deliberately_not_working(self):
+        # Its owner is the record of who built it. Nobody is expected to be
+        # mid-keystroke, so a dead owner there is history, not a lie.
+        self.assertEqual(
+            self.task.stale_owner("review", "voice line (pid 999)", {1}), "ok")
+
+    def test_open_and_done_and_waiting_are_never_stale(self):
+        for st in ("open", "done", "waiting-on-serge"):
+            self.assertEqual(
+                self.task.stale_owner(st, "voice line (pid 999)", {1}), "ok", st)
+
+    def test_unassigned_is_honest_rather_than_stale(self):
+        self.assertEqual(self.task.stale_owner("active", "unassigned", {1}), "ok")
+        self.assertEqual(self.task.stale_owner("active", "", {1}), "ok")
+        self.assertEqual(self.task.stale_owner("active", None, {1}), "ok")
+
+    def test_AN_UNREADABLE_REGISTRY_IS_UNKNOWN_AND_NEVER_STALE(self):
+        # The whole reason the third answer exists. Collapsing None into an
+        # empty set would mark EVERY working card dead the moment the
+        # registry hiccups -- a confident wrong answer at the worst moment.
+        self.assertEqual(
+            self.task.stale_owner("active", "voice line (pid 5)", None), "unknown")
+
+    def test_an_owner_naming_no_pid_is_unknown_not_stale(self):
+        self.assertEqual(
+            self.task.stale_owner("active", "some human", {1}), "unknown")
+
+    def test_the_pid_is_read_from_the_label_not_guessed(self):
+        self.assertEqual(self.task.owner_pid("voice line (pid 29186)"), 29186)
+        self.assertIsNone(self.task.owner_pid("unassigned"))
+        self.assertIsNone(self.task.owner_pid(None))
+
+    def test_a_pid_INSIDE_the_channel_name_does_not_fool_it(self):
+        # The label is built by owner_label(); this is the shape it makes.
+        self.assertEqual(self.task.owner_pid("terminal (Jarvis root) (pid 7)"), 7)
+
+    def test_IT_READS_THE_PID_NOT_MERELY_A_NUMBER(self):
+        # My own injection round found this one MISSED: loosening the regex
+        # to r"(\d+)" left every test above green, because none of their
+        # labels carried a digit anywhere else. A number in the channel name
+        # would then be read AS the pid -- and the pid is the entire basis
+        # for deciding a session is gone, so a wrong one condemns a live
+        # card or blesses a dead one.
+        self.assertEqual(self.task.owner_pid("voice line 2 (pid 29186)"), 29186)
+        self.assertEqual(self.task.owner_pid("terminal 3 (Jarvis Visual) (pid 7)"), 7)
+        # ...and a bare number with no "pid" is not a pid at all.
+        self.assertIsNone(self.task.owner_pid("session 4242"))
+
+    def test_A_MALFORMED_OWNER_RETURNS_None_AND_NEVER_RAISES(self):
+        # Second miss my own round found: loosening \d+ to \d* leaves the
+        # regex MATCHING with an empty group, and int("") raises. This runs
+        # inside `task.py list`, which Serge types -- a traceback there means
+        # he cannot see his board at all, over one malformed line. The board
+        # going blank is a strictly worse failure than the stale card it was
+        # written to catch.
+        for junk in ("voice line (pid )", "voice line (pid", "(pid: 12)",
+                     "pid", "", "   "):
+            self.assertIsNone(self.task.owner_pid(junk), junk)
+
+    def test_the_whole_verdict_survives_a_malformed_owner(self):
+        # And the caller must degrade to "unknown", not explode.
+        self.assertEqual(
+            self.task.stale_owner("active", "voice line (pid )", {1}), "unknown")
+
+
+class TestTheStaleCommandGatesIt(unittest.TestCase):
+    """Driven end to end against a real board file, with a real exit code."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.note = Path(self.tmp.name) / "Active Priorities.md"
+        self.note.write_text(STALE_BOARD)
+        self.task = load("_task_stale_cmd", TASK_PY)
+        self.task.NOTE = str(self.note)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, live):
+        import io, contextlib
+        self.task.live_pids = lambda: live
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = self.task.cmd_stale()
+        return rc, buf.getvalue()
+
+    def test_IT_GOES_RED_when_a_working_card_has_a_dead_owner(self):
+        rc, out = self._run({4242})
+        self.assertEqual(rc, 1)
+        self.assertIn("Ghost the abandoned thing", out)
+
+    def test_it_names_ONLY_the_dead_one(self):
+        rc, out = self._run({4242})
+        self.assertNotIn("Live the worked thing", out)
+        self.assertNotIn("Backlog the untaken thing", out)
+        # review is history, not a worker -- naming it would be noise, and a
+        # nag you cannot cheaply satisfy becomes noise, which is this file's
+        # own founding lesson.
+        self.assertNotIn("Reviewed the finished thing", out)
+
+    def test_it_goes_GREEN_when_every_working_owner_is_alive(self):
+        rc, out = self._run({4242, 2330})
+        self.assertEqual(rc, 0)
+        self.assertIn("live owner", out)
+
+    def test_AN_UNREADABLE_REGISTRY_DOES_NOT_CONDEMN_THE_BOARD(self):
+        rc, out = self._run(None)
+        self.assertEqual(rc, 0)
+        self.assertIn("could not read", out)
+        self.assertNotIn("STALE", out)
+
+    def test_list_MARKS_the_stale_card_and_says_so_again_at_the_bottom(self):
+        # The marks scroll away on a board this long; a warning nobody sees
+        # is not a warning.
+        import io, contextlib
+        self.task.live_pids = lambda: {4242}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.task.cmd_list()
+        out = buf.getvalue()
+        self.assertIn("OWNER IS GONE", out)
+        self.assertIn("claim a worker who no longer exists", out)
+
+    def test_list_still_prints_every_card(self):
+        import io, contextlib
+        self.task.live_pids = lambda: {4242}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.task.cmd_list()
+        out = buf.getvalue()
+        for t in ("Ghost the abandoned thing", "Live the worked thing",
+                  "Backlog the untaken thing", "Reviewed the finished thing"):
+            self.assertIn(t, out)
+
+
+class TestLivePidsIsHonest(unittest.TestCase):
+
+    def setUp(self):
+        self.task = load("_task_live", TASK_PY)
+
+    def test_it_returns_None_rather_than_an_empty_set_when_it_cannot_look(self):
+        saved = sys.modules.pop("session_registry", None)
+        try:
+            sys.modules["session_registry"] = None   # import raises
+            self.assertIsNone(self.task.live_pids())
+        finally:
+            sys.modules.pop("session_registry", None)
+            if saved is not None:
+                sys.modules["session_registry"] = saved
+
+    def test_an_ENDED_session_is_not_counted_as_live(self):
+        import types
+        fake = types.ModuleType("session_registry")
+        fake.read_sessions = lambda: [
+            {"pid": 1, "ended": False}, {"pid": 2, "ended": True}]
+        saved = sys.modules.get("session_registry")
+        sys.modules["session_registry"] = fake
+        try:
+            self.assertEqual(self.task.live_pids(), {1})
+        finally:
+            if saved is not None:
+                sys.modules["session_registry"] = saved
+            else:
+                del sys.modules["session_registry"]
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

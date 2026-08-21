@@ -100,12 +100,53 @@ fi
 # the log, but you have to have kept the whole log to find it -- and a tail,
 # which is what anyone actually runs, cuts exactly the part that matters.
 # Collecting the names costs nothing and makes the next red name itself.
+#
+# AND THE RUNNER KEEPS THE OUTPUT ITSELF (2026-08-14, carded; built
+# 2026-08-21). Naming the file was half the job. Twice in one day a red
+# arrived and its output was gone -- not because the runner did not print it,
+# but because the operator piped this script through `tail` to see the
+# summary, which is the only sane way to read 40 files of output, and that
+# pipe throws away the one part that matters. It happened again on 2026-08-21
+# and cost a manual re-run per failing file.
+#
+# THE FIX IS NOT "PRINT MORE". A red already prints everything; the problem is
+# that it scrolls. So each file's output is TEE'd to its own log, and a red
+# replays the tail of every failing file AT THE BOTTOM, after the summary --
+# where a `tail` can still see it. Capture stops depending on remembering.
+#
+# TWO MECHANISMS GUARD THE EXIT CODE, AND EITHER ONE ALONE IS ENOUGH --
+# said plainly because the first version of this comment claimed `pipefail`
+# was load-bearing, and an injection round proved that false the same hour.
+# `run_one` returns `${PIPESTATUS[0]}`, which is the TEST's status by
+# definition and does not depend on `pipefail`; and `pipefail` (set at the
+# top) makes a bare `$?` after the pipeline the test's status too. Removing
+# either leaves the gate correct; removing BOTH makes every test appear to
+# pass, which is strictly worse than the problem this block fixes. Keep both,
+# and do not let a future tidy-up delete one believing the other is
+# decoration -- they are belt and braces, and this comment is the record that
+# neither is the whole answer.
+LOGDIR="${TMPDIR:-/tmp}/jarvis-test-logs/$(date '+%Y%m%d-%H%M%S')-$$"
+mkdir -p "$LOGDIR"
+
+# BOUNDED, because an unbounded pile of logs in TMPDIR is how this machine
+# filled its disk on 2026-08-15. Keep the most recent runs and drop the rest;
+# a gate that slowly eats the volume is a gate that gets switched off.
+ls -1dt "${TMPDIR:-/tmp}"/jarvis-test-logs/*/ 2>/dev/null | tail -n +21 | while read -r old_dir; do
+  rm -rf "$old_dir" 2>/dev/null || true
+done
+
 fail=0
 failed=()
+run_one() {
+  local name="$1"; shift
+  echo "=== $name"
+  "$@" 2>&1 | tee "$LOGDIR/$name.log"
+  return "${PIPESTATUS[0]}"
+}
+
 for t in "$HERE"/test_*.py; do
   [ -e "$t" ] || continue
-  echo "=== $(basename "$t")"
-  "$PY" "$t" || { fail=1; failed+=("$(basename "$t")"); }
+  run_one "$(basename "$t")" "$PY" "$t" || { fail=1; failed+=("$(basename "$t")"); }
 done
 
 # Page tests (2026-08-05). jarvis.html is code too -- the compact task list and
@@ -114,8 +155,7 @@ done
 # stub, so they cannot drift from what ships.
 for t in "$HERE"/test_*.js; do
   [ -e "$t" ] || continue
-  echo "=== $(basename "$t")"
-  node "$t" || { fail=1; failed+=("$(basename "$t")"); }
+  run_one "$(basename "$t")" node "$t" || { fail=1; failed+=("$(basename "$t")"); }
 done
 
 if [ "$fail" -ne 0 ]; then
@@ -126,6 +166,18 @@ if [ "$fail" -ne 0 ]; then
   echo "TESTS FAILED -- the change is not accepted." >&2
   echo "${#failed[@]} file(s) failed:" >&2
   for f in "${failed[@]}"; do echo "  $f" >&2; done
+  # THE REPLAY, and it goes LAST on purpose: this is the part a `tail` keeps.
+  # Bounded per file so one catastrophically noisy failure cannot bury the
+  # others -- the full output is in the log named above each block.
+  echo >&2
+  echo "---- what actually failed ----" >&2
+  for f in "${failed[@]}"; do
+    echo >&2
+    echo "---- $f (full log: $LOGDIR/$f.log)" >&2
+    tail -n 40 "$LOGDIR/$f.log" >&2 2>/dev/null || echo "  (no log captured)" >&2
+  done
+  echo >&2
+  echo "all logs for this run: $LOGDIR" >&2
   exit 1
 fi
 echo
