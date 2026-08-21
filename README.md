@@ -106,6 +106,7 @@ Jarvis Visual/          the browser HUD and its server
 vault-tools/            the vault's own tools, and the Claude Code hooks
   vault-audit.py        the vault consistency checker
   session_record.py     the Stop hook that writes transcripts/  (see Transcripts)
+docs/                   guides for building pieces of this elsewhere
 install.sh              one-command setup; idempotent, verifies, never overwrites
 ```
 
@@ -437,6 +438,11 @@ stops the typed half. **The spoken half is separate** and is written by the
 voice line itself through `log_transcript` in `voice-line/signals.py`, so
 removing the hook does not stop it. Both are named here rather than left to be
 discovered.
+
+**Want this in a project of your own?** `docs/transcript-feature.md` is the
+whole thing written down to be built from scratch somewhere else — the two
+files reproduced in full, the hook wiring, six acceptance checks, and the ten
+pitfalls this project already paid for.
 
 ## Tests
 
