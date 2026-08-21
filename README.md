@@ -207,9 +207,17 @@ script on the same input failed once and succeeded once), and it needed a
 file-count in this README that went stale three times. Removing the absolute
 paths removed the reason any of it existed.
 
-The only mentions of a username left anywhere are seven **fictional** fixtures
-(`/Users/testuser/...`) in two test files, standing in for process command
-lines.
+**No shipping file carries an absolute home path at all.** The only mentions of
+a username anywhere are **fictional** fixtures inside the test suite —
+`/Users/testuser/...` and friends — standing in for process command lines and
+settings payloads.
+
+That is stated as a property rather than a count on purpose, and
+`Jarvis Visual/tests/test_readme_claims.py` enforces it: the sentence you are
+reading goes red the moment it stops being true. The version before it said
+"seven fictional fixtures in two test files" — wrong on both counts by the time
+anybody looked, because **a number typed into prose is a number nothing can
+check.** That is the same reason no table in this file names a line number.
 
 **1. Prerequisites**
 
