@@ -47,13 +47,22 @@ from pathlib import Path
 #
 # The number is chosen against the hook's own configured timeout, because that
 # is the real upper bound and the first version of this constant was picked
-# against nothing. Those timeouts DISAGREE -- the deployed .claude/settings.json
-# files say 20s and templates/claude-settings.json.template says 15s -- which is
-# carded separately as its own defect. It must also clear the SMALLEST timeout
-# in the template, 10s, because vault-tools/hookio.py is shared and the next
-# hook to adopt it inherits this ceiling. 8.0 sits under all three. Raising it
-# is safe only up to the smallest of them; shrinking it widens the window in
-# which a genuinely slow caller's turn is dropped in silence.
+# against nothing. THE TIMEOUTS AGREE NOW: this hook is 15s in both deployed
+# settings.json files and in templates/claude-settings.json.template, settled
+# by Serge's ruling of 2026-08-15 (~8:03 AM) in the template's favour. The
+# earlier note here described a 20-vs-15 skew that no longer exists.
+# It must also clear the SMALLEST timeout configured anywhere, 10s, because
+# vault-tools/hookio.py is shared and the next hook to adopt it inherits this
+# ceiling. 5.0 sits under both. Raising it is safe only up to the smallest of
+# them; shrinking it widens the window in which a genuinely slow caller's turn
+# is dropped in silence.
+#
+# THIS COMMENT SAID 8.0 FOR DAYS WHILE THE CODE SAID 5.0. Nothing was broken
+# by it -- 5.0 clears every bound the paragraph names -- but a number in prose
+# that the code does not have is how the next person picks the wrong ceiling
+# with confidence, and it is the fault this project has hit more often than
+# any other. Both numbers here are now checkable against the configs, and a
+# test reads them rather than trusting this paragraph.
 # Must equal hookio.DEFAULT_BUDGET; a test pins them. Passed explicitly rather
 # than left to default so the tests can override it per-run.
 STDIN_BUDGET = 5.0

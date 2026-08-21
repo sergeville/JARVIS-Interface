@@ -88,8 +88,55 @@ _DECODER = json.JSONDecoder()
 # which is a real payload shape (`null`) that must be refused, not waited on.
 _INCOMPLETE = object()
 
+# THE LAST THING THIS MODULE SWALLOWED, so that "always returns" does not
+# quietly become "always returns None". `read_json_stdin` is TOTAL by
+# contract -- a hook that raises here blocks Serge's session -- but a total
+# function with a bare catch is indistinguishable from one that has stopped
+# working, and this project has been bitten by exactly that shape more than
+# any other. So the swallow is recorded rather than invisible: tests assert
+# on it, and a future session debugging "the hook stopped recording" has
+# something to read instead of a guess.
+LAST_ERROR = None
+
 
 def read_json_stdin(budget=None, max_bytes=None, stream=None):
+    """The JSON object a hook was handed on stdin, or None. TOTAL.
+
+    THIS WRAPPER IS THE CONTRACT. The docstring below has promised "ALWAYS
+    RETURNS" since the day this module was written, and on 2026-08-21 it was
+    still false in two reproducible ways found by the test-adversary and
+    re-proven by hand:
+
+        * a stream with neither `isatty` nor `read` raised AttributeError --
+          both specific branches let it through to `json.load`, which needs
+          a `.read` nobody checked for;
+        * a stream whose `read()` raises RuntimeError propagated it, because
+          the fallback caught only (ValueError, TypeError, OSError).
+
+    Every hook in this repo calls this, on SessionStart, SessionEnd, Stop,
+    UserPromptSubmit and Notification -- so an exception here is not a hook
+    failing, it is Serge's turn failing, on a path he never asked about.
+    "For every reason alike" is what the contract already says; this makes
+    the code say it too.
+
+    THE BREADTH IS DELIBERATE AND IT IS THE RISKY PART, named rather than
+    hidden: `except Exception` would also swallow a genuine bug inside this
+    module -- a typo, a bad import -- and report it as "no payload", which is
+    the silent-failure shape this project keeps hunting. That is why it sets
+    `LAST_ERROR` instead of dropping it on the floor, and why the specific
+    branches below are kept: they still say WHY for every reason anyone has
+    actually met. This catch is the floor, not the design.
+    """
+    global LAST_ERROR
+    LAST_ERROR = None
+    try:
+        return _read_json_stdin(budget, max_bytes, stream)
+    except Exception as e:                      # noqa: BLE001 -- see above
+        LAST_ERROR = f"{type(e).__name__}: {e}"
+        return None
+
+
+def _read_json_stdin(budget=None, max_bytes=None, stream=None):
     """The JSON object a hook was handed on stdin, or None.
 
     ALWAYS RETURNS, and returns within `budget`. Not "never blocks" -- that was
@@ -182,7 +229,23 @@ def _decode_prefix(buf):
     except UnicodeDecodeError:
         return _INCOMPLETE       # a multi-byte character split across reads
     try:
-        value, _end = _DECODER.raw_decode(text.lstrip())
+        # STRIP A BOM AS WELL AS WHITESPACE. `lstrip()` does not remove
+        # U+FEFF, so a payload written by any wrapper that prepends a byte
+        # order mark never parsed -- and, worse, never RESOLVED: raw_decode
+        # raised ValueError, which this function reports as _INCOMPLETE,
+        # which means "keep reading". A permanently malformed payload was
+        # therefore waited on for the entire budget and then dropped. On a
+        # hook deployed with a 10s timeout that is half its life spent on
+        # something that could never have worked. (test-adversary,
+        # 2026-08-15; reproduced 2026-08-21 -- exactly 1.00s of a 1.0s
+        # budget.)
+        #
+        # A TRUNCATED PAYLOAD IS NOT THE SAME CASE AND IS NOT FIXED HERE,
+        # deliberately. A genuine prefix may be completed by the next chunk,
+        # so waiting is the correct behaviour and the budget is the designed
+        # cost of it. The card that raised this named both; only one of them
+        # is a bug.
+        value, _end = _DECODER.raw_decode(text.lstrip("\ufeff \t\r\n"))
         return value
     except ValueError:
         return _INCOMPLETE       # not a whole value at the front yet
