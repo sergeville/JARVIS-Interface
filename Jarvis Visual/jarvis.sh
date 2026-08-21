@@ -529,6 +529,59 @@ do_start() {
   code=$(page_code)
   brain=$(find_others "$P_BRAIN")
   if [ "$code" = "200" ] && [ -n "$brain" ]; then
+    # ...BUT "ALIVE" AND "GETTING ON WITH IT" ARE DIFFERENT QUESTIONS, and
+    # this branch used to answer only the first. (Found 2026-08-15 on
+    # Serge's own post-reboot start; built 2026-08-21.) That morning it
+    # printed "nothing is wrong and nothing needs restarting" while
+    # /signals carried approval #1 UNANSWERED -- and it still did eight
+    # minutes later. The brain was not slow, it was BLOCKED ON HIM, and the
+    # one thing he needed to be told was the one thing this script never
+    # asked. The server already knows; nobody was reading it.
+    #
+    # Same shape as the expired-approval card built this morning: a request
+    # waiting on Serge that nothing surfaces is a request that dies of
+    # silence. This is that failure one layer up, in the script he runs
+    # FIRST -- and it matters more here, because after a reboot with no
+    # restored tab there may be no page open to show him the popup at all.
+    # `set -u` is on and there is no script-wide $PY, so resolve it here the
+    # same way ask() does further down -- the venv if it exists, else the
+    # system python. A start script that dies on an unset variable while
+    # trying to be helpful is worse than one that says nothing.
+    local blocked wpy
+    wpy="$VL/.venv/bin/python3"
+    [ -x "$wpy" ] || wpy="python3"
+    blocked=$(curl -s --max-time 3 http://127.0.0.1:8765/signals 2>/dev/null \
+      | "$wpy" -c "$(cat <<'PYWAIT'
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)          # unreadable is not evidence of anything
+a = d.get("approval") or {}
+n = d.get("denial") or {}
+if a.get("id") is not None:
+    print("APPROVAL|%s|%s" % (a.get("tool", "?"), (a.get("detail") or "")[:70]))
+elif n.get("id") is not None:
+    print("%s|%s|%s" % ("EXPIRED" if n.get("expired") else "REFUSED",
+                        n.get("tool", "?"), (n.get("detail") or "")[:70]))
+PYWAIT
+)" 2>/dev/null || true)
+    if [ -n "$blocked" ]; then
+      local kind tool detail
+      kind=${blocked%%|*}; detail=${blocked##*|}
+      tool=${blocked#*|}; tool=${tool%%|*}
+      echo ""
+      case "$kind" in
+        APPROVAL) echo "JARVIS IS NOT SLOW -- HE IS WAITING ON YOU." ;;
+        EXPIRED)  echo "A REQUEST RAN OUT OF TIME WHILE YOU WERE AWAY." ;;
+        REFUSED)  echo "A REFUSAL OF YOURS IS STILL UNRESOLVED." ;;
+      esac
+      echo "  $tool :: $detail"
+      echo "  Open http://127.0.0.1:8765/ and answer it -- the card is on the page."
+      echo ""
+      # No event. The server owns this record; the script is only relaying.
+      return 0
+    fi
     echo "still warming after $((60 * 2))s -- the server is up and the brain is alive."
     echo "  page:  http://127.0.0.1:8765/ (answering)"
     echo "  brain: pid $brain"

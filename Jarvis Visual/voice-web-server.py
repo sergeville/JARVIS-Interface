@@ -1365,6 +1365,41 @@ async def reason_transcribe(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "text": text})
 
 
+async def disk_alert(request: web.Request) -> web.Response:
+    """POST {"detail": "..."} -- the disk watcher, reporting.
+
+    WHY THIS ROUTE EXISTS AT ALL. The watcher runs as a launch agent, and a
+    launch agent has no Documents-folder access on macOS -- it cannot write
+    the stack event log the EVENTS card reads, and it cannot be given that
+    access without a broad grant nobody wants. It CAN reach loopback. So it
+    posts, and THIS process -- which was started from Serge's own terminal
+    and does have that access -- does the write.
+
+    And macOS notifications were tried first and are not trustworthy here:
+    the osascript call exits 0 whether or not anything ever reaches the
+    screen, so "delivered" was a proxy, not the property. The HUD is a
+    channel we own end to end and Serge is already looking at it.
+
+    LOOPBACK ONLY. This writes to a file every session reads, so it is a
+    small authority: it accepts one field, truncates it, and refuses anything
+    that did not come from this machine. It cannot name its own kind or
+    label -- both are fixed here, so nothing that posts can dress itself up
+    as another part of the stack.
+    """
+    peer = request.remote or ""
+    if peer not in ("127.0.0.1", "::1"):
+        return web.json_response({"ok": False, "error": "loopback only"}, status=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    detail = body.get("detail")
+    if not isinstance(detail, str) or not detail.strip():
+        return web.json_response({"ok": False, "error": "no detail"})
+    log_event("warn", "disk", detail.strip()[:300])
+    return web.json_response({"ok": True})
+
+
 async def task_move(request: web.Request) -> web.Response:
     """POST {"title": ..., "action": "approve"|"send-back"} -- Serge's verdict.
 
@@ -1595,10 +1630,49 @@ class VoiceWeb:
         if allowed:
             return PermissionResultAllow()
         if timed_out:
+            # AN EXPIRED REQUEST LEAVES THE SAME TRACE A REFUSAL DOES.
+            # (Serge, 2026-08-21 ~8:50 AM: "I like to leave a card on the
+            # page. I like that with a button there... because I'm not
+            # always on a computer waiting for you.")
+            #
+            # Until today the record below was written only on the DENY
+            # path -- this branch returned first -- so a request that ran
+            # out of time simply ceased to exist: no card, no fingerprint,
+            # nothing to press. The work stopped and there was no way back
+            # to it except him remembering what it had been. That is the
+            # one failure mode a half-hour timeout GUARANTEES, because the
+            # whole reason it fires is that he was not at the desk.
+            #
+            # `expired` is the only difference. It changes no mechanism --
+            # the card, the one-use pass keyed to this exact fingerprint,
+            # and the spend-once rule are all the ones the deny path
+            # already uses and Serge already tested. It changes the WORDS,
+            # because "you stopped this" is false about a request he never
+            # saw, and a card that misdescribes what happened is worse than
+            # no card.
+            self.denied = {
+                "id": aid,
+                "tool": tool_name,
+                "detail": detail,
+                "fingerprint": fingerprint,
+                "at": time.time(),
+                "boot_id": BOOT_ID,
+                "reason": None,
+                "expired": True,
+            }
+            print(f"approval #{aid}: expired -- card left for Serge",
+                  flush=True)
+            for ws in list(WS_CLIENTS):
+                await self.safe_send(ws, {"type": "denial", "id": aid,
+                                          "tool": tool_name,
+                                          "detail": detail,
+                                          "expired": True})
             return PermissionResultDeny(
                 message="NOT RUN -- the permission request timed out with no "
-                        "answer. Serge may never have seen it. Tell him, and "
-                        "ask again if it still matters.")
+                        "answer. Serge may never have seen it. A card is now "
+                        "on the page with a RUN IT NOW button, so this is "
+                        "recoverable without him retyping anything. Tell him "
+                        "what was not run, and that the button is there.")
         # A REFUSAL IS A DECISION, AND IT NOW LEAVES A TRACE. Before this, a
         # deny returned one sentence to the model and changed nothing else --
         # no red on the page, nothing in the record, and the interrupted work
@@ -2051,8 +2125,14 @@ async def signals(request: web.Request) -> web.Response:
          # its question came over a channel that does not survive one. The
          # fingerprint is deliberately NOT served: it is an internal key, and
          # nothing the page can send is ever compared against it.
+         # `expired` distinguishes "he stopped it" from "it ran out of time
+         # while he was away". Served rather than inferred, because the page
+         # cannot tell the two apart and they are not the same event: one is
+         # a decision of his, the other is a request he never saw.
          "denial": ({"id": VW.denied["id"], "tool": VW.denied["tool"],
-                     "detail": VW.denied["detail"]} if VW.denied else None),
+                     "detail": VW.denied["detail"],
+                     "expired": bool(VW.denied.get("expired"))}
+                    if VW.denied else None),
          "stack": _STACK,
          "events": read_events(),
          "sessions": read_sessions(),
@@ -2429,6 +2509,7 @@ def main() -> None:
         *[web.get(u, _serve_ambient(f)) for u, f, _t in AMBIENT_TRACKS],
         web.get("/usage-poll", usage_poll),
         web.post("/usage-poll", usage_poll),
+        web.post("/disk-alert", disk_alert),
         web.post("/task-move", task_move),
         web.post("/approval-reply", approval_reply),
         web.post("/denial-reply", denial_reply),

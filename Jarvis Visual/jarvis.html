@@ -4848,22 +4848,68 @@ async function flushApproval(){
 // exact request; it is never a standing yes.
 let denialId = null;
 let denialSending = false;
+let denialExpired = false;
+
+// THE PASS ALONE IS NOT ENOUGH WHEN A REQUEST EXPIRED, and this is the one
+// real difference between the two cards. A refusal happens while Jarvis is
+// still standing there waiting, so "continue" is picked up by the turn that
+// is already running. An EXPIRY happens because nobody was there for half an
+// hour -- by then that turn is long dead, and a one-use pass with nothing
+// left to spend it is a button that lights up and does nothing.
+//
+// So the expired card also starts a turn. THE SENTENCE IS A FIXED LITERAL
+// with nothing interpolated into it: `detail` is the tool's own arguments,
+// and the closed-vocabulary rule on the refusal endpoint exists precisely so
+// that no string from this page reaches a model's attention. The pass the
+// server just minted is what identifies the work; this only wakes Jarvis up
+// to spend it.
+const REASK_LINE = 'The request that expired while I was away is approved now'
+                 + ' -- run it again.';
+
+function reaskAfterExpiry(){
+  if (!ws || ws.readyState !== 1) return false;
+  if (lineAlive) { ws.send(JSON.stringify({type: 'text', text: REASK_LINE})); return true; }
+  stopPlayback();
+  ensureOut();
+  if (outCtx.state === 'suspended') outCtx.resume();
+  showLine('you', REASK_LINE);
+  turnOpen = true; thinking = true; state = 'thinking';
+  ws.send(JSON.stringify({type: 'text', text: REASK_LINE}));
+  return true;
+}
 const denialBox = document.getElementById('denial-box');
 
 function showDenial(d){
   if (!d) {
     denialId = null;
+    denialExpired = false;
     denialBox.style.display = 'none';
     document.body.classList.remove('denied');
     return;
   }
   if (denialId === d.id) return;   // already drawn; do not restart the pulse
   denialId = d.id;
-  document.getElementById('denial-head').textContent =
-    'YOU STOPPED · ' + String(d.tool || 'TOOL').toUpperCase();
+  // AN EXPIRED REQUEST IS NOT A REFUSAL, AND THE CARD MUST NOT SAY IT WAS.
+  // (Serge, 2026-08-21.) Same card, same buttons, same one-use pass -- the
+  // words are the only thing that changes, because "YOU STOPPED THIS" is a
+  // false statement about a request he was never shown. A card that
+  // misdescribes what happened is worse than no card.
+  denialExpired = !!d.expired;
+  document.getElementById('denial-head').textContent = denialExpired
+    ? ('EXPIRED WHILE YOU WERE AWAY · ' + String(d.tool || 'TOOL').toUpperCase())
+    : ('YOU STOPPED · ' + String(d.tool || 'TOOL').toUpperCase());
   // textContent, never innerHTML: `detail` is the tool's own arguments and
   // this page must not render them as markup.
   document.getElementById('denial-detail').textContent = d.detail || '';
+  document.getElementById('denial-ask').textContent = denialExpired
+    ? ('Nobody answered this in time, so it was never run. Jarvis has moved '
+       + 'on and cannot pick it up by itself. Run it now?')
+    : ('Jarvis has stopped and is waiting. Continue with this request, or '
+       + 'leave it refused?');
+  document.getElementById('denial-go').textContent =
+    denialExpired ? 'RUN IT NOW' : 'CONTINUE IT';
+  document.getElementById('denial-stop').textContent =
+    denialExpired ? 'FORGET IT' : 'LEAVE IT REFUSED';
   denialBox.style.display = 'block';
   document.body.classList.add('denied');
 }
@@ -4883,6 +4929,13 @@ async function answerDenial(answer){
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) throw new Error(d.error || 'server refused');
+    // ONLY AFTER THE SERVER HAS CONFIRMED THE PASS IS MINTED. Waking Jarvis
+    // first would have him find nothing to spend and ask all over again --
+    // the loop the approve button already shipped twice.
+    if (denialExpired && answer === 'continue' && !reaskAfterExpiry()) {
+      document.getElementById('denial-ask').textContent =
+        'approved, but the line is down — say "run it again" when it is back';
+    }
   } catch (e) {
     // Not silent. An empty catch here would hide his answer failing, which
     // is the exact bug the approve button shipped twice.

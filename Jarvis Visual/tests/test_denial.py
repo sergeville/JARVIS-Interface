@@ -515,5 +515,155 @@ class TestThePage(unittest.TestCase):
                          [int(v) for v in rgb])
 
 
+
+# ---------------------------------------------------------------------------
+# AN EXPIRED REQUEST LEAVES THE SAME CARD A REFUSAL DOES
+# ---------------------------------------------------------------------------
+#
+# Serge, 2026-08-21 ~8:50 AM, after watching a request of his own vanish:
+# "I like to leave a card on the page. I like that with a button there...
+# because I'm not always on a computer waiting for you."
+#
+# WHAT WAS BROKEN, and it was guaranteed rather than unlucky. `ask_permission`
+# recorded the refusal card AFTER the `if timed_out:` return, so the one path
+# that fires precisely BECAUSE nobody was at the desk was the one path that
+# left no trace: no card, no fingerprint, nothing to press. The work stopped
+# and the only way back to it was him remembering what it had been.
+#
+# THESE ARE DRIVEN THROUGH THE REAL ask_permission WITH A REAL TIMEOUT --
+# never by asserting the source contains the word "expired". A grep would
+# have passed against the broken version too, because the word was already
+# in the file three lines below the bug.
+
+
+def run_ask_that_expires(vw, tool="Bash", tool_input=None, budget=0.05):
+    """Drive ask_permission() and answer NOTHING, so it really times out."""
+    tool_input = {"command": "ls -la"} if tool_input is None else tool_input
+    sent = []
+
+    async def fake_send(ws, msg):
+        sent.append(msg)
+
+    vw.safe_send = fake_send
+    srv.WS_CLIENTS.add(FAKE_CLIENT)
+    was = srv.APPROVAL_TIMEOUT_S
+    srv.APPROVAL_TIMEOUT_S = budget
+    try:
+        return asyncio.run(vw.ask_permission(tool, tool_input, None)), sent
+    finally:
+        srv.APPROVAL_TIMEOUT_S = was
+        srv.WS_CLIENTS.discard(FAKE_CLIENT)
+
+
+class TestAnExpiredRequestSurvives(unittest.TestCase):
+
+    def setUp(self):
+        self.vw = srv.VoiceWeb.__new__(srv.VoiceWeb)
+        self.vw.approvals = {}
+        self.vw._approval_seq = 0
+        self.vw.denied = None
+        self.vw.reinstated = None
+
+    def test_a_request_nobody_answers_really_does_time_out(self):
+        # The premise of every test below. If this stops timing out they all
+        # become vacuous, so it is asserted rather than assumed.
+        res, _ = run_ask_that_expires(self.vw)
+        self.assertIn("timed out", getattr(res, "message", ""))
+
+    def test_IT_LEAVES_A_CARD(self):
+        # THE WHOLE POINT. Before this change `denied` stayed None here.
+        run_ask_that_expires(self.vw)
+        self.assertIsNotNone(self.vw.denied)
+        self.assertEqual(self.vw.denied["tool"], "Bash")
+
+    def test_the_card_says_it_EXPIRED_rather_than_that_he_stopped_it(self):
+        # "You stopped this" is a false statement about a request he was
+        # never shown, and a card that misdescribes what happened is worse
+        # than no card at all.
+        run_ask_that_expires(self.vw)
+        self.assertTrue(self.vw.denied["expired"])
+
+    def test_an_ACTUAL_refusal_is_still_marked_as_his_decision(self):
+        # The other half of the same property: the flag must DISCRIMINATE.
+        # Without this, setting expired=True unconditionally would pass the
+        # test above and silently relabel every real deny of his.
+        run_ask(self.vw, answer=False)
+        self.assertFalse(bool(self.vw.denied.get("expired")))
+
+    def test_the_card_carries_the_fingerprint_so_the_BUTTON_ACTUALLY_WORKS(self):
+        # The button mints a one-use pass keyed to this exact request. A card
+        # carrying no fingerprint, or the wrong one, is a button that lights
+        # up and does nothing -- which is indistinguishable, from his chair,
+        # from the bug this change fixes.
+        tool_input = {"command": "echo hello", "description": "say hello"}
+        run_ask_that_expires(self.vw, tool_input=tool_input)
+        want = srv.VoiceWeb.request_fingerprint("Bash", tool_input)
+        self.assertEqual(self.vw.denied["fingerprint"], want)
+
+    def test_END_TO_END_the_button_lets_the_SAME_request_through_next_time(self):
+        # Expire it, press RUN IT NOW, and ask the identical thing again --
+        # it must be allowed WITHOUT a second popup.
+        tool_input = {"command": "echo hello", "description": "say hello"}
+        run_ask_that_expires(self.vw, tool_input=tool_input)
+        aid = self.vw.denied["id"]
+        srv.VW = self.vw
+        self.vw.safe_send = lambda ws, msg: asyncio.sleep(0)
+        resp = asyncio.run(srv.denial_reply(FakeRequest({"id": aid, "answer": "continue"})))
+        self.assertIn(b'"ok": true', bytes(resp.body))
+        res, sent = run_ask(self.vw, tool_input=tool_input, answer=False)
+        self.assertEqual(type(res).__name__, "PermissionResultAllow")
+        self.assertEqual(self.vw.approvals, {})
+
+    def test_a_DIFFERENT_request_is_still_asked_about(self):
+        # The pass is not a standing yes. Same safety property the deny path
+        # has, restated here because this is a new way to mint one.
+        run_ask_that_expires(self.vw, tool_input={"command": "echo hello"})
+        aid = self.vw.denied["id"]
+        srv.VW = self.vw
+        self.vw.safe_send = lambda ws, msg: asyncio.sleep(0)
+        asyncio.run(srv.denial_reply(FakeRequest({"id": aid, "answer": "continue"})))
+        res, _ = run_ask(self.vw, tool_input={"command": "rm -rf /"}, answer=False)
+        self.assertEqual(type(res).__name__, "PermissionResultDeny")
+
+    def test_the_page_is_TOLD_about_the_card_over_the_socket_too(self):
+        _, sent = run_ask_that_expires(self.vw)
+        pushes = [m for m in sent if m.get("type") == "denial"]
+        self.assertEqual(len(pushes), 1)
+        self.assertTrue(pushes[0]["expired"])
+
+    def test_the_model_is_told_the_button_exists(self):
+        # Otherwise I tell Serge the work is lost, while a card offering it
+        # back sits on his screen.
+        res, _ = run_ask_that_expires(self.vw)
+        self.assertIn("RUN IT NOW", res.message)
+
+    def test_the_expiry_is_written_to_the_OPERATOR_LOG(self):
+        # NOT decoration, and my own injection round caught this one missing.
+        # `visual-server.log` is the forensic record: on 2026-08-21 the only
+        # way to answer Serge's "is everything working?" was to read
+        # "approval #15: timed out" out of it and count it against the
+        # twenty-one that were answered. A silent expiry is an event with no
+        # witness, in the exact channel used to prove there was no fault.
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run_ask_that_expires(self.vw)
+        out = buf.getvalue()
+        self.assertIn("expired", out)
+        self.assertIn(str(self.vw.denied["id"]), out)
+
+    def test_signals_serves_the_expired_flag_and_it_is_a_real_bool(self):
+        run_ask_that_expires(self.vw)
+        srv.VW = self.vw
+        i = SRC.index('"denial": ({')
+        served = SRC[i:i + 400]
+        self.assertIn("expired", served)
+        # Served as a bool, not as the raw dict value: `.get` on the deny
+        # path returns None, and a null in JSON is not what the page tests.
+        self.assertIn('bool(VW.denied.get("expired"))', served)
+        self.assertNotIn("fingerprint", served)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
