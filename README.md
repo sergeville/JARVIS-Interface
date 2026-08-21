@@ -102,7 +102,10 @@ Jarvis Visual/          the browser HUD and its server
   voice-web-server.py   aiohttp server, /voice + /signals
   jarvis.sh             status | start | stop | restart | sessions
   tests/run-tests.sh    the suite -- the gate for every change
-vault-tools/            vault-audit.py, the vault's own consistency checker
+  transcripts/          every conversation, one file per day   (not in git -- yours)
+vault-tools/            the vault's own tools, and the Claude Code hooks
+  vault-audit.py        the vault consistency checker
+  session_record.py     the Stop hook that writes transcripts/  (see Transcripts)
 install.sh              one-command setup; idempotent, verifies, never overwrites
 ```
 
@@ -348,17 +351,17 @@ It reports any note its folder index never mentions, any `[[link]]` pointing at
 a note that does not exist, any folder missing an index, and any bad
 frontmatter — and it changes nothing, so it is safe to run at any time. It
 locates the vault **relative to itself**, so it works wherever you cloned to.
-That is the exception; see the next paragraph for the rest.
 
-**Three of those absolute paths point specifically at the vault.** The one-line
-fix-up at the top of Install already rewrites them; they are named here so that
-if the task card or the graph comes up empty, you know exactly where to look:
+**Three places read the vault, and all three find it the same way** — from the
+project root, which each file resolves from its own `__file__`, exactly as
+described above. They are named here so that if the task card or the graph
+comes up empty, you know where to look:
 
-| file | line | what it points at |
-|---|---|---|
-| `Jarvis Visual/voice-web-server.py` | 88 | `Active Priorities.md` — the HUD's task card |
-| `Jarvis Visual/voice-web-server.py` | 149 | the vault root — the 3D vault graph |
-| `vault-tools/brief-check.py` | 70 | `06 - Email Inbox/` — the morning-brief reminder |
+| file | what it reads |
+|---|---|
+| `Jarvis Visual/voice-web-server.py` | `Jarvis-brain/Active Priorities.md` — the HUD's task card |
+| `Jarvis Visual/voice-web-server.py` | `Jarvis-brain/` — the 3D vault graph |
+| `vault-tools/brief-check.py` | `Jarvis-brain/06 - Email Inbox/` — the morning-brief reminder |
 
 Finally, **`CLAUDE.md` at the project root ships as my copy on purpose.** It is
 the boot file — identity, startup sequence, and the standing rules — and it is
@@ -380,6 +383,60 @@ box) or the on-screen button to talk.
 **Note:** `stop` and `restart` deliberately refuse when run from inside the
 Jarvis stack — including from a Claude Code session it launched. Run them from
 your own terminal.
+
+## Transcripts
+
+**Jarvis writes down every conversation, and nobody has to remember to ask him
+to.** `install.sh` wires a `Stop` hook, so from the first session you run, each
+turn is appended to a plain Markdown file:
+
+```
+Jarvis Visual/transcripts/2026-08-21.md            what was said out loud
+Jarvis Visual/transcripts/2026-08-21-terminal.md   what was typed
+```
+
+One turn per line, stamped in your own local time — the file is meant to be
+read by tailing it, so a turn never spans two lines:
+
+```
+- **08:19:58 Serge:** Good morning.
+- **08:20:08 Jarvis:** Quick state of play: the instrument work is still uncommitted.
+```
+
+**That folder is gitignored, and it is meant to stay that way.** It is a
+verbatim recording of a person — mine is 1.9 MB across three weeks. It very
+nearly shipped: it survived the first exclusion list because that list was built
+from an inventory that never mentioned it, and GitHub keeps history even after a
+delete.
+
+**What it keeps and what it drops.** The conversation only. Tool calls, tool
+results, thinking and subagent side-chains are all deliberately left out — that
+work is already recorded in the files it produced and in the git history, and a
+transcript that inlined it would be unreadable, which is the same as not having
+one. It is append-only and idempotent: run the hook twice and nothing doubles.
+
+**Why it exists at all.** Claude Code has always written every session to
+`~/.claude/projects/`, so nothing was ever lost. But that file is
+machine-shaped, lives outside the project, and no session ever reads it. This
+one is read: a fresh Jarvis tails it at boot and picks up what was still open —
+including the question of yours he never got round to answering. The vault
+records what was *decided*; only the transcript holds what was still in flight
+when the last session ended.
+
+Everything Claude Code already recorded can be turned into transcripts in one
+command:
+
+```sh
+python3 vault-tools/session_record.py --all
+```
+
+**If you would rather not have it,** delete the `session_record.py` entry from
+the `Stop` block in `templates/claude-settings.json.template` before running
+`install.sh` — or from the rendered `.claude/settings.json` afterwards. That
+stops the typed half. **The spoken half is separate** and is written by the
+voice line itself through `log_transcript` in `voice-line/signals.py`, so
+removing the hook does not stop it. Both are named here rather than left to be
+discovered.
 
 ## Tests
 
