@@ -81,7 +81,7 @@ fi
 STEP_N=0
 INSTALLED=(); PRESENT=(); FAILED=(); SKIPPED=()
 
-step()    { STEP_N=$((STEP_N+1)); printf '\n%s[%d/10] %s%s\n' "$B" "$STEP_N" "$1" "$RST"; }
+step()    { STEP_N=$((STEP_N+1)); printf '\n%s[%d/11] %s%s\n' "$B" "$STEP_N" "$1" "$RST"; }
 have()    { printf '  %s* already installed%s  %s\n' "$GRN" "$RST" "$1"; PRESENT+=("$1"); }
 did()     { printf '  %s+ installed%s          %s\n' "$GRN" "$RST" "$1"; INSTALLED+=("$1"); }
 skip()    { printf '  %s- skipped%s            %s\n' "$DIM" "$RST" "$1"; SKIPPED+=("$1"); }
@@ -493,6 +493,76 @@ VIDX
   did "vault structure (7 folders, 7 folder indexes, 3 root notes -- empty)"
   note "open $VAULT as a vault in Obsidian and make it yours -- README step 6"
 fi
+
+# ---------------------------------------------------------------------------
+step "The disk watcher -- a launch agent that reports, and never deletes"
+# ---------------------------------------------------------------------------
+# WHY THE SCRIPT IS COPIED OUT OF THE REPO INSTEAD OF RUN FROM IT.
+# A launchd agent has no Documents-folder access on macOS. Pointed straight
+# at vault-tools/disk-watch.py it fails before executing a line -- exit 2,
+# "Operation not permitted" -- which is exactly how the first install of this
+# watcher failed on 2026-08-15. So the agent runs a copy under
+# ~/Library/Application Support/Jarvis, which it may read.
+#
+# A COPY CAN DRIFT, AND DRIFT IS THE WHOLE REASON install.sh WAS REWRITTEN
+# THIS MORNING. So the copy is re-delivered on every install, `cmp` decides
+# whether anything changed rather than the mere existence of the file, and a
+# test asserts the two are byte-identical whenever the deployed one exists.
+# The repo file stays the single source; the copy is only ever a delivery.
+install_disk_watch() {
+  local src="$ROOT/vault-tools/disk-watch.py"
+  local tpl="$ROOT/templates/com.jarvis.disk-watch.plist"
+  [[ -f "$src" ]] || { skip "disk watcher (vault-tools/disk-watch.py absent)"; return; }
+  [[ -f "$tpl" ]] || { fail "templates/com.jarvis.disk-watch.plist is missing"; return; }
+  [[ "$(uname -s)" == "Darwin" ]] || { skip "disk watcher (launchd is macOS only)"; return; }
+
+  local home="$HOME/Library/Application Support/Jarvis"
+  local dest="$home/disk-watch.py"
+  local agents="$HOME/Library/LaunchAgents"
+  local plist="$agents/com.jarvis.disk-watch.plist"
+  local rendered
+  rendered="$(sed "s|{{JARVIS_ROOT}}|$ROOT|g; s|{{WATCH_HOME}}|$home|g" "$tpl")"
+
+  local script_same=0 plist_same=0
+  [[ -f "$dest" ]] && cmp -s "$src" "$dest" && script_same=1
+  [[ -f "$plist" ]] && [[ "$(cat "$plist")" == "$rendered" ]] && plist_same=1
+
+  if (( script_same && plist_same )); then
+    have "disk watcher (already current)"
+  else
+    would_install "disk watcher (launch agent, alert-only)" || return
+    mkdir -p "$home" "$agents"
+    cp "$src" "$dest" || { fail "disk watcher: could not copy the script"; return; }
+    printf '%s\n' "$rendered" > "$plist" || { fail "disk watcher: could not write the plist"; return; }
+    plutil -lint "$plist" >/dev/null 2>&1 || { fail "disk watcher: the rendered plist is not valid"; return; }
+    # bootout first: bootstrap refuses a label already loaded, so a plain
+    # re-install would report success while the OLD copy kept running.
+    launchctl bootout "gui/$(id -u)/com.jarvis.disk-watch" >/dev/null 2>&1
+    if launchctl bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1; then
+      did "disk watcher (every 5 min, alert-only, never deletes)"
+    else
+      fail "disk watcher: launchctl bootstrap refused the agent"
+      return
+    fi
+  fi
+
+  # PROVE IT RUNS AS LAUNCHD RUNS IT, not as this shell would. The whole
+  # reason this step exists is that those two are different.
+  local rc
+  # sed, not awk: `$NF` inside an awk program reads as a shell variable to
+  # this repo's own undefined-variable gate, and a static check that cannot
+  # tell the two apart is a check worth not arguing with. It caught this
+  # within a minute of the code being written.
+  rc="$(launchctl print "gui/$(id -u)/com.jarvis.disk-watch" 2>/dev/null | sed -n 's/.*last exit code = \([0-9-]*\).*/\1/p' | head -1)"
+  if [[ "$rc" == "0" ]]; then
+    ok "the agent has run and exited 0"
+  elif [[ -z "$rc" || "$rc" == "-" ]]; then
+    note "the agent is loaded; it has not run yet (first run is within 5 minutes)"
+  else
+    fail "the agent ran and exited $rc -- see $home/.disk-watch.log"
+  fi
+}
+install_disk_watch
 
 # ---------------------------------------------------------------------------
 step "Verify -- does this actually work?"

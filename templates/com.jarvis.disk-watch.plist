@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.jarvis.disk-watch -- the disk watcher, scheduled.
+
+  ALERT ONLY. Serge's ruling, 2026-08-15: it reports and never deletes. The
+  program it runs has no delete path at all, and a test asserts that against
+  its own syntax tree.
+
+  IT DOES NOT POINT INTO THE REPO, AND THAT IS THE WHOLE POINT OF THIS FILE.
+  A launch agent has no Documents-folder access on macOS. The first install
+  of this watcher pointed straight at vault-tools/disk-watch.py and launchd
+  reported exit 2 -- "Operation not permitted" -- on every run, five minutes
+  apart, while the same script run by hand worked perfectly. So install.sh
+  delivers a copy to {{WATCH_HOME}} and the agent runs that. The repo file
+  remains the single source; a test holds the two byte-identical.
+
+  install.sh renders and loads this. By hand it would be:
+      launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jarvis.disk-watch.plist
+  To stop it:
+      launchctl bootout gui/$(id -u)/com.jarvis.disk-watch
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jarvis.disk-watch</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>{{WATCH_HOME}}/disk-watch.py</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- State and log live beside the deployed copy, because that is the one
+         directory this process is certain it may write. -->
+    <key>JARVIS_DISK_WATCH_HOME</key>
+    <string>{{WATCH_HOME}}</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <!-- RunAtLoad so the first sample is taken immediately. A watcher with no
+       history cannot answer the velocity question, and velocity is the one
+       that would have caught the Chrome loop. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Its own stdin is closed. A scheduled job that inherits a pipe and then
+       blocks on it is this project's most-repeated bug; disk-watch.py does
+       not read stdin at all, and this makes that true from the outside as
+       well as the inside. -->
+  <key>StandardInPath</key>
+  <string>/dev/null</string>
+
+  <key>StandardOutPath</key>
+  <string>{{WATCH_HOME}}/.disk-watch.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{WATCH_HOME}}/.disk-watch.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <!-- Low priority on every axis: a disk watcher must never be the reason
+       the machine feels slow, and its work measures in milliseconds. -->
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>5</integer>
+</dict>
+</plist>
