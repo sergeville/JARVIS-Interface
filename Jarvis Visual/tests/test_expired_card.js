@@ -72,6 +72,7 @@ global.document = {
 let denialId = null;
 let denialSending = false;
 let denialExpired = false;
+let denialSig = null;
 const denialBox = nodes['denial-box'];
 
 // The bits reaskAfterExpiry() touches on the live page.
@@ -113,7 +114,7 @@ assert.ok(typeof REASK_LINE === 'string' && REASK_LINE.length > 10,
 
 function reset() {
   order = []; sent = []; posted = []; shown = []; stopped = 0;
-  denialId = null; denialSending = false; denialExpired = false;
+  denialId = null; denialSending = false; denialExpired = false; denialSig = null;
   lineAlive = false; turnOpen = false; thinking = false; state = 'idle';
   ws = { readyState: 1, send: (s) => { order.push('turn'); sent.push(JSON.parse(s)); } };
   for (const k of Object.keys(nodes)) { nodes[k].textContent = ''; nodes[k].style.display = 'none'; }
@@ -247,6 +248,75 @@ const REFUSED = { id: 8, tool: 'Bash', detail: 'Re-run the S5 gate', expired: fa
   reset(); showDenial(EXPIRED);
   ok('the expiry flag is cleared when the card is dismissed, so the next refusal is not mislabelled',
     (showDenial(null), denialExpired === false));
+
+  // ---- A RECYCLED ID IS A DIFFERENT QUESTION ----------------------------
+  //
+  // Found by the test-adversary 2026-08-21, still live five days later, and
+  // invisible to every case above because they all call reset() first. The
+  // server's `_approval_seq` restarts at 1 on every restart, so the SAME id
+  // arrives carrying a DIFFERENT request -- and the restart window is the
+  // half hour he is away, which is also when a request expires. Each case
+  // below shows a card, then shows another WITHOUT resetting, which is the
+  // transition this file never visited.
+
+  const SAME_ID_REFUSED = { id: 7, tool: 'Bash', detail: 'first, refused by Serge', expired: false };
+  const SAME_ID_EXPIRED = { id: 7, tool: 'Bash', detail: 'second, expired while away', expired: true };
+
+  reset(); showDenial(SAME_ID_REFUSED); showDenial(SAME_ID_EXPIRED);
+  ok('a RECYCLED id carrying an expiry redraws the card -- the id alone never identified it',
+    /EXPIRED WHILE YOU WERE AWAY/.test(nodes['denial-head'].textContent) &&
+    !/YOU STOPPED/.test(nodes['denial-head'].textContent));
+  ok('...and shows THIS request, not the words of the one that held the number before',
+    /second, expired while away/.test(nodes['denial-detail'].textContent) &&
+    !/first, refused by Serge/.test(nodes['denial-detail'].textContent));
+  ok('...and the expiry flag is actually set, not left over from the refusal',
+    denialExpired === true);
+  ok('...and the button offers to RUN IT rather than to continue something he never began',
+    nodes['denial-go'].textContent === 'RUN IT NOW');
+
+  reset(); showDenial(SAME_ID_REFUSED); showDenial(SAME_ID_EXPIRED);
+  await answerDenial('continue');
+  ok('...so RUN IT NOW starts the turn -- otherwise the button lights up and does nothing',
+    sent.length === 1 && posted.length === 1);
+
+  // The same fault in the other direction, which the adversary did not name:
+  // a REFUSAL on a recycled id kept the expiry flag and would wake Jarvis a
+  // second time, on a turn that is still running and still waiting.
+  reset(); showDenial(SAME_ID_EXPIRED); showDenial(SAME_ID_REFUSED);
+  ok('a recycled id carrying a REFUSAL redraws too, and reads as HIS decision',
+    /YOU STOPPED/.test(nodes['denial-head'].textContent) &&
+    denialExpired === false);
+  ok('...and shows the refusal\'s own words',
+    /first, refused by Serge/.test(nodes['denial-detail'].textContent));
+
+  reset(); showDenial(SAME_ID_EXPIRED); showDenial(SAME_ID_REFUSED);
+  await answerDenial('continue');
+  ok('...and sends no turn: Jarvis is still standing there, and would be woken twice',
+    posted.length === 1 && sent.length === 0);
+
+  // Two different refusals sharing an id -- neither is an expiry, so a
+  // dedupe keyed on id-plus-expired-flag would still get this one wrong.
+  reset();
+  showDenial({ id: 9, tool: 'Bash', detail: 'the first question', expired: false });
+  showDenial({ id: 9, tool: 'Bash', detail: 'the second question', expired: false });
+  ok('two different refusals sharing an id show the SECOND request, not the first',
+    /the second question/.test(nodes['denial-detail'].textContent) &&
+    !/the first question/.test(nodes['denial-detail'].textContent));
+
+  // The redraw suppression must still WORK -- a fix that redraws every poll
+  // would restart the pulse continuously and pass every test above.
+  // Detected by BEHAVIOUR, not by naming the implementation: scribble on the
+  // node after the first draw and require the scribble to survive. A version
+  // that redraws has to overwrite it. An earlier draft of this assertion read
+  // `denialSig !== null`, which is a variable name, not a property -- it went
+  // red against the OLD code, whose id-only dedupe suppresses this case
+  // correctly. A test that fails on a correct implementation is measuring the
+  // author's spelling.
+  reset(); showDenial(EXPIRED);
+  nodes['denial-head'].textContent = 'SCRIBBLE';
+  showDenial({ ...EXPIRED });
+  ok('an IDENTICAL card is still suppressed -- the dedupe was not simply deleted',
+    nodes['denial-head'].textContent === 'SCRIBBLE');
 
   // ---- double-click ----------------------------------------------------
 

@@ -4849,6 +4849,19 @@ async function flushApproval(){
 let denialId = null;
 let denialSending = false;
 let denialExpired = false;
+// THE ID ALONE DOES NOT IDENTIFY A CARD. The server's approval counter
+// restarts at 1 on every restart, so #7 after a restart is a different
+// question from #7 before it -- and the restart window is exactly the half
+// hour he is away from the desk, which is also the window a request expires
+// in. Keyed on the id alone, a recycled id read as "already drawn": the card
+// kept the PREVIOUS request's words, denialExpired stayed false, and so
+// RUN IT NOW minted a pass and started no turn -- a button that lights up
+// and does nothing, which is every failure this card exists to prevent, at
+// once. It fails in the other direction too: a REFUSAL on a recycled id kept
+// the expiry flag and woke Jarvis a second time. The dedupe therefore
+// compares everything the card renders, so the only thing it can suppress is
+// a redraw that would change nothing.
+let denialSig = null;
 
 // THE PASS ALONE IS NOT ENOUGH WHEN A REQUEST EXPIRED, and this is the one
 // real difference between the two cards. A refusal happens while Jarvis is
@@ -4883,11 +4896,15 @@ function showDenial(d){
   if (!d) {
     denialId = null;
     denialExpired = false;
+    denialSig = null;
     denialBox.style.display = 'none';
     document.body.classList.remove('denied');
     return;
   }
-  if (denialId === d.id) return;   // already drawn; do not restart the pulse
+  const sig = JSON.stringify(
+    [d.id, !!d.expired, String(d.tool || ''), String(d.detail || '')]);
+  if (denialSig === sig) return;   // already drawn; do not restart the pulse
+  denialSig = sig;
   denialId = d.id;
   // AN EXPIRED REQUEST IS NOT A REFUSAL, AND THE CARD MUST NOT SAY IT WAS.
   // (Serge, 2026-08-21.) Same card, same buttons, same one-use pass -- the
