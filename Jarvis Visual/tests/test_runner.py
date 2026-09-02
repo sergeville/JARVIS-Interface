@@ -303,5 +303,84 @@ class TestARedRunKEEPSItsOutput(unittest.TestCase):
                                 "pruning ate everything, including this run")
 
 
+class TestAGreenRunNamesItsOwnLogFolder(unittest.TestCase):
+    """A rule that cannot be followed on the runs it governs.
+
+    Serge, 2026-09-02 ~11:30: a "suite green" claim in a commit message, a
+    card note or a daily note must carry the exit code and the log folder the
+    runner printed on its last line. The rule shipped in 7cedffc -- and the
+    runner printed that folder ONLY on failure. A green run ended with "All
+    tests passed." and nothing else, so the folder existed on disk and was
+    never named, on exactly the runs the rule is about.
+
+    The folder is what makes the claim checkable at the time it is made: it
+    is temporary, so it proves the run happened, and it holds one log per
+    test file so the claim can be read rather than believed.
+
+    These run the REAL script against a planted tree, per the module
+    docstring -- reading the source would prove the string is present, not
+    that a green run prints it.
+    """
+
+    def _green(self, py=None, js=None):
+        root, tests = build_tree(py or {"test_ok.py": 0}, js or {})
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        p = subprocess.run([os.path.join(tests, "run-tests.sh")],
+                           capture_output=True, text=True)
+        return p
+
+    def test_a_green_run_names_the_log_folder_at_all(self):
+        p = self._green()
+        self.assertEqual(p.returncode, 0)
+        self.assertIn("all logs for this run:", p.stdout + p.stderr)
+
+    def test_it_is_the_LAST_line_of_a_green_run(self):
+        """Position is the property, not presence. The rule tells a session
+        to read the runner's last line; a folder named halfway up a
+        forty-file run is one a `tail` still keeps and a person still
+        misses."""
+        p = self._green(py={"test_a.py": 0, "test_z.py": 0},
+                        js={"test_b.js": 0})
+        self.assertEqual(p.returncode, 0)
+        lines = [ln for ln in p.stdout.splitlines() if ln.strip()]
+        self.assertTrue(lines[-1].startswith("all logs for this run:"),
+                        f"last line was: {lines[-1]!r}")
+
+    def test_the_named_folder_EXISTS_and_holds_a_log_per_file(self):
+        """A path that is merely printed proves nothing. The claim is only
+        checkable if the folder is there and carries the run's own logs."""
+        p = self._green(py={"test_a.py": 0, "test_b.py": 0},
+                        js={"test_c.js": 0})
+        logdir = (p.stdout + p.stderr).split(
+            "all logs for this run:")[1].strip().splitlines()[0]
+        self.addCleanup(shutil.rmtree, logdir, ignore_errors=True)
+        self.assertTrue(os.path.isdir(logdir), logdir)
+        for name in ("test_a.py.log", "test_b.py.log", "test_c.js.log"):
+            self.assertTrue(os.path.isfile(os.path.join(logdir, name)), name)
+
+    def test_naming_it_did_not_turn_a_green_run_into_a_red_one(self):
+        """The gate is the exit code. A cosmetic line that costs the exit
+        code, or that starts claiming failures on a clean run, is a worse
+        bug than the one being fixed."""
+        p = self._green(py={"test_a.py": 0}, js={"test_b.js": 0})
+        self.assertEqual(p.returncode, 0)
+        out = p.stdout + p.stderr
+        self.assertIn("All tests passed.", out)
+        self.assertNotIn("TESTS FAILED", out)
+        self.assertNotIn("file(s) failed:", out)
+
+    def test_a_red_run_still_ends_with_its_folder_too(self):
+        """Both halves of the rule come from the same line, so the red path
+        must keep the property the green path just gained."""
+        root, tests = build_tree({"test_bad.py": 1}, {})
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        p = subprocess.run([os.path.join(tests, "run-tests.sh")],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1)
+        lines = [ln for ln in p.stderr.splitlines() if ln.strip()]
+        self.assertTrue(lines[-1].startswith("all logs for this run:"),
+                        f"last line was: {lines[-1]!r}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

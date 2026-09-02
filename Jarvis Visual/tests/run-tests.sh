@@ -182,3 +182,9 @@ if [ "$fail" -ne 0 ]; then
 fi
 echo
 echo "All tests passed."
+# LAST LINE ON BOTH PATHS, and that is the point. A "suite green" claim has to
+# name the run behind it (Serge, 2026-09-02); the folder is temporary, so
+# printing it here is what makes the claim checkable at the moment it is made.
+# The red path prints its own copy above, on stderr, where a `tail` of a
+# failure keeps it.
+echo "all logs for this run: $LOGDIR"
