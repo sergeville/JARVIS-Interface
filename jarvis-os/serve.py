@@ -127,7 +127,14 @@ class OSHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        # A HEAD gets the headers and NOTHING ELSE. Until 2026-09-02 this wrote
+        # the body regardless, so every HEAD that landed here (a 404 on a
+        # blocked path, a 502 when the voice server is down) put JSON after a
+        # `Connection: close`, and a strict client read that as a protocol
+        # error -- the S5 gate was red whenever the voice line was not up,
+        # and green when it was, which is the worst kind of red.
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     # EVERY WRITING VERB IS REFUSED EXPLICITLY. BaseHTTPRequestHandler
     # already answers 501 for a verb it has no handler for, so these are

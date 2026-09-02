@@ -3,7 +3,7 @@
 Run in the SAME terminal window the voice line runs in (quit the voice
 line first with Ctrl-C):
 
-    cd ~/Documents/Jarvis/voice-line && uv run python diagnose.py
+    cd ~/Dev/Jarvis/voice-line && uv run python diagnose.py
 """
 
 import time

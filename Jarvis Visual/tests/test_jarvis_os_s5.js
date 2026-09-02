@@ -617,6 +617,15 @@ process.exitCode = 1;
     const head = await req('HEAD', '/signals');
     ok('HEAD on the feed answers like the feed, not 404',
       head.status === plain.status && String(head.headers['content-type'] || '').includes('json'));
+    // THE ERROR PATH TOO, AND DETERMINISTICALLY. The line above only proves
+    // HEAD is clean on whichever path the voice server's state picks --
+    // 200 with it up, 502 with it down -- and until 2026-09-02 the 502 path
+    // wrote a JSON body after the HEAD's headers, so this gate was red on a
+    // quiet machine and green on a busy one. A blocked path answers 404
+    // through the same _json writer no matter what else is running.
+    const headBlocked = await req('HEAD', '/serve.py');
+    ok('HEAD on a blocked path is a clean 404 with no body after the headers -- not a parse error',
+      headBlocked.status === 404 && String(headBlocked.headers['content-type'] || '').includes('json'));
     // ==================================================================
     // EVERY SPELLING, NOT THE ONE THE IMPLEMENTATION THOUGHT OF.
     //

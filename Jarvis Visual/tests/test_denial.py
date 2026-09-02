@@ -467,8 +467,14 @@ class TestThePage(unittest.TestCase):
 
     def test_the_detail_is_never_rendered_as_markup(self):
         # `detail` is the tool's own arguments, and it reaches the DOM.
+        # THE WHOLE FUNCTION, not a fixed width. This read `[i:i + 1200]`
+        # until 2026-09-02, and the comment the 2026-08-21 commit added above
+        # the write pushed the write to offset 1175 -- two characters of the
+        # string fell off the end and a correct page was reported broken.
+        # A width is a count, and a count goes stale the next time anyone
+        # edits above it.
         i = PAGE_SRC.index("function showDenial(")
-        body = PAGE_SRC[i:i + 1200]
+        body = PAGE_SRC[i:PAGE_SRC.index("\nfunction ", i + 1)]
         self.assertIn("denial-detail').textContent", body)
         # COMMENTS OUT FIRST. The line above this function's write says
         # "textContent, never innerHTML" -- so a raw substring search found

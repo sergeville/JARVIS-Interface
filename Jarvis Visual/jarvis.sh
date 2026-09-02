@@ -213,7 +213,7 @@ refuse_if_launched_by_jarvis() {
   echo "killed, no liveness files were cleared -- the stack is untouched."
   echo ""
   echo "Run it from your own Terminal window instead:"
-  echo "    cd ~/Documents/Jarvis/Jarvis\\ Visual"
+  echo "    cd ~/Dev/Jarvis/Jarvis\\ Visual"
   echo "    ./jarvis.sh $VERB$([ "$KEEP_SPEECH" -eq 1 ] && echo ' --keep-speech')"
   exit 3
 }
@@ -244,7 +244,7 @@ $p $(ps -o command= -p "$p" 2>/dev/null | cut -c1-70)"
   echo "was killed, no liveness files were cleared -- the stack is untouched."
   echo ""
   echo "Run it from your own Terminal window instead:"
-  echo "    cd ~/Documents/Jarvis/Jarvis\\ Visual"
+  echo "    cd ~/Dev/Jarvis/Jarvis\\ Visual"
   echo "    ./jarvis.sh $VERB$([ "$KEEP_SPEECH" -eq 1 ] && echo ' --keep-speech')"
   exit 3
 }

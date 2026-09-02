@@ -2,7 +2,7 @@
 
 ## Browser mode (the full experience: voice + ring in one window)
 
-    ~/Documents/Jarvis/Jarvis\ Visual/run-visual.sh
+    ~/Dev/Jarvis/Jarvis\ Visual/run-visual.sh
 
 Opens http://127.0.0.1:8765/ — hold **Right Command** with the page
 focused (or click-hold the button), talk, release; or type in the box.
@@ -14,7 +14,7 @@ listens for Right Command globally, so running both means two answers.
 
 ## Terminal mode
 
-    cd ~/Documents/Jarvis/voice-line && ./run-voice-line.sh
+    cd ~/Dev/Jarvis/voice-line && ./run-voice-line.sh
 
 Run it in a Terminal window, never as a background service. It starts the two
 local servers if they're down (first Kokoro boot takes ~15s), then the voice
@@ -49,10 +49,10 @@ Legacy always-listening mode: `./run-voice-line.sh --open-mic` (VAD, no key).
 - Voice: Kokoro `bm_lewis` — one setting in `mouth.py` (`KOKORO_VOICE`).
 - Talk key: `PTT_KEY` in `ptt.py`.
 - Servers: whisper on port 2022, Kokoro on 8880; logs in
-  `~/Documents/Jarvis/voice-line/logs/`.
+  `~/Dev/Jarvis/voice-line/logs/`.
 - Visualizer signal bus: `.voice_state` and `.voice_waveform` in
-  `~/Documents/Jarvis/voice-line/`.
-- The ring visual: `~/Documents/Jarvis/Jarvis Visual/run-visual.sh` opens
+  `~/Dev/Jarvis/voice-line/`.
+- The ring visual: `~/Dev/Jarvis/Jarvis Visual/run-visual.sh` opens
   it at http://127.0.0.1:8765/ — it follows the signal bus (Jarvis's own
   voice), no microphone and no button needed. Keep its tab visible on
   screen: Chrome freezes animation in hidden tabs, so the ring only

@@ -9,7 +9,7 @@ brain the voice line uses, synthesizes each chunk with Kokoro, and
 ships the audio back for the page to play.
 
 Run from the voice-line project so its environment applies:
-    cd ~/Documents/Jarvis/voice-line && uv run python \
+    cd ~/Dev/Jarvis/voice-line && uv run python \
         "../Jarvis Visual/voice-web-server.py"
 (run-visual.sh does exactly this)
 """
