@@ -456,6 +456,7 @@ elif would_install "vault skeleton"; then
   # personality; writing it is the point, and a skeleton full of somebody
   # else's paragraphs is something you have to delete before you can start.
   mkdir -p "$VAULT"
+  mkdir -p "$VAULT/Transcripts"
   for d in "${VAULT_DIRS[@]}"; do
     mkdir -p "$VAULT/$d"
     idx="$VAULT/$d/${d#* - }.md"

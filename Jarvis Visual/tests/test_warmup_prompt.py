@@ -6,7 +6,7 @@ screen). The voice line came up, ran its warmup turn, and reported the vault
 empty -- no daily notes, no priorities, nothing to resume. All of that was
 true, and all of it was useless: a session forty minutes earlier had worked
 out the whole vault-merge plan, and the record of it was sitting in
-`Jarvis Visual/transcripts/2026-08-21.md` the entire time. Serge had to
+`Jarvis-brain/Transcripts/2026-08-21.md` the entire time. Serge had to
 SCREENSHOT HIS OWN PAGE and hand it back to me to recover the thread.
 
 The fault was not the boot rule -- CLAUDE.md step 4 has said "read the tail
@@ -61,7 +61,7 @@ class WarmupPromptNamesEverySource(unittest.TestCase):
                       "voice transcript -- it will boot blind to whatever "
                       "was said before the restart, which is precisely the "
                       "2026-08-21 failure this test exists for.")
-        self.assertIn("jarvis visual/transcripts", text,
+        self.assertIn("jarvis-brain/transcripts", text,
                       "the prompt mentions a transcript but does not say "
                       "WHERE it is; a session that has to go looking is a "
                       "session that reads the vault instead and reports it "
@@ -112,8 +112,8 @@ class TranscriptFolderIsWhereThePromptSaysItIs(unittest.TestCase):
         """A prompt that names a path that does not exist sends the session
         hunting. This is the cheap check that the string and the disk agree."""
         self.assertTrue(
-            os.path.isdir(os.path.join(ROOT, "Jarvis Visual", "transcripts")),
-            "WARMUP_PROMPT points at Jarvis Visual/transcripts, which is "
+            os.path.isdir(os.path.join(ROOT, "Jarvis-brain", "Transcripts")),
+            "WARMUP_PROMPT points at Jarvis-brain/Transcripts, which is "
             "not a directory")
 
 

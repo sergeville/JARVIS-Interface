@@ -91,6 +91,7 @@ are what the code looks like the way it does:
 ```
 CLAUDE.md               the boot file: identity, startup sequence, standing rules
 Jarvis-brain/           the Obsidian vault -- the memory      (not in git -- yours to write)
+  Transcripts/          every conversation, one file per day  (raw records)
   VAULT-INDEX.md        profile, rules, system map; read at every boot
   Active Priorities.md  the single queue of open work
   Session Board.md      what each session was doing (NOT who is alive)
@@ -102,10 +103,9 @@ Jarvis Visual/          the browser HUD and its server
   voice-web-server.py   aiohttp server, /voice + /signals
   jarvis.sh             status | start | stop | restart | sessions
   tests/run-tests.sh    the suite -- the gate for every change
-  transcripts/          every conversation, one file per day   (not in git -- yours)
 vault-tools/            the vault's own tools, and the Claude Code hooks
   vault-audit.py        the vault consistency checker
-  session_record.py     the Stop hook that writes transcripts/  (see Transcripts)
+  session_record.py     the Stop hook that writes vault transcripts (see Transcripts)
 docs/                   guides for building pieces of this elsewhere
 install.sh              one-command setup; idempotent, verifies, never overwrites
 ```
@@ -321,7 +321,8 @@ Create the folders:
 ```sh
 cd Jarvis-brain 2>/dev/null || mkdir -p Jarvis-brain && cd Jarvis-brain
 mkdir -p "00 - Inbox" "01 - Daily Notes" "02 - Learning AI" \
-         "03 - Personal" "04 - Archive" "05 - Resources" "06 - Email Inbox"
+         "03 - Personal" "04 - Archive" "05 - Resources" "06 - Email Inbox" \
+         "Transcripts"
 ```
 
 Open that folder as a vault in [Obsidian](https://obsidian.md), then write the
@@ -400,8 +401,8 @@ to.** `install.sh` wires a `Stop` hook, so from the first session you run, each
 turn is appended to a plain Markdown file:
 
 ```
-Jarvis Visual/transcripts/2026-08-21.md            what was said out loud
-Jarvis Visual/transcripts/2026-08-21-terminal.md   what was typed
+Jarvis-brain/Transcripts/2026-08-21.md            what was said out loud
+Jarvis-brain/Transcripts/2026-08-21-terminal.md   what was typed
 ```
 
 One turn per line, stamped in your own local time — the file is meant to be
@@ -412,11 +413,14 @@ read by tailing it, so a turn never spans two lines:
 - **08:20:08 Jarvis:** Quick state of play: the instrument work is still uncommitted.
 ```
 
-**That folder is gitignored, and it is meant to stay that way.** It is a
-verbatim recording of a person — mine is 1.9 MB across three weeks. It very
-nearly shipped: it survived the first exclusion list because that list was built
-from an inventory that never mentioned it, and GitHub keeps history even after a
-delete.
+**The public code repository ignores the entire vault.** The vault's own
+private backup tracks `Transcripts/`, because a verbatim record that exists on
+one disk is not a backup. This is sensitive data: mine is 1.9 MB across three
+weeks, and the vault destination and its remote must remain private.
+
+An existing installation may retain an ignored `Jarvis Visual/transcripts`
+symlink as a compatibility alias for processes that loaded the old path. It
+points into `Jarvis-brain/Transcripts`; it is not a second copy.
 
 **What it keeps and what it drops.** The conversation only. Tool calls, tool
 results, thinking and subagent side-chains are all deliberately left out — that

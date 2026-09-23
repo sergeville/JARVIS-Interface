@@ -249,15 +249,25 @@ class TestTranscriptsSectionIsTrue(unittest.TestCase):
 
     def test_the_recorder_writes_where_the_readme_says(self):
         src = (ROOT / "vault-tools" / "session_record.py").read_text()
-        self.assertIn('"Jarvis Visual" / "transcripts"', src,
-                      "the recorder no longer writes to Jarvis Visual/"
-                      "transcripts, which is the path the README prints")
+        self.assertIn('"Jarvis-brain" / "Transcripts"', src,
+                      "the recorder no longer writes to Jarvis-brain/"
+                      "Transcripts, which is the path the README prints")
 
-    def test_the_folder_is_gitignored(self):
-        lines = [l.strip() for l in (ROOT / ".gitignore").read_text().splitlines()]
-        self.assertIn("transcripts/", lines,
-                      "README says the transcripts folder is gitignored and "
-                      "must stay that way -- it is not in .gitignore")
+    def test_the_folder_cannot_enter_the_public_repo(self):
+        import subprocess
+        r = subprocess.run(
+            ["git", "check-ignore", "-q", "--no-index",
+             "Jarvis-brain/Transcripts/2026-01-01-terminal.md"],
+            cwd=ROOT)
+        self.assertEqual(r.returncode, 0,
+                         "the private vault is NOT ignored by the public "
+                         "repository -- a transcript could be published")
+
+    def test_the_backup_uses_the_vault_copy_as_the_source_of_truth(self):
+        src = (ROOT / "vault-tools" / "vault-backup.sh").read_text()
+        self.assertIn('$VAULT/Transcripts', src)
+        self.assertNotIn('Jarvis Visual/transcripts', src,
+                         "the backup still depends on the obsolete duplicate")
 
     def test_the_spoken_half_lives_where_the_readme_says(self):
         # The README tells a reader that removing the hook stops only the
@@ -266,6 +276,9 @@ class TestTranscriptsSectionIsTrue(unittest.TestCase):
         self.assertIn("def log_transcript(", src,
                       "README points at log_transcript in voice-line/"
                       "signals.py for the spoken half; it is not there")
+        self.assertIn('"Jarvis-brain" / "Transcripts"', src,
+                      "the spoken writer does not use the canonical vault "
+                      "transcript folder")
 
     def test_the_guide_it_links_is_in_the_repository(self):
         self.assertTrue((ROOT / "docs" / "transcript-feature.md").is_file(),

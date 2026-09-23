@@ -20,10 +20,6 @@ Jarvis-brain/
 # uploads/ is screenshots of my own screen (~55 MB).
 # visual-server.log carries usage percentages and fragments of conversation.
 #
-# transcripts/ is 320 KB of VERBATIM, timestamped voice conversations. It is
-# not code, and it was very nearly published: it survived the first exclusion
-# list because that list was built from an inventory that never mentioned it.
-#
 # references/ holds design references, and one of them is a screenshot of my
 # own Claude account showing plan tier and live usage percentages. Excluded
 # whole rather than file by file -- an allow-list of images is a rule somebody
@@ -42,7 +38,9 @@ voice-line/.stack-events.jsonl
 voice-line/.sessions.jsonl
 voice-line/.session-mail.jsonl
 voice-line/.usage.json
-transcripts/
+# Compatibility alias for processes that loaded the pre-vault transcript path.
+# The symlink points into the ignored Jarvis-brain/ tree; it contains no copy.
+Jarvis Visual/transcripts
 references/
 
 # ---- Live state. Written by the running stack, meaningless to a clone. -----

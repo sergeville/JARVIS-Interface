@@ -19,13 +19,8 @@
 # FAILS LOUDLY AND STOPS rather than working around it.
 set -uo pipefail
 
-# RESOLVED BEFORE ANY `cd`. The first version computed the transcript source
-# from $BASH_SOURCE *after* cd'ing into the vault, so the relative path no
-# longer resolved -- and because the mirror was guarded by `if [ -d "$SRC" ]`,
-# it SKIPPED SILENTLY and the run still logged "backed up". A backup that
-# reports success while omitting the thing it was just asked to protect is
-# the worst outcome available, so both halves are fixed: paths resolve up
-# front, and a missing source is now a failure, not a shrug.
+# Resolve the repository before changing directories. The transcript writers
+# use this same root to place their files directly in the vault.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VAULT="$ROOT/Jarvis-brain"
 LOG="$HOME/Library/Logs/jarvis-vault-backup.log"
@@ -36,33 +31,16 @@ say() { echo "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"; }
 cd "$VAULT" 2>/dev/null || { say "FAIL: no vault at $VAULT"; exit 1; }
 [ -d .git ] || { say "FAIL: $VAULT is not a git repo"; exit 1; }
 
-# MIRROR THE VOICE TRANSCRIPTS IN. (Serge, 2026-08-21 ~17:45.)
+# TRANSCRIPTS LIVE IN THE VAULT. The writers append directly here, so there is
+# one canonical copy and the normal vault commit below backs it up. Fail closed
+# if the directory is missing: silently omitting the conversation record would
+# make a successful backup claim false.
 #
-# They live in `Jarvis Visual/transcripts/`, which is inside the PUBLIC repo's
-# tree and gitignored there -- correctly, they are verbatim recordings of a
-# person. So they had no backup at all: eight days of conversation existing
-# once, on one disk. That is the same shape as the failure that lost this
-# whole vault two days ago.
-#
-# Copied rather than symlinked, deliberately -- a symlink would resolve back
-# into the public repo's tree, and this project already reviewed and rejected
-# symlinking across that boundary ([[Vault Merge — Winston's Review]]).
-#
-# --archive --delete keeps the mirror honest: a transcript deleted upstream
-# disappears here too, so this never becomes a place stale copies accumulate
-# unnoticed. Git history still holds every version that was ever committed.
-SRC="$ROOT/Jarvis Visual/transcripts"
-[ -d "$SRC" ] || { say "FAIL: no transcript source at $SRC -- refusing to back up
-  the vault without it, because a silent skip here looks exactly like success"; exit 1; }
-# DOT-FOLDER ON PURPOSE. As plain `transcripts/` the mirror is vault content:
-# `vault-audit.py` reported "missing index" and "no frontmatter" on it, and
-# Obsidian would index a day of raw conversation as notes. The obvious fix --
-# drop a `transcripts.md` index inside -- gets wiped by `--delete` on the next
-# run, so it would break itself. A leading dot makes both tools skip it while
-# git tracks it exactly the same.
-mkdir -p "$VAULT/.transcripts"
-rsync -a --delete "$SRC/" "$VAULT/.transcripts/" \
-  || { say "FAIL: transcript mirror (rsync)"; exit 1; }
+# VISIBLE ON PURPOSE. Serge wants the transcript files browsable in Obsidian.
+# They are raw records rather than ordinary notes, so vault-audit.py explicitly
+# excludes this folder from its index and frontmatter rules.
+[ -d "$VAULT/Transcripts" ] || { say "FAIL: no canonical transcripts at
+  $VAULT/Transcripts -- refusing to report an incomplete backup"; exit 1; }
 
 # Nothing to do is the common case and must stay silent, or the log becomes
 # 96 lines a day of "no changes" and nobody reads the one line that matters.

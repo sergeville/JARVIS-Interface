@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent
 
 # Permanent conversation record (per Serge, 2026-08-03): every channel
 # appends its exchanges here, one markdown file per day.
-TRANSCRIPTS_DIR = ROOT.parent / "Jarvis Visual" / "transcripts"
+TRANSCRIPTS_DIR = ROOT.parent / "Jarvis-brain" / "Transcripts"
 
 STATE_FILE = ROOT / ".voice_state"          # idle | listening | thinking | speaking
 WAVEFORM_FILE = ROOT / ".voice_waveform"    # {"ts": float, "samples": [64 floats]}
@@ -83,7 +83,7 @@ def log_transcript(role: str, text: str) -> None:
     if not text:
         return
     try:
-        TRANSCRIPTS_DIR.mkdir(exist_ok=True)
+        TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
         day = time.strftime("%Y-%m-%d")
         stamp = time.strftime("%H:%M:%S")
         with open(TRANSCRIPTS_DIR / f"{day}.md", "a") as f:

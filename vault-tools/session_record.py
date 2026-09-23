@@ -14,7 +14,7 @@ had to be asked. That asymmetry is the whole bug: a record that depends on
 somebody remembering is the failure this system exists to prevent.
 
 WHAT IT WRITES, AND WHY IT LOOKS EXACTLY LIKE THE VOICE TRANSCRIPT: the same
-`- **HH:MM:SS Who:** text` line, in the same gitignored `transcripts/` folder,
+`- **HH:MM:SS Who:** text` line, in the vault's `Transcripts/` folder,
 because a second format would need a second reader -- and the readers already
 exist (the HUD's activity log, the idea panel's "what was said", a session
 tailing the file at boot).
@@ -68,10 +68,10 @@ from pathlib import Path
 STDIN_BUDGET = 5.0
 
 JARVIS_ROOT = Path(__file__).resolve().parents[1]
-TRANSCRIPTS = JARVIS_ROOT / "Jarvis Visual" / "transcripts"
-# The watermark lives INSIDE the gitignored transcripts folder on purpose: it
-# is derived from that folder's contents and is meaningless without them, so
-# the two travel together and neither can be published by accident.
+TRANSCRIPTS = JARVIS_ROOT / "Jarvis-brain" / "Transcripts"
+# The watermark lives INSIDE the private transcripts folder on purpose: it is
+# derived from that folder's contents and is meaningless without them, so the
+# two travel together. The public code repository ignores the whole vault.
 WATERMARK = TRANSCRIPTS / ".terminal-watermarks.json"
 
 # Serge's own turn carries harness furniture -- reminders, hook context, the

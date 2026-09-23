@@ -189,7 +189,7 @@ HOOK_STATE_MARKERS = (
     "voice-line/.sessions.jsonl",
     "voice-line/.session-mail.jsonl",
     "voice-line/.board-guard.json",
-    "Jarvis Visual/transcripts/.terminal-watermarks.json",
+    "Jarvis-brain/Transcripts/.terminal-watermarks.json",
 )
 
 # Every spelling of a blocking read on fd 0 that this project could plausibly
@@ -467,7 +467,7 @@ def _sandbox():
     # The directories the hooks expect to find under their root. Empty is
     # fine: what is under test is that they RETURN, not that they succeed.
     (tmp / "Jarvis-brain" / "06 - Email Inbox").mkdir(parents=True, exist_ok=True)
-    (tmp / "Jarvis Visual" / "transcripts").mkdir(parents=True, exist_ok=True)
+    (tmp / "Jarvis-brain" / "Transcripts").mkdir(parents=True, exist_ok=True)
     (tmp / "Jarvis-brain" / "Active Priorities.md").write_text(
         "# Active Priorities\n\n### Open Tasks\n")
     return tmp
@@ -1015,9 +1015,9 @@ class TestEveryDeployedHookReturns(unittest.TestCase):
             ROOT / "voice-line" / ".activity.json",
             ROOT / "voice-line" / ".voice_question",
             ROOT / "voice-line" / ".board-guard.json",
-            ROOT / "Jarvis Visual" / "transcripts" / ".terminal-watermarks.json",
-            ROOT / "Jarvis Visual" / "transcripts" / f"{today}-terminal.md",
-            ROOT / "Jarvis Visual" / "transcripts" / f"{today}.md",
+            ROOT / "Jarvis-brain" / "Transcripts" / ".terminal-watermarks.json",
+            ROOT / "Jarvis-brain" / "Transcripts" / f"{today}-terminal.md",
+            ROOT / "Jarvis-brain" / "Transcripts" / f"{today}.md",
         ]
 
         def stamp():

@@ -290,7 +290,7 @@ Create `session_record.py` in the same folder. **Three lines are project-specifi
 | Line | What to change it to |
 |---|---|
 | `JARVIS_ROOT = Path(__file__).resolve().parents[1]` | The project root, relative to wherever you put this file. |
-| `TRANSCRIPTS = JARVIS_ROOT / "Jarvis Visual" / "transcripts"` | The folder from Step 1. |
+| `TRANSCRIPTS = JARVIS_ROOT / "Jarvis-brain" / "Transcripts"` | The folder from Step 1. |
 | `base.glob("*Jarvis*/*.jsonl")` in `main()` | The pattern matching **your** project's folder under `~/.claude/projects/`. Run `ls ~/.claude/projects/` and use a distinctive fragment of your project's directory name. |
 
 Two more things to adjust for a different household: `"Serge"` and `"Jarvis"` in `turns()` are the two names on every line, and `entrypoint != "cli"` is the filter that keeps the voice brain out. If there is no separate voice channel writing its own transcript, **keep that filter anyway** — see the note under Step 7.
@@ -312,7 +312,7 @@ had to be asked. That asymmetry is the whole bug: a record that depends on
 somebody remembering is the failure this system exists to prevent.
 
 WHAT IT WRITES, AND WHY IT LOOKS EXACTLY LIKE THE VOICE TRANSCRIPT: the same
-`- **HH:MM:SS Who:** text` line, in the same gitignored `transcripts/` folder,
+`- **HH:MM:SS Who:** text` line, in the vault's `Transcripts/` folder,
 because a second format would need a second reader -- and the readers already
 exist (the HUD's activity log, the idea panel's "what was said", a session
 tailing the file at boot).
@@ -357,10 +357,10 @@ from pathlib import Path
 STDIN_BUDGET = 5.0
 
 JARVIS_ROOT = Path(__file__).resolve().parents[1]
-TRANSCRIPTS = JARVIS_ROOT / "Jarvis Visual" / "transcripts"
-# The watermark lives INSIDE the gitignored transcripts folder on purpose: it
-# is derived from that folder's contents and is meaningless without them, so
-# the two travel together and neither can be published by accident.
+TRANSCRIPTS = JARVIS_ROOT / "Jarvis-brain" / "Transcripts"
+# The watermark lives INSIDE the private transcripts folder on purpose: it is
+# derived from that folder's contents and is meaningless without them, so the
+# two travel together. The public code repository ignores the whole vault.
 WATERMARK = TRANSCRIPTS / ".terminal-watermarks.json"
 
 # Serge's own turn carries harness furniture -- reminders, hook context, the

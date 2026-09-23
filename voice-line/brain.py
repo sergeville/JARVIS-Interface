@@ -36,7 +36,7 @@ WARMUP_PROMPT = (
     "voice-line/.stack-events.jsonl -- the stack event log, which records what "
     "happened to the server and the brain while this session did not exist, "
     "including your own restart; read the last 40 lines of "
-    "'Jarvis Visual/transcripts/<today>.md' (yesterday's if today's does not "
+    "'Jarvis-brain/Transcripts/<today>.md' (yesterday's if today's does not "
     "exist yet) -- the append-only voice transcript, whose tail IS the live "
     "state: the last thing Serge said in his own words, and the question of "
     "yours he never got to answer; then sign this session in on "

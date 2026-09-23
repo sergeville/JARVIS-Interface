@@ -268,20 +268,30 @@ class AppendOnlyAndIdempotent(Base):
 
 class ItStaysOutOfGit(unittest.TestCase):
     def test_the_folder_it_writes_to_is_gitignored(self):
-        # It writes Serge's verbatim typed conversations into a PUBLIC repo's
-        # working tree. This is the check that keeps that safe, and it is
-        # asserted rather than assumed.
+        # The vault is nested under the PUBLIC repo's working tree. This is
+        # the check that keeps its verbatim recordings out of that repo, and
+        # it is asserted rather than assumed.
         import subprocess
         r = subprocess.run(
-            ["git", "check-ignore", "-q",
-             "Jarvis Visual/transcripts/2026-01-01-terminal.md"],
+            ["git", "check-ignore", "-q", "--no-index",
+             "Jarvis-brain/Transcripts/2026-01-01-terminal.md"],
             cwd=ROOT)
         self.assertEqual(r.returncode, 0,
                          "the terminal transcript is NOT gitignored -- it "
                          "would be published on the next commit")
 
     def test_the_watermark_lives_with_the_files_it_describes(self):
-        self.assertIn("transcripts", str(sr.WATERMARK))
+        self.assertIn("transcripts", str(sr.WATERMARK).lower())
+
+    def test_the_vault_is_the_only_live_transcript_location(self):
+        self.assertEqual(sr.TRANSCRIPTS,
+                         ROOT / "Jarvis-brain" / "Transcripts")
+        legacy = ROOT / "Jarvis Visual" / "transcripts"
+        if legacy.exists() or legacy.is_symlink():
+            self.assertTrue(legacy.is_symlink(),
+                            "the old transcript path is a real duplicate")
+            self.assertEqual(legacy.resolve(), sr.TRANSCRIPTS.resolve(),
+                             "the compatibility alias misses the vault")
 
 
 class AHookMustNeverBlock(unittest.TestCase):

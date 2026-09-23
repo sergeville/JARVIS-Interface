@@ -106,15 +106,12 @@ def index_name(folder: Path) -> str:
 # reason each one is here survives.
 #
 #   .obsidian     -- the app's own config and plugin data.
-#   .transcripts  -- a MIRROR of `Jarvis Visual/transcripts/`, copied in by
-#                    vault-tools/vault-backup.sh (2026-08-21) so the verbatim
-#                    conversation logs have a backup at all. They are
+#   Transcripts   -- the canonical verbatim conversation logs. They are
 #                    recordings, not notes: no frontmatter, no folder index,
-#                    and they must never gain either. The obvious fix -- drop
-#                    a `transcripts.md` in beside them -- cannot work, because
-#                    the mirror runs `rsync --delete` and would erase it on
-#                    the next pass. So the exclusion belongs here instead.
-NOT_VAULT_CONTENT = (".obsidian", ".transcripts")
+#                    and they must never gain either. The exclusion belongs
+#                    here so Obsidian structure checks do not treat them as
+#                    ordinary vault notes.
+NOT_VAULT_CONTENT = (".obsidian", "Transcripts")
 
 
 def notes_in(vault: Path) -> list[Path]:
